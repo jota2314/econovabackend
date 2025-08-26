@@ -7,6 +7,39 @@ const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER!
 const client = twilio(accountSid, authToken)
 
 export class TwilioService {
+  // Direct call method for connecting user directly to lead
+  async makeDirectCall(to: string, leadName: string, leadId: string, from?: string) {
+    try {
+      console.log(`Initiating direct call to ${to} (${leadName})`)
+      
+      const call = await client.calls.create({
+        to: to,
+        from: from || twilioPhoneNumber,
+        url: `${process.env.NEXT_PUBLIC_APP_URL}/api/twilio/voice-direct?leadId=${leadId}&leadName=${encodeURIComponent(leadName)}`,
+        record: true,
+        recordingStatusCallback: `${process.env.NEXT_PUBLIC_APP_URL}/api/twilio/recording-status`,
+        statusCallback: `${process.env.NEXT_PUBLIC_APP_URL}/api/twilio/call-status`,
+        statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+        statusCallbackMethod: 'POST',
+        timeout: 30, // Ring for 30 seconds
+        machineDetection: 'Enable' // Detect answering machines
+      })
+
+      return {
+        success: true,
+        callSid: call.sid,
+        status: call.status,
+        data: call
+      }
+    } catch (error) {
+      console.error('Error making direct call:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  }
+
   async makeOutboundCall(to: string, from?: string) {
     try {
       const call = await client.calls.create({

@@ -217,7 +217,9 @@ export default function LeadsPage() {
   // Communication handlers
   const handleCallLead = async (lead: Lead) => {
     try {
-      const response = await fetch('/api/communications/call', {
+      toast.loading(`Calling ${lead.name}...`)
+      
+      const response = await fetch('/api/twilio/make-call', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -225,24 +227,39 @@ export default function LeadsPage() {
         body: JSON.stringify({
           leadId: lead.id,
           phoneNumber: lead.phone,
+          leadName: lead.name,
           userId: user?.id || null
         })
       })
 
       const result = await response.json()
+      
+      // Dismiss loading toast
+      toast.dismiss()
 
       if (result.success) {
-        toast.success(`Call initiated to ${lead.name}`)
+        toast.success(`📞 Call initiated to ${lead.name} (${lead.phone})`, {
+          description: `Call SID: ${result.callSid}`,
+          duration: 5000
+        })
+        
         // Update lead status to contacted if it's currently "new"
         if (lead.status === 'new') {
           await handleUpdateStatus(lead.id, 'contacted')
         }
       } else {
-        toast.error(`Failed to initiate call: ${result.error}`)
+        toast.error(`❌ Failed to initiate call`, {
+          description: result.error,
+          duration: 7000
+        })
       }
     } catch (error) {
+      toast.dismiss()
       console.error('Error initiating call:', error)
-      toast.error('Failed to initiate call')
+      toast.error('❌ Call failed', {
+        description: 'Please check your internet connection and try again',
+        duration: 5000
+      })
     }
   }
 
