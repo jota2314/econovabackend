@@ -70,7 +70,7 @@ export function LeadsTable({ leads, onEditLead, onDeleteLead, onUpdateStatus, on
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
 
   const filteredAndSortedLeads = useMemo(() => {
-    let filtered = leads.filter(lead => {
+    const filtered = leads.filter(lead => {
       const matchesSearch = searchTerm === "" || 
         lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         lead.phone.includes(searchTerm) ||

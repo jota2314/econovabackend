@@ -160,7 +160,7 @@ CREATE POLICY "Anyone can delete jobs" ON public.jobs
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <h4 className="font-semibold text-blue-900 mb-2">💡 Quick Setup Tip</h4>
           <p className="text-blue-800 text-sm">
-            After running the SQL, you can immediately start adding leads and they'll appear on your dashboard. 
+            After running the SQL, you can immediately start adding leads and they&apos;ll appear on your dashboard. 
             The policies above allow full access for development - you may want to restrict them for production.
           </p>
         </div>

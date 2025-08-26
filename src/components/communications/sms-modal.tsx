@@ -59,7 +59,7 @@ export function SMSModal({ open, onOpenChange, lead, onSMSSent }: SMSModalProps)
     const template = SMS_TEMPLATES[templateKey as keyof typeof SMS_TEMPLATES]
     if (!template) return
 
-    let processedMessage = template.template
+    const processedMessage = template.template
       .replace(/{name}/g, lead.name)
       .replace(/{company}/g, lead.company || 'your business')
       .replace(/{project_type}/g, 'spray foam insulation project')
