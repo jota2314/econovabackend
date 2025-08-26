@@ -248,10 +248,16 @@ export default function LeadsPage() {
           await handleUpdateStatus(lead.id, 'contacted')
         }
       } else {
-        toast.error(`❌ Failed to initiate call`, {
-          description: result.error,
-          duration: 7000
+        console.error('Call failed:', result)
+        toast.error(`❌ Failed to initiate call to ${lead.name}`, {
+          description: result.error || 'Unknown error occurred',
+          duration: 10000
         })
+        
+        // Log detailed error for debugging
+        if (result.originalError) {
+          console.error('Original Twilio error:', result.originalError)
+        }
       }
     } catch (error) {
       toast.dismiss()

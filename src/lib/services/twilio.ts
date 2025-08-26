@@ -18,7 +18,7 @@ export class TwilioService {
         url: `${process.env.NEXT_PUBLIC_APP_URL}/api/twilio/voice-direct?leadId=${leadId}&leadName=${encodeURIComponent(leadName)}`,
         record: true,
         recordingStatusCallback: `${process.env.NEXT_PUBLIC_APP_URL}/api/twilio/recording-status`,
-        statusCallback: `${process.env.NEXT_PUBLIC_APP_URL}/api/twilio/call-status`,
+        statusCallback: `${process.env.NEXT_PUBLIC_APP_URL}/api/twilio/status`,
         statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
         statusCallbackMethod: 'POST',
         timeout: 30, // Ring for 30 seconds
@@ -48,7 +48,7 @@ export class TwilioService {
         url: `${process.env.NEXT_PUBLIC_APP_URL}/api/twilio/voice`, // TwiML endpoint
         record: true, // Enable call recording
         recordingStatusCallback: `${process.env.NEXT_PUBLIC_APP_URL}/api/twilio/recording-status`,
-        statusCallback: `${process.env.NEXT_PUBLIC_APP_URL}/api/twilio/call-status`,
+        statusCallback: `${process.env.NEXT_PUBLIC_APP_URL}/api/twilio/status`,
         statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
         statusCallbackMethod: 'POST'
       })
