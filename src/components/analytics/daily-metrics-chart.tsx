@@ -53,7 +53,9 @@ export function DailyMetricsChart({ userId, salespeople = [] }: DailyMetricsChar
       const result = await response.json()
 
       if (result.success) {
-        const formattedData = result.data.map((item: DailyMetric) => ({
+        // Ensure data is an array before processing
+        const validData = Array.isArray(result.data) ? result.data : []
+        const formattedData = validData.map((item: DailyMetric) => ({
           ...item,
           date: format(new Date(item.date), "MMM dd")
         }))
@@ -66,7 +68,7 @@ export function DailyMetricsChart({ userId, salespeople = [] }: DailyMetricsChar
     }
   }
 
-  const totalMetrics = metrics.reduce(
+  const totalMetrics = Array.isArray(metrics) ? metrics.reduce(
     (acc, day) => ({
       calls: acc.calls + day.calls_made,
       sms: acc.sms + day.sms_sent,
@@ -74,7 +76,7 @@ export function DailyMetricsChart({ userId, salespeople = [] }: DailyMetricsChar
       measurements: acc.measurements + day.measurements_completed
     }),
     { calls: 0, sms: 0, leads: 0, measurements: 0 }
-  )
+  ) : { calls: 0, sms: 0, leads: 0, measurements: 0 }
 
   if (loading) {
     return (

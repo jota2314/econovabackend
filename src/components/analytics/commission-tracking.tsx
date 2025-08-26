@@ -53,7 +53,9 @@ export function CommissionTracking({ userId, salespeople = [] }: CommissionTrack
       const result = await response.json()
 
       if (result.success) {
-        setCommissions(result.data)
+        // Ensure data is an array before setting state
+        const validData = Array.isArray(result.data) ? result.data : []
+        setCommissions(validData)
       }
     } catch (error) {
       console.error('Error loading commission data:', error)
@@ -62,16 +64,16 @@ export function CommissionTracking({ userId, salespeople = [] }: CommissionTrack
     }
   }
 
-  const totalCommissions = commissions.reduce((sum, c) => sum + c.total_commission, 0)
-  const totalPending = commissions.reduce((sum, c) => sum + c.pending_amount, 0)
+  const totalCommissions = Array.isArray(commissions) ? commissions.reduce((sum, c) => sum + c.total_commission, 0) : 0
+  const totalPending = Array.isArray(commissions) ? commissions.reduce((sum, c) => sum + c.pending_amount, 0) : 0
   const totalPaid = totalCommissions - totalPending
 
-  const chartData = commissions.map(c => ({
+  const chartData = Array.isArray(commissions) ? commissions.map(c => ({
     name: c.salesperson_name,
     frontend: c.frontend_commission,
     backend: c.backend_commission,
     total: c.total_commission
-  }))
+  })) : []
 
   const getPaymentStatusColor = (status: string) => {
     switch (status) {
@@ -184,7 +186,7 @@ export function CommissionTracking({ userId, salespeople = [] }: CommissionTrack
                 <User className="h-4 w-4 text-purple-600" />
                 <span className="text-sm font-medium text-purple-900">Salespeople</span>
               </div>
-              <div className="text-2xl font-bold text-purple-900">{commissions.length}</div>
+              <div className="text-2xl font-bold text-purple-900">{Array.isArray(commissions) ? commissions.length : 0}</div>
             </div>
           </div>
 
@@ -212,7 +214,7 @@ export function CommissionTracking({ userId, salespeople = [] }: CommissionTrack
           <CardTitle>Commission Details</CardTitle>
         </CardHeader>
         <CardContent>
-          {commissions.length > 0 ? (
+          {Array.isArray(commissions) && commissions.length > 0 ? (
             <div className="space-y-4">
               {commissions.map((commission) => (
                 <div 

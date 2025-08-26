@@ -17,7 +17,7 @@ interface DashboardLayoutProps {
 
 export function DashboardLayout({ children, title, user }: DashboardLayoutProps) {
   return (
-    <div className="min-h-screen bg-slate-50/50">
+    <div className="min-h-screen bg-slate-50/50" suppressHydrationWarning>
       <div className="grid lg:grid-cols-[280px_1fr] h-screen">
         <div className="hidden lg:block border-r bg-white">
           <ScrollArea className="h-full">

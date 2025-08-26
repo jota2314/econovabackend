@@ -41,7 +41,9 @@ export function RevenueBySourceChart({ className }: RevenueBySourceChartProps) {
       const result = await response.json()
 
       if (result.success) {
-        setData(result.data)
+        // Ensure data is an array before setting state
+        const validData = Array.isArray(result.data) ? result.data : []
+        setData(validData)
       }
     } catch (error) {
       console.error('Error loading revenue data:', error)
@@ -52,22 +54,22 @@ export function RevenueBySourceChart({ className }: RevenueBySourceChartProps) {
 
   const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#84cc16']
   
-  const totalRevenue = data.reduce((sum, item) => sum + item.total_revenue, 0)
-  const totalLeads = data.reduce((sum, item) => sum + item.lead_count, 0)
+  const totalRevenue = Array.isArray(data) ? data.reduce((sum, item) => sum + item.total_revenue, 0) : 0
+  const totalLeads = Array.isArray(data) ? data.reduce((sum, item) => sum + item.lead_count, 0) : 0
   const avgDealSize = totalLeads > 0 ? totalRevenue / totalLeads : 0
 
-  const pieData = data.map(item => ({
+  const pieData = Array.isArray(data) ? data.map(item => ({
     name: item.lead_source,
     value: item.total_revenue,
     percentage: totalRevenue > 0 ? ((item.total_revenue / totalRevenue) * 100).toFixed(1) : '0'
-  }))
+  })) : []
 
-  const barData = data.map(item => ({
+  const barData = Array.isArray(data) ? data.map(item => ({
     source: item.lead_source.length > 15 ? item.lead_source.substring(0, 15) + '...' : item.lead_source,
     revenue: item.total_revenue,
     leads: item.lead_count,
     avgDeal: item.avg_deal_size
-  }))
+  })) : []
 
   if (loading) {
     return (
@@ -147,7 +149,7 @@ export function RevenueBySourceChart({ className }: RevenueBySourceChartProps) {
               <Globe className="h-4 w-4 text-green-600" />
               <span className="text-sm font-medium text-green-900">Lead Sources</span>
             </div>
-            <div className="text-2xl font-bold text-green-900">{data.length}</div>
+            <div className="text-2xl font-bold text-green-900">{Array.isArray(data) ? data.length : 0}</div>
           </div>
           
           <div className="bg-purple-50 rounded-lg p-4">
@@ -162,7 +164,7 @@ export function RevenueBySourceChart({ className }: RevenueBySourceChartProps) {
         </div>
 
         {/* Charts */}
-        {data.length > 0 ? (
+        {Array.isArray(data) && data.length > 0 ? (
           <div className="space-y-6">
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
@@ -178,9 +180,9 @@ export function RevenueBySourceChart({ className }: RevenueBySourceChartProps) {
                       fill="#8884d8"
                       dataKey="value"
                     >
-                      {pieData.map((entry, index) => (
+                      {Array.isArray(pieData) ? pieData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
+                      )) : []}
                     </Pie>
                     <Tooltip formatter={(value) => [`$${Number(value).toLocaleString()}`, 'Revenue']} />
                     <Legend />
@@ -217,7 +219,7 @@ export function RevenueBySourceChart({ className }: RevenueBySourceChartProps) {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.map((source, index) => (
+                    {Array.isArray(data) ? data.map((source, index) => (
                       <tr key={source.lead_source} className="border-b">
                         <td className="py-3">
                           <div className="flex items-center gap-2">
@@ -239,7 +241,7 @@ export function RevenueBySourceChart({ className }: RevenueBySourceChartProps) {
                           {source.conversion_rate.toFixed(1)}%
                         </td>
                       </tr>
-                    ))}
+                    )) : []}
                   </tbody>
                 </table>
               </div>

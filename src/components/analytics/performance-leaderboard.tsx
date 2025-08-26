@@ -43,7 +43,9 @@ export function PerformanceLeaderboard({ className }: PerformanceLeaderboardProp
       const result = await response.json()
 
       if (result.success) {
-        setData(result.data)
+        // Ensure data is an array before setting state
+        const validData = Array.isArray(result.data) ? result.data : []
+        setData(validData)
       }
     } catch (error) {
       console.error('Error loading leaderboard data:', error)
@@ -112,11 +114,11 @@ export function PerformanceLeaderboard({ className }: PerformanceLeaderboardProp
       </CardHeader>
       
       <CardContent>
-        {data.length > 0 ? (
+        {Array.isArray(data) && data.length > 0 ? (
           <div className="space-y-6">
             {/* Top 3 Podium */}
             <div className="grid grid-cols-3 gap-4 mb-8">
-              {data.slice(0, 3).map((entry, index) => {
+              {Array.isArray(data) ? data.slice(0, 3).map((entry, index) => {
                 const actualRank = entry.rank
                 return (
                   <div 
@@ -145,7 +147,7 @@ export function PerformanceLeaderboard({ className }: PerformanceLeaderboardProp
                     </div>
                   </div>
                 )
-              })}
+              }) : []}
             </div>
 
             {/* Detailed Rankings */}
@@ -155,7 +157,7 @@ export function PerformanceLeaderboard({ className }: PerformanceLeaderboardProp
                 Complete Rankings
               </h4>
               
-              {data.map((entry) => (
+              {Array.isArray(data) ? data.map((entry) => (
                 <div 
                   key={entry.userId}
                   className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
@@ -198,7 +200,7 @@ export function PerformanceLeaderboard({ className }: PerformanceLeaderboardProp
                     </div>
                   </div>
                 </div>
-              ))}
+              )) : []}
             </div>
 
             {/* Performance Metrics Legend */}

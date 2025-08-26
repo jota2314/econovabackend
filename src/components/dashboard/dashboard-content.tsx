@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -22,6 +23,7 @@ import {
 
 
 export function DashboardContent() {
+  const router = useRouter()
   const [stats, setStats] = useState({
     totalLeads: 0,
     activeLeads: 0,
@@ -65,7 +67,7 @@ export function DashboardContent() {
           setTimeout(() => reject(new Error('Request timeout')), 15000)
         )
         
-        const [leadStats, recent, dashStats, activity] = await Promise.race([
+        const [leadStats, recent, dashStats, activityResponse] = await Promise.race([
           Promise.all(promises),
           timeout
         ]) as [any, any, any, any]
@@ -86,7 +88,33 @@ export function DashboardContent() {
           smsSent: 0,
           growth: { revenue: 0, jobs: 0, measurements: 0 }
         })
-        setRecentActivity(activity || [])
+        
+        // Process activity response
+        if (activityResponse?.success && activityResponse?.data) {
+          const { communications = [], leads = [], jobs = [] } = activityResponse.data
+          // Combine and format activities
+          const formattedActivities = [
+            ...communications.map((comm: any) => ({
+              description: `${comm.user?.full_name || 'User'} made a ${comm.type} to ${comm.lead?.name || 'Lead'}`,
+              time: comm.created_at,
+              type: 'communication'
+            })),
+            ...leads.map((lead: any) => ({
+              description: `New lead: ${lead.name}`,
+              time: lead.created_at,
+              type: 'lead'
+            })),
+            ...jobs.map((job: any) => ({
+              description: `New job: ${job.job_name} for ${job.lead?.name || 'Lead'}`,
+              time: job.created_at,
+              type: 'job'
+            }))
+          ].sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime()).slice(0, 8)
+          
+          setRecentActivity(formattedActivities)
+        } else {
+          setRecentActivity([])
+        }
       } catch (error) {
         console.error('Error fetching dashboard data:', error)
         // Set default empty states
@@ -290,10 +318,16 @@ export function DashboardContent() {
         <Card className="p-6 bg-white border-slate-200">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-slate-900">Recent Activity</h3>
-            <Button variant="outline" size="sm">View All</Button>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => router.push('/dashboard')}
+            >
+              View All
+            </Button>
           </div>
           <div className="space-y-3">
-            {recentActivity.length === 0 ? (
+            {!Array.isArray(recentActivity) || recentActivity.length === 0 ? (
               <div className="text-center py-8 text-slate-500">
                 <Clock className="mx-auto h-12 w-12 text-slate-300 mb-4" />
                 <p>No recent activity</p>
@@ -306,9 +340,9 @@ export function DashboardContent() {
                     <Clock className="h-3 w-3 text-orange-600" />
                   </div>
                   <div className="flex-1">
-                    <p className="text-sm font-medium text-slate-900">{activity.description}</p>
+                    <p className="text-sm font-medium text-slate-900">{activity?.description || 'Activity'}</p>
                     <p className="text-xs text-slate-500">
-                      {new Date(activity.created_at).toLocaleString()}
+                      {activity?.time ? new Date(activity.time).toLocaleString() : 'Just now'}
                     </p>
                   </div>
                 </div>
@@ -320,7 +354,13 @@ export function DashboardContent() {
         <Card className="p-6 bg-white border-slate-200">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-slate-900">Recent Leads</h3>
-            <Button variant="outline" size="sm">View All</Button>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => router.push('/dashboard/leads')}
+            >
+              View All
+            </Button>
           </div>
           <div className="space-y-4">
             {recentLeads.length === 0 ? (
@@ -390,16 +430,35 @@ export function DashboardContent() {
               <p className="text-orange-700">Common tasks for field operations</p>
             </div>
             <div className="flex gap-2 flex-wrap">
-              <Button size="sm" className="bg-orange-600 hover:bg-orange-700">
+              <Button 
+                size="sm" 
+                className="bg-orange-600 hover:bg-orange-700"
+                onClick={() => router.push('/dashboard/leads')}
+              >
                 Add New Lead
               </Button>
-              <Button variant="outline" size="sm" className="border-orange-300 text-orange-700 hover:bg-orange-50">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                onClick={() => router.push('/dashboard/jobs')}
+              >
                 Schedule Measurement
               </Button>
-              <Button variant="outline" size="sm" className="border-orange-300 text-orange-700 hover:bg-orange-50">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                onClick={() => router.push('/dashboard/jobs')}
+              >
                 Update Job Status
               </Button>
-              <Button variant="outline" size="sm" className="border-orange-300 text-orange-700 hover:bg-orange-50">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                onClick={() => router.push('/dashboard/analytics')}
+              >
                 View Analytics
               </Button>
             </div>

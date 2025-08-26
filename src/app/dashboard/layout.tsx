@@ -8,12 +8,18 @@ export default async function DashboardLayoutPage({
 }) {
   const profile = await getCurrentProfile()
 
+  // Provide default user data to prevent hydration mismatch
   const user = profile ? {
     name: profile.full_name || 'User',
     email: profile.email,
-    avatar: profile.avatar_url,
+    avatar: undefined, // Remove avatar_url as it doesn't exist in the User type
     role: profile.role
-  } : undefined
+  } : {
+    name: 'Guest User',
+    email: 'guest@sprayfoam.com',
+    avatar: undefined,
+    role: 'salesperson'
+  }
 
   return (
     <DashboardLayout user={user}>

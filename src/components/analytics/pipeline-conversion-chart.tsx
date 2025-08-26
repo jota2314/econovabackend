@@ -52,8 +52,11 @@ export function PipelineConversionChart({ className }: PipelineConversionChartPr
       const response = await fetch(`/api/analytics/pipeline-conversion?${params}`)
       const result = await response.json()
 
-      if (result.success) {
+      if (result.success && Array.isArray(result.data)) {
         setData(result.data)
+      } else {
+        setData([])
+        console.error('Invalid data format from API:', result)
       }
     } catch (error) {
       console.error('Error loading conversion data:', error)
@@ -64,8 +67,8 @@ export function PipelineConversionChart({ className }: PipelineConversionChartPr
 
   const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6']
 
-  const totalLeads = data.length > 0 ? data[0].count : 0
-  const closedWon = data.find(item => item.stage.toLowerCase().includes('won'))?.count || 0
+  const totalLeads = Array.isArray(data) && data.length > 0 ? data[0]?.count || 0 : 0
+  const closedWon = Array.isArray(data) ? data.find(item => item?.stage?.toLowerCase()?.includes('won'))?.count || 0 : 0
   const overallConversion = totalLeads > 0 ? ((closedWon / totalLeads) * 100).toFixed(1) : '0.0'
 
   if (loading) {
