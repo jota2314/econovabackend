@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  turbopack: {
+    root: '.',
+  },
   eslint: {
     // Disable ESLint during builds - warnings should not fail builds
     ignoreDuringBuilds: true,

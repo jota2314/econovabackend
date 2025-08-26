@@ -8,7 +8,7 @@ interface Props {
 export async function DELETE(request: NextRequest, { params }: Props) {
   try {
     const { measurementId } = await params
-    const supabase = createClient()
+    const supabase = await createClient()
 
     // Get the measurement first to get the job_id for updating totals
     const { data: measurement, error: fetchError } = await supabase

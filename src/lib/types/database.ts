@@ -158,6 +158,7 @@ export interface Database {
           surface_type: 'wall' | 'ceiling'
           height: number
           width: number
+          square_feet?: number
           photo_url?: string | null
           notes?: string | null
           created_at?: string
@@ -169,6 +170,7 @@ export interface Database {
           surface_type?: 'wall' | 'ceiling'
           height?: number
           width?: number
+          square_feet?: number
           photo_url?: string | null
           notes?: string | null
           created_at?: string

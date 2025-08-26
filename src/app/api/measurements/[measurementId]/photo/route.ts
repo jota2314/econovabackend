@@ -36,7 +36,7 @@ export async function POST(request: NextRequest, { params }: Props) {
       )
     }
 
-    const supabase = createClient()
+    const supabase = await createClient()
 
     // Verify measurement exists
     const { data: measurement, error: fetchError } = await supabase

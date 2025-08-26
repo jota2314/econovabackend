@@ -8,7 +8,7 @@ interface Props {
 export async function GET(request: NextRequest, { params }: Props) {
   try {
     const { jobId } = await params
-    const supabase = createClient()
+    const supabase = await createClient()
 
     const { data, error } = await supabase
       .from('jobs')
@@ -66,7 +66,7 @@ export async function PATCH(request: NextRequest, { params }: Props) {
 
     console.log('Updating job:', jobId, body)
 
-    const supabase = createClient()
+    const supabase = await createClient()
 
     const { data, error } = await supabase
       .from('jobs')
@@ -104,7 +104,7 @@ export async function PATCH(request: NextRequest, { params }: Props) {
 export async function DELETE(request: NextRequest, { params }: Props) {
   try {
     const { jobId } = await params
-    const supabase = createClient()
+    const supabase = await createClient()
 
     const { error } = await supabase
       .from('jobs')

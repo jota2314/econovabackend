@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     console.log('Environment check:', envCheck)
     
     // Test database connection
-    const supabase = createClient()
+    const supabase = await createClient()
     
     // Try to query the leads table
     console.log('Attempting to query leads table...')

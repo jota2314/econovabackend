@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { leadsService } from "@/lib/services/leads"
+import { AnalyticsService } from "@/lib/services/analytics"
 import { Lead } from "@/lib/types/database"
 import {
   Users,
@@ -14,7 +15,9 @@ import {
   Calendar,
   Phone,
   MapPin,
-  Clock
+  Clock,
+  Ruler,
+  MessageSquare
 } from "lucide-react"
 
 
@@ -26,7 +29,20 @@ export function DashboardContent() {
     lastMonthLeads: 0,
     statusBreakdown: {} as Record<string, number>
   })
+  const [dashboardStats, setDashboardStats] = useState({
+    totalRevenue: 0,
+    totalJobs: 0,
+    totalMeasurements: 0,
+    callsMade: 0,
+    smsSent: 0,
+    growth: {
+      revenue: 0,
+      jobs: 0,
+      measurements: 0
+    }
+  })
   const [recentLeads, setRecentLeads] = useState<Lead[]>([])
+  const [recentActivity, setRecentActivity] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -34,25 +50,46 @@ export function DashboardContent() {
       try {
         setLoading(true)
         
-        // Fetch lead stats with timeout
-        const statsPromise = leadsService.getLeadStats()
-        const recentPromise = leadsService.getLeads({ limit: 5 })
+        const analytics = new AnalyticsService()
+        
+        // Fetch all data in parallel
+        const promises = [
+          leadsService.getLeadStats(),
+          leadsService.getLeads({ limit: 5 }),
+          analytics.getDashboardStats(),
+          analytics.getRecentActivity(8)
+        ]
         
         // Add timeout to prevent infinite loading
         const timeout = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Request timeout')), 10000)
+          setTimeout(() => reject(new Error('Request timeout')), 15000)
         )
         
-        const [leadStats, recent] = await Promise.race([
-          Promise.all([statsPromise, recentPromise]),
+        const [leadStats, recent, dashStats, activity] = await Promise.race([
+          Promise.all(promises),
           timeout
-        ]) as [any, any]
+        ]) as [any, any, any, any]
         
-        setStats(leadStats)
+        setStats(leadStats || {
+          totalLeads: 0,
+          activeLeads: 0,
+          thisMonthLeads: 0,
+          lastMonthLeads: 0,
+          statusBreakdown: {}
+        })
         setRecentLeads(recent || [])
+        setDashboardStats(dashStats || {
+          totalRevenue: 0,
+          totalJobs: 0,
+          totalMeasurements: 0,
+          callsMade: 0,
+          smsSent: 0,
+          growth: { revenue: 0, jobs: 0, measurements: 0 }
+        })
+        setRecentActivity(activity || [])
       } catch (error) {
         console.error('Error fetching dashboard data:', error)
-        // Set default empty state
+        // Set default empty states
         setStats({
           totalLeads: 0,
           activeLeads: 0,
@@ -61,6 +98,15 @@ export function DashboardContent() {
           statusBreakdown: {}
         })
         setRecentLeads([])
+        setDashboardStats({
+          totalRevenue: 0,
+          totalJobs: 0,
+          totalMeasurements: 0,
+          callsMade: 0,
+          smsSent: 0,
+          growth: { revenue: 0, jobs: 0, measurements: 0 }
+        })
+        setRecentActivity([])
       } finally {
         setLoading(false)
       }
@@ -125,10 +171,61 @@ export function DashboardContent() {
         <Card className="p-6 bg-white border-slate-200 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
+              <p className="text-sm font-medium text-slate-600">Total Revenue</p>
+              <p className="text-3xl font-bold text-slate-900">${(dashboardStats?.totalRevenue || 0).toLocaleString()}</p>
+              <p className={`text-sm font-medium ${
+                (dashboardStats?.growth?.revenue || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+              }`}>
+                {(dashboardStats?.growth?.revenue || 0) >= 0 ? '+' : ''}{(dashboardStats?.growth?.revenue || 0).toFixed(1)}% from last month
+              </p>
+            </div>
+            <div className="p-3 bg-green-50 rounded-lg">
+              <DollarSign className="h-6 w-6 text-green-600" />
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-6 bg-white border-slate-200 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-slate-600">Total Jobs</p>
+              <p className="text-3xl font-bold text-slate-900">{dashboardStats?.totalJobs || 0}</p>
+              <p className={`text-sm font-medium ${
+                (dashboardStats?.growth?.jobs || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+              }`}>
+                {(dashboardStats?.growth?.jobs || 0) >= 0 ? '+' : ''}{(dashboardStats?.growth?.jobs || 0).toFixed(1)}% from last month
+              </p>
+            </div>
+            <div className="p-3 bg-blue-50 rounded-lg">
+              <Briefcase className="h-6 w-6 text-blue-600" />
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-6 bg-white border-slate-200 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-slate-600">Measurements</p>
+              <p className="text-3xl font-bold text-slate-900">{dashboardStats?.totalMeasurements || 0}</p>
+              <p className={`text-sm font-medium ${
+                (dashboardStats?.growth?.measurements || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+              }`}>
+                {(dashboardStats?.growth?.measurements || 0) >= 0 ? '+' : ''}{(dashboardStats?.growth?.measurements || 0).toFixed(1)}% from last month
+              </p>
+            </div>
+            <div className="p-3 bg-purple-50 rounded-lg">
+              <Ruler className="h-6 w-6 text-purple-600" />
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-6 bg-white border-slate-200 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div>
               <p className="text-sm font-medium text-slate-600">Total Leads</p>
-              <p className="text-3xl font-bold text-slate-900">{stats.totalLeads}</p>
+              <p className="text-3xl font-bold text-slate-900">{stats?.totalLeads || 0}</p>
               <p className="text-sm text-green-600 font-medium">
-                {getChangePercentage(stats.thisMonthLeads, stats.lastMonthLeads)} from last month
+                {getChangePercentage(stats?.thisMonthLeads || 0, stats?.lastMonthLeads || 0)} from last month
               </p>
             </div>
             <div className="p-3 bg-orange-50 rounded-lg">
@@ -136,54 +233,90 @@ export function DashboardContent() {
             </div>
           </div>
         </Card>
+      </div>
 
-        <Card className="p-6 bg-white border-slate-200 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-600">Active Leads</p>
-              <p className="text-3xl font-bold text-slate-900">{stats.activeLeads}</p>
-              <p className="text-sm text-slate-600">
-                In progress
-              </p>
+      {/* Secondary Stats Row */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card className="p-4 bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-600 rounded-lg">
+              <Phone className="h-4 w-4 text-white" />
             </div>
-            <div className="p-3 bg-orange-50 rounded-lg">
-              <TrendingUp className="h-6 w-6 text-orange-600" />
+            <div>
+              <p className="text-sm font-medium text-blue-900">Calls Made</p>
+              <p className="text-xl font-bold text-blue-900">{dashboardStats?.callsMade || 0}</p>
             </div>
           </div>
         </Card>
-
-        <Card className="p-6 bg-white border-slate-200 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-600">This Month</p>
-              <p className="text-3xl font-bold text-slate-900">{stats.thisMonthLeads}</p>
-              <p className="text-sm text-slate-600">
-                New leads added
-              </p>
+        
+        <Card className="p-4 bg-gradient-to-r from-green-50 to-green-100 border-green-200">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-green-600 rounded-lg">
+              <MessageSquare className="h-4 w-4 text-white" />
             </div>
-            <div className="p-3 bg-orange-50 rounded-lg">
-              <Calendar className="h-6 w-6 text-orange-600" />
+            <div>
+              <p className="text-sm font-medium text-green-900">SMS Sent</p>
+              <p className="text-xl font-bold text-green-900">{dashboardStats?.smsSent || 0}</p>
             </div>
           </div>
         </Card>
-
-        <Card className="p-6 bg-white border-slate-200 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-600">Closed Won</p>
-              <p className="text-3xl font-bold text-slate-900">{stats.statusBreakdown.closed_won || 0}</p>
-              <p className="text-sm text-green-600">
-                Successful deals
-              </p>
+        
+        <Card className="p-4 bg-gradient-to-r from-purple-50 to-purple-100 border-purple-200">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-purple-600 rounded-lg">
+              <TrendingUp className="h-4 w-4 text-white" />
             </div>
-            <div className="p-3 bg-orange-50 rounded-lg">
-              <Briefcase className="h-6 w-6 text-orange-600" />
+            <div>
+              <p className="text-sm font-medium text-purple-900">Active Leads</p>
+              <p className="text-xl font-bold text-purple-900">{stats?.activeLeads || 0}</p>
+            </div>
+          </div>
+        </Card>
+        
+        <Card className="p-4 bg-gradient-to-r from-orange-50 to-orange-100 border-orange-200">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-orange-600 rounded-lg">
+              <Briefcase className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-orange-900">Closed Won</p>
+              <p className="text-xl font-bold text-orange-900">{stats?.statusBreakdown?.closed_won || 0}</p>
             </div>
           </div>
         </Card>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card className="p-6 bg-white border-slate-200">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-slate-900">Recent Activity</h3>
+            <Button variant="outline" size="sm">View All</Button>
+          </div>
+          <div className="space-y-3">
+            {recentActivity.length === 0 ? (
+              <div className="text-center py-8 text-slate-500">
+                <Clock className="mx-auto h-12 w-12 text-slate-300 mb-4" />
+                <p>No recent activity</p>
+                <p className="text-sm">Activity will appear here as you use the system</p>
+              </div>
+            ) : (
+              recentActivity.map((activity, index) => (
+                <div key={index} className="flex items-start gap-3 p-3 border border-slate-100 rounded-lg">
+                  <div className="p-1.5 bg-orange-50 rounded-full">
+                    <Clock className="h-3 w-3 text-orange-600" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-slate-900">{activity.description}</p>
+                    <p className="text-xs text-slate-500">
+                      {new Date(activity.created_at).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+
         <Card className="p-6 bg-white border-slate-200">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-slate-900">Recent Leads</h3>
@@ -197,8 +330,8 @@ export function DashboardContent() {
                 <p className="text-sm">Add your first lead to get started</p>
               </div>
             ) : (
-              recentLeads.map((lead) => (
-                <div key={lead.id} className="flex items-start justify-between p-4 border border-slate-100 rounded-lg">
+              recentLeads.slice(0, 4).map((lead) => (
+                <div key={lead.id} className="flex items-start justify-between p-3 border border-slate-100 rounded-lg">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <h4 className="font-medium text-slate-900">{lead.name}</h4>
@@ -209,22 +342,7 @@ export function DashboardContent() {
                         {getStatusLabel(lead.status)}
                       </Badge>
                     </div>
-                    {lead.company && (
-                      <p className="text-sm text-slate-600 mb-1">{lead.company}</p>
-                    )}
-                    <div className="flex items-center gap-4 text-xs text-slate-500">
-                      {lead.address && (
-                        <span className="flex items-center gap-1">
-                          <MapPin className="h-3 w-3" />
-                          {lead.city && lead.state ? `${lead.city}, ${lead.state}` : lead.address}
-                        </span>
-                      )}
-                      <span className="flex items-center gap-1">
-                        <Phone className="h-3 w-3" />
-                        {lead.phone}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1 mt-2 text-xs text-slate-500">
+                    <div className="flex items-center gap-1 text-xs text-slate-500">
                       <Calendar className="h-3 w-3" />
                       {new Date(lead.created_at).toLocaleDateString()}
                     </div>
@@ -234,7 +352,9 @@ export function DashboardContent() {
             )}
           </div>
         </Card>
+      </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="p-6 bg-white border-slate-200">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-slate-900">Lead Status Breakdown</h3>
@@ -262,27 +382,30 @@ export function DashboardContent() {
             )}
           </div>
         </Card>
-      </div>
 
-      <Card className="p-6 bg-gradient-to-r from-orange-50 to-orange-100 border-orange-200">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-orange-900">Quick Actions</h3>
-            <p className="text-orange-700">Common tasks for field operations</p>
+        <Card className="p-6 bg-gradient-to-r from-orange-50 to-orange-100 border-orange-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-orange-900">Quick Actions</h3>
+              <p className="text-orange-700">Common tasks for field operations</p>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <Button size="sm" className="bg-orange-600 hover:bg-orange-700">
+                Add New Lead
+              </Button>
+              <Button variant="outline" size="sm" className="border-orange-300 text-orange-700 hover:bg-orange-50">
+                Schedule Measurement
+              </Button>
+              <Button variant="outline" size="sm" className="border-orange-300 text-orange-700 hover:bg-orange-50">
+                Update Job Status
+              </Button>
+              <Button variant="outline" size="sm" className="border-orange-300 text-orange-700 hover:bg-orange-50">
+                View Analytics
+              </Button>
+            </div>
           </div>
-          <div className="flex gap-2 flex-wrap">
-            <Button size="sm" className="bg-orange-600 hover:bg-orange-700">
-              Add New Lead
-            </Button>
-            <Button variant="outline" size="sm" className="border-orange-300 text-orange-700 hover:bg-orange-50">
-              Schedule Measurement
-            </Button>
-            <Button variant="outline" size="sm" className="border-orange-300 text-orange-700 hover:bg-orange-50">
-              Update Job Status
-            </Button>
-          </div>
-        </div>
-      </Card>
+        </Card>
+      </div>
     </div>
   )
 }

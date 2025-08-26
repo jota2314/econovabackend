@@ -8,7 +8,7 @@ interface Props {
 export async function GET(request: NextRequest, { params }: Props) {
   try {
     const { jobId } = await params
-    const supabase = createClient()
+    const supabase = await createClient()
 
     const { data, error } = await supabase
       .from('measurements')
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest, { params }: Props) {
       )
     }
 
-    const supabase = createClient()
+    const supabase = await createClient()
 
     // Insert the measurement
     const { data, error } = await supabase
