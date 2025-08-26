@@ -1,3 +1,16 @@
+# Spray Foam CRM
+
+A comprehensive CRM system for spray foam insulation businesses with Twilio communication integration.
+
+## Features
+
+- Complete lead management with Supabase integration
+- Click-to-call functionality through Twilio
+- SMS messaging with pre-built templates
+- Communication history tracking
+- Call recording integration
+- Professional dashboard interface
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
