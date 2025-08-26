@@ -1,0 +1,167 @@
+import { createClient } from '@/lib/supabase/client'
+import type { Lead, TablesInsert, TablesUpdate } from '@/lib/types/database'
+
+export class LeadsService {
+  private supabase = createClient()
+
+  async getLeads(options?: {
+    status?: string[]
+    assignedTo?: string
+    limit?: number
+    offset?: number
+  }) {
+    try {
+      let query = this.supabase
+        .from('leads')
+        .select(`
+          *,
+          assigned_user:users!assigned_to(full_name)
+        `)
+        .order('created_at', { ascending: false })
+
+      if (options?.status && options.status.length > 0) {
+        query = query.in('status', options.status)
+      }
+
+      if (options?.assignedTo) {
+        query = query.eq('assigned_to', options.assignedTo)
+      }
+
+      if (options?.limit) {
+        query = query.limit(options.limit)
+      }
+
+      if (options?.offset) {
+        query = query.range(options.offset, (options.offset + (options.limit || 50)) - 1)
+      }
+
+      const { data, error } = await query
+
+      if (error) {
+        console.error('Error fetching leads:', error)
+        return []
+      }
+      return data || []
+    } catch (error) {
+      console.error('Error in getLeads:', error)
+      return []
+    }
+  }
+
+  async getLeadById(id: string) {
+    const { data, error } = await this.supabase
+      .from('leads')
+      .select(`
+        *,
+        assigned_user:users!assigned_to(full_name, email),
+        jobs(*),
+        communications(*),
+        activities(*)
+      `)
+      .eq('id', id)
+      .single()
+
+    if (error) throw error
+    return data
+  }
+
+  async createLead(lead: TablesInsert<'leads'>) {
+    const { data, error } = await this.supabase
+      .from('leads')
+      .insert(lead)
+      .select()
+      .single()
+
+    if (error) throw error
+    return data
+  }
+
+  async updateLead(id: string, updates: TablesUpdate<'leads'>) {
+    const { data, error } = await this.supabase
+      .from('leads')
+      .update({
+        ...updates,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (error) throw error
+    return data
+  }
+
+  async deleteLead(id: string) {
+    const { error } = await this.supabase
+      .from('leads')
+      .delete()
+      .eq('id', id)
+
+    if (error) throw error
+  }
+
+  async getLeadStats() {
+    try {
+      const { data: leads, error } = await this.supabase
+        .from('leads')
+        .select('status, created_at')
+
+      if (error) {
+        console.error('Error fetching lead stats:', error)
+        // Return default stats if table doesn't exist or other error
+        return {
+          totalLeads: 0,
+          activeLeads: 0,
+          thisMonthLeads: 0,
+          lastMonthLeads: 0,
+          statusBreakdown: {}
+        }
+      }
+
+      const now = new Date()
+      const currentMonth = now.getMonth()
+      const currentYear = now.getFullYear()
+
+      const thisMonth = leads?.filter(lead => {
+        const leadDate = new Date(lead.created_at)
+        return leadDate.getMonth() === currentMonth && leadDate.getFullYear() === currentYear
+      }) || []
+
+      const lastMonth = leads?.filter(lead => {
+        const leadDate = new Date(lead.created_at)
+        const lastMonthDate = new Date(currentYear, currentMonth - 1)
+        return leadDate.getMonth() === lastMonthDate.getMonth() && leadDate.getFullYear() === lastMonthDate.getFullYear()
+      }) || []
+
+      return {
+        totalLeads: leads?.length || 0,
+        activeLeads: leads?.filter(lead => !['closed_won', 'closed_lost'].includes(lead.status)).length || 0,
+        thisMonthLeads: thisMonth.length,
+        lastMonthLeads: lastMonth.length,
+        statusBreakdown: leads?.reduce((acc, lead) => {
+          acc[lead.status] = (acc[lead.status] || 0) + 1
+          return acc
+        }, {} as Record<string, number>) || {}
+      }
+    } catch (error) {
+      console.error('Error in getLeadStats:', error)
+      return {
+        totalLeads: 0,
+        activeLeads: 0,
+        thisMonthLeads: 0,
+        lastMonthLeads: 0,
+        statusBreakdown: {}
+      }
+    }
+  }
+
+  async updateLeadStatus(id: string, status: Lead['status']) {
+    return this.updateLead(id, { status })
+  }
+
+  async assignLead(id: string, userId: string) {
+    return this.updateLead(id, { assigned_to: userId })
+  }
+}
+
+export const leadsService = new LeadsService()
