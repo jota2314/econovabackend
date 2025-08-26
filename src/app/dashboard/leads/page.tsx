@@ -34,22 +34,55 @@ export default function LeadsPage() {
   // Load leads from Supabase
   const loadLeads = async () => {
     try {
+      console.log('🔄 Loading leads...')
       setLoading(true)
+      
+      // Test database connection first
+      const { data: testData, error: testError } = await supabase
+        .from('leads')
+        .select('count(*)', { count: 'exact', head: true })
+
+      if (testError) {
+        console.error('❌ Database connection test failed:', testError)
+        if (testError.message?.includes('relation "leads" does not exist')) {
+          toast.error('Database table not found. Please run the SQL setup first.')
+        } else {
+          toast.error('Database connection failed. Please check configuration.')
+        }
+        return
+      }
+      
       const { data, error } = await supabase
         .from('leads')
         .select('*')
         .order('created_at', { ascending: false })
 
       if (error) {
-        console.error('Error loading leads:', error)
-        toast.error('Failed to load leads')
+        console.error('❌ Error loading leads:', error)
+        console.error('Error details:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint
+        })
+        
+        // Show specific error messages
+        if (error.message?.includes('relation "leads" does not exist')) {
+          toast.error('Database table not found. Please run the SQL setup first.')
+        } else if (error.message?.includes('JWT')) {
+          toast.error('Authentication error. Please refresh the page.')
+        } else {
+          toast.error(`Failed to load leads: ${error.message}`)
+        }
         return
       }
 
+      console.log('✅ Successfully loaded', data?.length || 0, 'leads')
       setLeads(data || [])
+      
     } catch (error) {
-      console.error('Error loading leads:', error)
-      toast.error('Failed to load leads')
+      console.error('❌ Exception loading leads:', error)
+      toast.error('Failed to load leads. Please try refreshing the page.')
     } finally {
       setLoading(false)
     }
