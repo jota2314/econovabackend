@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
       .select(`
         *,
         lead:leads!lead_id(name, phone, address),
-        measurements(id, room_name, floor_level, area_type, surface_type, square_feet, insulation_type, r_value)
+        measurements(id, room_name, floor_level, area_type, surface_type, framing_size, square_feet, insulation_type, r_value, photo_url, notes)
       `)
       .order('created_at', { ascending: false })
 
@@ -41,9 +41,26 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Parse project_type from scope_of_work if stored as JSON
+    const enhancedJobs = data?.map((job: any) => {
+      if (job.scope_of_work) {
+        try {
+          const parsed = JSON.parse(job.scope_of_work)
+          return {
+            ...job,
+            project_type: parsed.project_type || null,
+            scope_of_work: parsed.description || job.scope_of_work
+          }
+        } catch (e) {
+          // If not JSON, keep original
+        }
+      }
+      return job
+    }) || []
+
     return NextResponse.json({
       success: true,
-      data: data || []
+      data: enhancedJobs
     })
 
   } catch (error) {
@@ -114,6 +131,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Store project_type in scope_of_work as JSON if column doesn't exist
+    const enhancedScopeOfWork = {
+      description: scope_of_work || '',
+      project_type: project_type || 'new_construction'
+    }
+    
     // Create the job
     const { data, error } = await supabase
       .from('jobs')
@@ -121,10 +144,9 @@ export async function POST(request: NextRequest) {
         job_name,
         lead_id,
         measurement_type,
-        project_type: project_type || 'new_construction',
         structural_framing,
         roof_rafters,
-        scope_of_work,
+        scope_of_work: JSON.stringify(enhancedScopeOfWork),
         total_square_feet: 0,
         created_by: user.id
       })

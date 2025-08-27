@@ -50,9 +50,24 @@ export async function GET(
       )
     }
 
+    // Parse project_type from scope_of_work if stored as JSON
+    let enhancedJob = job
+    if (job?.scope_of_work) {
+      try {
+        const parsed = JSON.parse(job.scope_of_work)
+        enhancedJob = {
+          ...job,
+          project_type: parsed.project_type || null,
+          scope_of_work: parsed.description || job.scope_of_work
+        }
+      } catch (e) {
+        // If not JSON, keep original
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      data: job
+      data: enhancedJob
     })
 
   } catch (error) {

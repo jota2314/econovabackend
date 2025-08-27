@@ -121,6 +121,18 @@ export class LeadsService {
 
   async getLeadStats() {
     try {
+      // Check if Supabase is properly configured
+      if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+        console.warn('Supabase not configured, returning default stats')
+        return {
+          totalLeads: 0,
+          activeLeads: 0,
+          thisMonthLeads: 0,
+          lastMonthLeads: 0,
+          statusBreakdown: {}
+        }
+      }
+
       const { data: leads, error } = await this.supabase
         .from('leads')
         .select('status, created_at')

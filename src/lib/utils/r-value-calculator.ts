@@ -1,7 +1,7 @@
 // Massachusetts R-Value Calculator for Spray Foam Insulation
 
 export type ProjectType = 'new_construction' | 'remodel'
-export type AreaType = 'roof' | 'exterior_walls' | 'interior_walls' | 'basement_walls'
+export type AreaType = 'roof' | 'exterior_walls' | 'interior_walls' | 'basement_walls' | 'ceiling' | 'gable'
 export type FloorLevel = 'first_floor' | 'second_floor' | 'basement'
 
 // Massachusetts Building Code R-Values
@@ -11,12 +11,16 @@ const MA_R_VALUES: Record<ProjectType, Record<AreaType, number>> = {
     exterior_walls: 30,
     interior_walls: 13,
     basement_walls: 15,
+    ceiling: 60,
+    gable: 30,
   },
   remodel: {
     roof: 49,
     exterior_walls: 21,
     interior_walls: 13,
     basement_walls: 15,
+    ceiling: 49,
+    gable: 21,
   },
 }
 
@@ -60,6 +64,10 @@ export function getAreaDisplayName(areaType: AreaType): string {
       return 'Interior Walls'
     case 'basement_walls':
       return 'Basement Walls'
+    case 'ceiling':
+      return 'Ceiling'
+    case 'gable':
+      return 'Gable'
     default:
       return areaType
   }

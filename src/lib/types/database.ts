@@ -146,14 +146,15 @@ export interface Database {
           id: string
           job_id: string
           room_name: string
-          floor_level: 'first_floor' | 'second_floor' | 'basement'
-          area_type: 'roof' | 'exterior_walls' | 'interior_walls' | 'basement_walls'
+          floor_level: string | null
+          area_type: 'exterior_walls' | 'interior_walls' | 'ceiling' | 'gable' | 'roof' | null
           surface_type: 'wall' | 'ceiling'
+          framing_size: '2x4' | '2x6' | '2x8' | '2x10' | '2x12' | null
           height: number
           width: number
           square_feet: number
-          insulation_type: 'closed_cell' | 'open_cell' | 'hybrid' | 'fiberglass' | 'roxul' | null
-          r_value: number | null
+          insulation_type: 'closed_cell' | 'open_cell' | 'fiberglass' | 'roxul' | null
+          r_value: string | null
           photo_url: string | null
           notes: string | null
           created_at: string
@@ -162,14 +163,15 @@ export interface Database {
           id?: string
           job_id: string
           room_name: string
-          floor_level: 'first_floor' | 'second_floor' | 'basement'
-          area_type: 'roof' | 'exterior_walls' | 'interior_walls' | 'basement_walls'
+          floor_level?: string | null
+          area_type?: 'exterior_walls' | 'interior_walls' | 'ceiling' | 'gable' | 'roof' | null
           surface_type: 'wall' | 'ceiling'
+          framing_size?: '2x4' | '2x6' | '2x8' | '2x10' | '2x12' | null
           height: number
           width: number
           square_feet?: number
-          insulation_type?: 'closed_cell' | 'open_cell' | 'hybrid' | 'fiberglass' | 'roxul' | null
-          r_value?: number | null
+          insulation_type?: 'closed_cell' | 'open_cell' | 'fiberglass' | 'roxul' | null
+          r_value?: string | null
           photo_url?: string | null
           notes?: string | null
           created_at?: string
@@ -178,14 +180,15 @@ export interface Database {
           id?: string
           job_id?: string
           room_name?: string
-          floor_level?: 'first_floor' | 'second_floor' | 'basement'
-          area_type?: 'roof' | 'exterior_walls' | 'interior_walls' | 'basement_walls'
+          floor_level?: string | null
+          area_type?: 'exterior_walls' | 'interior_walls' | 'ceiling' | 'gable' | 'roof' | null
           surface_type?: 'wall' | 'ceiling'
+          framing_size?: '2x4' | '2x6' | '2x8' | '2x10' | '2x12' | null
           height?: number
           width?: number
           square_feet?: number
-          insulation_type?: 'closed_cell' | 'open_cell' | 'hybrid' | 'fiberglass' | 'roxul' | null
-          r_value?: number | null
+          insulation_type?: 'closed_cell' | 'open_cell' | 'fiberglass' | 'roxul' | null
+          r_value?: string | null
           photo_url?: string | null
           notes?: string | null
           created_at?: string
@@ -306,10 +309,9 @@ export interface Database {
       lead_source: 'drive_by' | 'permit' | 'referral' | 'website' | 'csv_import' | 'other'
       measurement_type: 'field' | 'drawings'
       project_type: 'new_construction' | 'remodel'
-      floor_level: 'first_floor' | 'second_floor' | 'basement'
-      area_type: 'roof' | 'exterior_walls' | 'interior_walls' | 'basement_walls'
+      area_type: 'exterior_walls' | 'interior_walls' | 'ceiling' | 'gable' | 'roof'
       surface_type: 'wall' | 'ceiling'
-      insulation_type: 'closed_cell' | 'open_cell' | 'hybrid' | 'fiberglass' | 'roxul'
+      insulation_type: 'closed_cell' | 'open_cell' | 'fiberglass' | 'roxul'
       framing_size: '2x4' | '2x6' | '2x8' | '2x10' | '2x12'
       communication_type: 'call' | 'sms' | 'email'
       communication_direction: 'inbound' | 'outbound'

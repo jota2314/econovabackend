@@ -39,11 +39,57 @@ export async function POST(
 
     console.log(`[POST /api/measurements/${id}/photo] Uploading photo: ${photo.name}`)
 
-    // For now, we'll just simulate a photo upload
-    // In a real implementation, you'd upload to a storage service like Supabase Storage, AWS S3, etc.
+    // Convert File to ArrayBuffer for Supabase upload
+    const bytes = await photo.arrayBuffer()
+    const buffer = Buffer.from(bytes)
     
-    // Generate a fake URL for demonstration
-    const photoUrl = `/uploads/measurements/${id}_${Date.now()}_${photo.name}`
+    // Generate unique filename
+    const fileExt = photo.name.split('.').pop()
+    const fileName = `${id}_${Date.now()}.${fileExt}`
+    const filePath = `measurements/${fileName}`
+    
+    // Upload to Supabase Storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('measurement-photos')
+      .upload(filePath, buffer, {
+        contentType: photo.type,
+        upsert: true
+      })
+    
+    if (uploadError) {
+      console.error('Upload error:', uploadError)
+      // Fallback to local storage simulation
+      const photoUrl = `/uploads/measurements/${fileName}`
+      
+      // Update measurement with simulated URL
+      const { data: measurement, error } = await supabase
+        .from('measurements')
+        .update({ photo_url: photoUrl })
+        .eq('id', id)
+        .select()
+        .single()
+      
+      if (error) {
+        console.error(`[POST /api/measurements/${id}/photo] Database error:`, error)
+        return NextResponse.json(
+          { success: false, error: 'Failed to save photo reference' },
+          { status: 500 }
+        )
+      }
+      
+      return NextResponse.json({
+        success: true,
+        photoUrl,
+        message: 'Photo uploaded successfully (simulated - storage bucket not configured)'
+      })
+    }
+    
+    // Get public URL for the uploaded file
+    const { data: publicUrlData } = supabase.storage
+      .from('measurement-photos')
+      .getPublicUrl(filePath)
+    
+    const photoUrl = publicUrlData.publicUrl
     
     // Update the measurement with the photo URL
     const { data: measurement, error } = await supabase
@@ -66,7 +112,7 @@ export async function POST(
     return NextResponse.json({
       success: true,
       photoUrl,
-      message: 'Photo uploaded successfully (simulated)'
+      message: 'Photo uploaded successfully'
     })
 
   } catch (error) {

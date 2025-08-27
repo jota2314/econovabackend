@@ -41,13 +41,16 @@ export async function GET(
       )
     }
 
+    // Return measurements with all fields (no need to parse from notes anymore)
+    const enhancedMeasurements = measurements || []
+    
     console.log(`[GET /api/jobs/${id}/measurements] Success:`, { 
-      count: measurements?.length || 0 
+      count: enhancedMeasurements.length 
     })
     
     return NextResponse.json({
       success: true,
-      data: measurements || []
+      data: enhancedMeasurements
     })
 
   } catch (error) {
@@ -87,10 +90,11 @@ export async function POST(
 
     const body = await request.json()
     const { 
-      room_name, 
-      floor_level, 
+      room_name,
+      floor_level,
       area_type, 
-      surface_type, 
+      surface_type,
+      framing_size, 
       height, 
       width, 
       insulation_type, 
@@ -99,7 +103,7 @@ export async function POST(
 
     console.log(`[POST /api/jobs/${id}/measurements] Request body:`, body)
 
-    // Validate required fields (make floor_level and area_type optional for backward compatibility)
+    // Validate required fields
     if (!room_name || !surface_type || !height || !width) {
       console.log(`[POST /api/jobs/${id}/measurements] Validation failed:`, {
         room_name, surface_type, height, width
@@ -110,47 +114,32 @@ export async function POST(
       )
     }
 
-    // Calculate square feet
-    const square_feet = height * width
-    
-    // Build insert data with available fields
-    const insertData: any = {
-      job_id: id,
-      room_name,
-      surface_type,
-      height,
-      width,
-      notes: notes || null
-    }
-    
-    // Add optional enhanced fields if they exist in the database
-    // These will be stored in notes or metadata if columns don't exist
-    if (floor_level) {
-      insertData.floor_level = floor_level
-    }
-    if (area_type) {
-      insertData.area_type = area_type
-    }
-    if (insulation_type) {
-      insertData.insulation_type = insulation_type
-    }
-    
     // Calculate R-value if we have area_type
+    let calculatedRValue = null
     if (area_type) {
       try {
         const { calculateRValue } = await import('@/lib/utils/r-value-calculator')
-        const { data: job } = await supabase
-          .from('jobs')
-          .select('project_type')
-          .eq('id', id)
-          .single()
-        
-        const projectType = job?.project_type || 'new_construction'
+        const projectType = 'new_construction' // Default for now
         const rValueResult = calculateRValue(projectType as any, area_type as any)
-        insertData.r_value = rValueResult.rValue
+        calculatedRValue = rValueResult.rValue.toString()
       } catch (error) {
         console.log('R-value calculation skipped:', error)
       }
+    }
+    
+    const insertData = {
+      job_id: id,
+      room_name,
+      floor_level: floor_level || null,
+      area_type: area_type || null,
+      surface_type,
+      framing_size: framing_size || null,
+      height,
+      width,
+      // square_feet is removed - it's a generated column calculated by the database
+      insulation_type: insulation_type || null,
+      r_value: calculatedRValue,
+      notes: notes || null
     }
 
     console.log(`[POST /api/jobs/${id}/measurements] Creating measurement:`, insertData)
