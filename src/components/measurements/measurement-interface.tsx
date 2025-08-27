@@ -33,16 +33,33 @@ import {
   X,
   Save,
   Eye,
-  EyeOff
+  EyeOff,
+  Building,
+  Building2,
+  ChevronDown,
+  ChevronRight
 } from "lucide-react"
+import { 
+  calculateRValue, 
+  getAreaDisplayName, 
+  getFloorDisplayName, 
+  getAreaTypesForFloor,
+  type ProjectType,
+  type AreaType,
+  type FloorLevel
+} from "@/lib/utils/r-value-calculator"
 
 interface Measurement {
   id: string
   room_name: string
+  floor_level?: 'first_floor' | 'second_floor' | 'basement'
+  area_type?: 'roof' | 'exterior_walls' | 'interior_walls' | 'basement_walls'
   surface_type: 'wall' | 'ceiling'
   height: number
   width: number
   square_feet: number
+  insulation_type?: 'closed_cell' | 'open_cell' | 'hybrid' | 'fiberglass' | 'roxul' | null
+  r_value?: number | null
   photo_url?: string | null
   notes?: string | null
   photo_file?: File | null
@@ -52,6 +69,7 @@ interface Job {
   id: string
   job_name: string
   lead_id: string
+  project_type?: 'new_construction' | 'remodel' | null
   total_square_feet: number
   structural_framing: string
   roof_rafters: string
@@ -59,9 +77,12 @@ interface Job {
 
 const measurementSchema = z.object({
   room_name: z.string().min(1, "Room name is required"),
+  floor_level: z.enum(["first_floor", "second_floor", "basement"]).optional(),
+  area_type: z.enum(["roof", "exterior_walls", "interior_walls", "basement_walls"]).optional(),
   surface_type: z.enum(["wall", "ceiling"]),
   height: z.number().min(0.1, "Height must be greater than 0"),
   width: z.number().min(0.1, "Width must be greater than 0"),
+  insulation_type: z.enum(["closed_cell", "open_cell", "hybrid", "fiberglass", "roxul"]).optional(),
   notes: z.string().optional(),
 })
 
@@ -83,9 +104,12 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
     resolver: zodResolver(measurementSchema),
     defaultValues: {
       room_name: "",
+      floor_level: "first_floor",
+      area_type: "exterior_walls",
       surface_type: "wall",
       height: 0,
       width: 0,
+      insulation_type: "closed_cell",
       notes: ""
     }
   })
@@ -119,19 +143,56 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
     return total + measurement.square_feet
   }, 0)
 
+  // Group measurements by floor and area type for aggregation
+  const aggregatedMeasurements = measurements.reduce((acc, measurement) => {
+    // Use surface type as fallback if area_type is not available
+    const areaType = measurement.area_type || (measurement.surface_type === 'ceiling' ? 'roof' : 'exterior_walls')
+    const floorLevel = measurement.floor_level || 'first_floor'
+    const key = `${floorLevel}-${areaType}`
+    
+    if (!acc[key]) {
+      acc[key] = {
+        floor_level: floorLevel as FloorLevel,
+        area_type: areaType as AreaType,
+        total_square_feet: 0,
+        measurements: [],
+        r_value: measurement.r_value || 0,
+        insulation_type: measurement.insulation_type
+      }
+    }
+    acc[key].total_square_feet += measurement.square_feet
+    acc[key].measurements.push(measurement)
+    return acc
+  }, {} as Record<string, {
+    floor_level: FloorLevel
+    area_type: AreaType
+    total_square_feet: number
+    measurements: Measurement[]
+    r_value: number
+    insulation_type?: string | null
+  }>)
+
   // Add new measurement
   const addMeasurement = async (data: MeasurementFormData) => {
     try {
       setSaving(true)
       const square_feet = data.height * data.width
       
+      // Calculate R-value based on project type and area type
+      const projectType = (job.project_type as ProjectType) || 'new_construction'
+      const rValueResult = calculateRValue(projectType, data.area_type)
+      
       const newMeasurement: Measurement = {
         id: `temp-${Date.now()}`,
         room_name: data.room_name,
+        floor_level: data.floor_level,
+        area_type: data.area_type,
         surface_type: data.surface_type,
         height: data.height,
         width: data.width,
         square_feet,
+        insulation_type: data.insulation_type || null,
+        r_value: rValueResult.rValue,
         notes: data.notes || null,
         photo_url: null,
         photo_file: null
@@ -147,9 +208,12 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         },
         body: JSON.stringify({
           room_name: data.room_name,
+          floor_level: data.floor_level,
+          area_type: data.area_type,
           surface_type: data.surface_type,
           height: data.height,
           width: data.width,
+          insulation_type: data.insulation_type,
           notes: data.notes
         })
       })
@@ -164,12 +228,15 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             : m
         ))
         
-        toast.success(`${data.surface_type === 'wall' ? 'Wall' : 'Ceiling'} measurement added: ${square_feet.toFixed(1)} sq ft`)
+        toast.success(`${getAreaDisplayName(data.area_type)} measurement added: ${square_feet.toFixed(1)} sq ft`)
         form.reset({
           room_name: data.room_name, // Keep room name for next measurement
+          floor_level: data.floor_level, // Keep floor level
+          area_type: data.area_type, // Keep area type
           surface_type: "wall",
           height: 0,
           width: 0,
+          insulation_type: data.insulation_type,
           notes: ""
         })
       } else {
@@ -297,10 +364,10 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         </div>
       </div>
 
-      {/* Total Summary */}
+      {/* Project Summary */}
       <Card className="border-orange-200 bg-orange-50">
         <CardContent className="pt-6">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Calculator className="h-5 w-5 text-orange-600" />
               <span className="text-lg font-semibold text-orange-900">
@@ -311,6 +378,42 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
               {measurements.length} measurement{measurements.length !== 1 ? 's' : ''}
             </div>
           </div>
+          
+          {/* Project Type Display */}
+          {job.project_type && (
+            <div className="flex items-center gap-2 mb-4">
+              <Building className="h-4 w-4 text-orange-600" />
+              <span className="text-sm font-medium text-orange-900">
+                Project Type: {job.project_type === 'new_construction' ? 'New Construction' : 'Remodel'}
+              </span>
+            </div>
+          )}
+          
+          {/* Area Totals Summary */}
+          {Object.keys(aggregatedMeasurements).length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-orange-900 mb-2">Area Totals:</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {Object.values(aggregatedMeasurements).map((area) => (
+                  <div key={`${area.floor_level}-${area.area_type}`} className="bg-white rounded p-3 border border-orange-100">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <span className="text-sm font-medium text-slate-900">
+                          {getFloorDisplayName(area.floor_level)} - {getAreaDisplayName(area.area_type)}
+                        </span>
+                        <div className="text-xs text-slate-500">
+                          R-{area.r_value} • {area.insulation_type || 'Not specified'}
+                        </div>
+                      </div>
+                      <span className="text-sm font-bold text-orange-600">
+                        {area.total_square_feet.toFixed(1)} sq ft
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -344,27 +447,116 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                     )}
                   />
 
-                  <FormField
-                    control={form.control}
-                    name="surface_type"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Surface Type</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="wall">Wall</SelectItem>
-                            <SelectItem value="ceiling">Ceiling</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="floor_level"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="flex items-center gap-2">
+                            <Building2 className="h-4 w-4" />
+                            Floor Level
+                          </FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="first_floor">First Floor</SelectItem>
+                              <SelectItem value="second_floor">Second Floor</SelectItem>
+                              <SelectItem value="basement">Basement</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="area_type"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Area Type</FormLabel>
+                          <Select 
+                            onValueChange={(value) => {
+                              field.onChange(value)
+                              // Auto-calculate R-value when area type changes
+                              const projectType = (job.project_type as ProjectType) || 'new_construction'
+                              const rValueResult = calculateRValue(projectType, value as AreaType)
+                              // Note: R-value will be calculated when saving
+                            }} 
+                            value={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {getAreaTypesForFloor(form.watch('floor_level')).map((areaType) => (
+                                <SelectItem key={areaType} value={areaType}>
+                                  {getAreaDisplayName(areaType)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="surface_type"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Surface Type</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="wall">Wall</SelectItem>
+                              <SelectItem value="ceiling">Ceiling</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="insulation_type"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Insulation Type</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select insulation type" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="closed_cell">Closed Cell</SelectItem>
+                              <SelectItem value="open_cell">Open Cell</SelectItem>
+                              <SelectItem value="hybrid">Hybrid</SelectItem>
+                              <SelectItem value="fiberglass">Fiberglass</SelectItem>
+                              <SelectItem value="roxul">Roxul</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <FormField
@@ -416,15 +608,23 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                     />
                   </div>
 
-                  {/* Auto-calculated square footage */}
+                  {/* Auto-calculated square footage and R-value */}
                   {form.watch('height') > 0 && form.watch('width') > 0 && (
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-3 space-y-2">
                       <div className="flex items-center gap-2">
                         <Square className="h-4 w-4 text-green-600" />
                         <span className="text-green-900 font-medium">
                           = {(form.watch('height') * form.watch('width')).toFixed(1)} sq ft
                         </span>
                       </div>
+                      {form.watch('area_type') && job.project_type && (
+                        <div className="text-sm text-green-700">
+                          R-Value: R-{calculateRValue(job.project_type as ProjectType, form.watch('area_type')).rValue}
+                          <span className="ml-2 text-xs">
+                            (MA {job.project_type === 'new_construction' ? 'New Construction' : 'Remodel'} Code)
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -506,6 +706,61 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
           </CardContent>
         </Card>
       </div>
+      
+      {/* Final Output Summary */}
+      {Object.keys(aggregatedMeasurements).length > 0 && (
+        <Card className="border-green-200 bg-green-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-green-900">
+              <Calculator className="h-5 w-5" />
+              Final Project Summary
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="font-semibold text-green-900">
+                  Project Type: {job.project_type === 'new_construction' ? 'New Construction' : 'Remodel'}
+                </span>
+              </div>
+              
+              <div className="space-y-3">
+                <h4 className="font-semibold text-green-900">Total Areas:</h4>
+                {Object.values(aggregatedMeasurements)
+                  .sort((a, b) => {
+                    // Sort by floor level, then by area type
+                    const floorOrder = { 'first_floor': 1, 'second_floor': 2, 'basement': 3 }
+                    const areaOrder = { 'roof': 1, 'exterior_walls': 2, 'interior_walls': 3, 'basement_walls': 4 }
+                    
+                    if (floorOrder[a.floor_level] !== floorOrder[b.floor_level]) {
+                      return floorOrder[a.floor_level] - floorOrder[b.floor_level]
+                    }
+                    return areaOrder[a.area_type] - areaOrder[b.area_type]
+                  })
+                  .map((area) => (
+                    <div key={`${area.floor_level}-${area.area_type}`} className="bg-white rounded-lg p-4 border border-green-200">
+                      <div className="flex justify-between items-center">
+                        <div className="flex-1">
+                          <span className="font-medium text-slate-900">
+                            {getAreaDisplayName(area.area_type)}: {area.total_square_feet.toFixed(0)} sq ft
+                          </span>
+                          <div className="text-sm text-slate-600 mt-1">
+                            → R-{area.r_value} → {area.insulation_type ? area.insulation_type.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()) : 'Not specified'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                }
+              </div>
+              
+              <div className="text-xs text-green-700 mt-4 p-3 bg-green-100 rounded">
+                ℹ️ Massachusetts building code compliance - R-values automatically assigned based on project type
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
@@ -528,10 +783,26 @@ function MeasurementCard({ measurement, onDelete, onPhotoUpload }: MeasurementCa
   return (
     <div className="border border-slate-200 rounded-lg p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {measurement.floor_level && (
+            <Badge 
+              variant="outline" 
+              className="border-blue-300 text-blue-700"
+            >
+              {getFloorDisplayName(measurement.floor_level)}
+            </Badge>
+          )}
+          {measurement.area_type && (
+            <Badge 
+              variant="outline" 
+              className="border-green-300 text-green-700"
+            >
+              {getAreaDisplayName(measurement.area_type)}
+            </Badge>
+          )}
           <Badge 
             variant="outline" 
-            className={measurement.surface_type === 'wall' ? 'border-blue-300 text-blue-700' : 'border-purple-300 text-purple-700'}
+            className={measurement.surface_type === 'wall' ? 'border-purple-300 text-purple-700' : 'border-indigo-300 text-indigo-700'}
           >
             {measurement.surface_type === 'wall' ? 'Wall' : 'Ceiling'}
           </Badge>
@@ -548,7 +819,7 @@ function MeasurementCard({ measurement, onDelete, onPhotoUpload }: MeasurementCa
         </Button>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 text-sm">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
         <div>
           <Label className="text-xs text-slate-500">Height</Label>
           <div className="font-medium">{measurement.height}′</div>
@@ -561,7 +832,18 @@ function MeasurementCard({ measurement, onDelete, onPhotoUpload }: MeasurementCa
           <Label className="text-xs text-slate-500">Square Feet</Label>
           <div className="font-bold text-orange-600">{measurement.square_feet.toFixed(1)} sq ft</div>
         </div>
+        <div>
+          <Label className="text-xs text-slate-500">R-Value</Label>
+          <div className="font-medium text-green-600">R-{measurement.r_value || 'N/A'}</div>
+        </div>
       </div>
+      
+      {measurement.insulation_type && (
+        <div className="text-sm">
+          <Label className="text-xs text-slate-500">Insulation Type</Label>
+          <div className="font-medium capitalize">{measurement.insulation_type.replace('_', ' ')}</div>
+        </div>
+      )}
 
       {measurement.notes && (
         <div>

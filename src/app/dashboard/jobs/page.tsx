@@ -35,6 +35,7 @@ interface Job {
   job_name: string
   lead_id: string
   measurement_type: 'field' | 'drawings'
+  project_type?: 'new_construction' | 'remodel' | null
   total_square_feet: number
   structural_framing: string
   roof_rafters: string
@@ -49,8 +50,12 @@ interface Job {
   measurements?: Array<{
     id: string
     room_name: string
+    floor_level?: 'first_floor' | 'second_floor' | 'basement'
+    area_type?: 'roof' | 'exterior_walls' | 'interior_walls' | 'basement_walls'
     surface_type: 'wall' | 'ceiling'
     square_feet: number
+    insulation_type?: 'closed_cell' | 'open_cell' | 'hybrid' | 'fiberglass' | 'roxul' | null
+    r_value?: number | null
   }>
 }
 

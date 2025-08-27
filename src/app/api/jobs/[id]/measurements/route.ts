@@ -86,11 +86,20 @@ export async function POST(
     }
 
     const body = await request.json()
-    const { room_name, surface_type, height, width, notes } = body
+    const { 
+      room_name, 
+      floor_level, 
+      area_type, 
+      surface_type, 
+      height, 
+      width, 
+      insulation_type, 
+      notes 
+    } = body
 
     console.log(`[POST /api/jobs/${id}/measurements] Request body:`, body)
 
-    // Validate required fields
+    // Validate required fields (make floor_level and area_type optional for backward compatibility)
     if (!room_name || !surface_type || !height || !width) {
       console.log(`[POST /api/jobs/${id}/measurements] Validation failed:`, {
         room_name, surface_type, height, width
@@ -103,14 +112,45 @@ export async function POST(
 
     // Calculate square feet
     const square_feet = height * width
-
-    const insertData = {
+    
+    // Build insert data with available fields
+    const insertData: any = {
       job_id: id,
       room_name,
       surface_type,
       height,
       width,
       notes: notes || null
+    }
+    
+    // Add optional enhanced fields if they exist in the database
+    // These will be stored in notes or metadata if columns don't exist
+    if (floor_level) {
+      insertData.floor_level = floor_level
+    }
+    if (area_type) {
+      insertData.area_type = area_type
+    }
+    if (insulation_type) {
+      insertData.insulation_type = insulation_type
+    }
+    
+    // Calculate R-value if we have area_type
+    if (area_type) {
+      try {
+        const { calculateRValue } = await import('@/lib/utils/r-value-calculator')
+        const { data: job } = await supabase
+          .from('jobs')
+          .select('project_type')
+          .eq('id', id)
+          .single()
+        
+        const projectType = job?.project_type || 'new_construction'
+        const rValueResult = calculateRValue(projectType as any, area_type as any)
+        insertData.r_value = rValueResult.rValue
+      } catch (error) {
+        console.log('R-value calculation skipped:', error)
+      }
     }
 
     console.log(`[POST /api/jobs/${id}/measurements] Creating measurement:`, insertData)

@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
       .select(`
         *,
         lead:leads!lead_id(name, phone, address),
-        measurements(id, room_name, surface_type, square_feet)
+        measurements(id, room_name, floor_level, area_type, surface_type, square_feet, insulation_type, r_value)
       `)
       .order('created_at', { ascending: false })
 
@@ -73,7 +73,8 @@ export async function POST(request: NextRequest) {
     const { 
       job_name, 
       lead_id, 
-      measurement_type, 
+      measurement_type,
+      project_type, 
       structural_framing, 
       roof_rafters, 
       scope_of_work 
@@ -120,6 +121,7 @@ export async function POST(request: NextRequest) {
         job_name,
         lead_id,
         measurement_type,
+        project_type: project_type || 'new_construction',
         structural_framing,
         roof_rafters,
         scope_of_work,

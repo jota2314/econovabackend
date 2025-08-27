@@ -34,6 +34,9 @@ const jobSchema = z.object({
   measurement_type: z.enum(["field", "drawings"], {
     required_error: "Measurement type is required"
   }),
+  project_type: z.enum(["new_construction", "remodel"], {
+    required_error: "Project type is required"
+  }),
   structural_framing: z.enum(["2x4", "2x6", "2x8", "2x10", "2x12"], {
     required_error: "Structural framing is required"
   }),
@@ -68,6 +71,7 @@ export function JobCreationForm({
       job_name: selectedLead ? `${selectedLead.name} - Spray Foam Project` : "",
       lead_id: selectedLead?.id || "",
       measurement_type: "field",
+      project_type: "new_construction",
       structural_framing: "2x6",
       roof_rafters: "2x6",
       scope_of_work: ""
@@ -191,6 +195,29 @@ export function JobCreationForm({
                   <FormControl>
                     <Input placeholder="Enter job name" {...field} />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {/* Project Type */}
+            <FormField
+              control={form.control}
+              name="project_type"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Project Type</FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="new_construction">New Construction</SelectItem>
+                      <SelectItem value="remodel">Remodel</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <FormMessage />
                 </FormItem>
               )}
