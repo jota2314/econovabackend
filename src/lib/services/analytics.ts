@@ -404,15 +404,16 @@ export class AnalyticsService {
         return {
           success: true,
           data: {
-            totalRevenue: 0,
+            commissions: 0,
             totalJobs: 0,
-            totalMeasurements: 0,
-            callsMade: 0,
-            smsSent: 0,
+            conversionRate: 0,
+            pipelineValue: 0,
+            estimatesSent: 0,
+            estimatesSentLastMonth: 0,
             growth: {
-              revenue: 0,
+              commissions: 0,
               jobs: 0,
-              measurements: 0
+              estimates: 0
             }
           }
         }
@@ -423,7 +424,11 @@ export class AnalyticsService {
 
       // Simplified queries with individual error handling
       let totalJobs = 0
-      let totalMeasurements = 0
+      let commissions = 0
+      let conversionRate = 0
+      let pipelineValue = 0
+      let estimatesSent = 0
+      let estimatesSentLastMonth = 0
       
       try {
         console.log('Fetching total jobs...')
@@ -437,48 +442,112 @@ export class AnalyticsService {
         console.warn('Failed to fetch jobs count:', error)
       }
 
+      // Calculate commissions from closed won jobs (assuming 10% commission rate)
+      const COMMISSION_RATE = 0.10 // 10% commission
       try {
-        console.log('Fetching total measurements...')
-        const measurementsResult = await Promise.race([
-          this.supabase.from('measurements').select('id', { count: 'exact' }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Measurements query timeout')), 3000))
-        ])
-        totalMeasurements = (measurementsResult as any)?.count || 0
-        console.log('Measurements count:', totalMeasurements)
-      } catch (error) {
-        console.warn('Failed to fetch measurements count:', error)
-      }
-
-      // Simplified revenue calculation - just get jobs with quote amounts
-      let totalRevenue = 0
-      try {
-        console.log('Fetching revenue data...')
-        const revenueResult = await Promise.race([
+        console.log('Fetching commission data...')
+        const commissionResult = await Promise.race([
           this.supabase
             .from('jobs')
-            .select('quote_amount')
+            .select('quote_amount, leads!lead_id(status)')
+            .eq('leads.status', 'closed_won')
             .not('quote_amount', 'is', null)
             .gte('updated_at', startOfCurrentMonth.toISOString()),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Revenue query timeout')), 3000))
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Commission query timeout')), 3000))
         ])
-        totalRevenue = (revenueResult as any)?.data?.reduce((sum: number, job: any) => sum + (job.quote_amount || 0), 0) || 0
-        console.log('Total revenue:', totalRevenue)
+        const totalRevenue = (commissionResult as any)?.data?.reduce((sum: number, job: any) => sum + (job.quote_amount || 0), 0) || 0
+        commissions = totalRevenue * COMMISSION_RATE
+        console.log('Commissions calculated:', commissions)
       } catch (error) {
-        console.warn('Failed to fetch revenue:', error)
+        console.warn('Failed to fetch commission data:', error)
+      }
+
+      // Calculate conversion rate (closed won / total leads)
+      try {
+        console.log('Calculating conversion rate...')
+        const [totalLeadsResult, closedWonResult] = await Promise.all([
+          Promise.race([
+            this.supabase.from('leads').select('id', { count: 'exact' }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Total leads query timeout')), 2000))
+          ]),
+          Promise.race([
+            this.supabase.from('leads').select('id', { count: 'exact' }).eq('status', 'closed_won'),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Closed won query timeout')), 2000))
+          ])
+        ])
+        const totalLeads = (totalLeadsResult as any)?.count || 0
+        const closedWon = (closedWonResult as any)?.count || 0
+        conversionRate = totalLeads > 0 ? (closedWon / totalLeads) * 100 : 0
+        console.log('Conversion rate:', conversionRate)
+      } catch (error) {
+        console.warn('Failed to calculate conversion rate:', error)
+      }
+
+      // Calculate estimates sent this month and last month
+      try {
+        console.log('Fetching estimates sent...')
+        const startOfLastMonth = startOfMonth(subDays(startOfCurrentMonth, 1))
+        const endOfLastMonth = endOfMonth(subDays(startOfCurrentMonth, 1))
+        
+        const [thisMonthEstimates, lastMonthEstimates] = await Promise.all([
+          Promise.race([
+            this.supabase
+              .from('jobs')
+              .select('id', { count: 'exact' })
+              .not('quote_amount', 'is', null)
+              .gte('quote_sent_at', startOfCurrentMonth.toISOString()),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('This month estimates timeout')), 2000))
+          ]),
+          Promise.race([
+            this.supabase
+              .from('jobs')
+              .select('id', { count: 'exact' })
+              .not('quote_amount', 'is', null)
+              .gte('quote_sent_at', startOfLastMonth.toISOString())
+              .lte('quote_sent_at', endOfLastMonth.toISOString()),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Last month estimates timeout')), 2000))
+          ])
+        ])
+        
+        estimatesSent = (thisMonthEstimates as any)?.count || 0
+        estimatesSentLastMonth = (lastMonthEstimates as any)?.count || 0
+        console.log('Estimates sent:', estimatesSent, 'Last month:', estimatesSentLastMonth)
+      } catch (error) {
+        console.warn('Failed to fetch estimates sent:', error)
+      }
+
+      // Calculate pipeline value (all pending estimates - not closed won or lost)
+      try {
+        console.log('Fetching pipeline value...')
+        const pipelineResult = await Promise.race([
+          this.supabase
+            .from('jobs')
+            .select('quote_amount, leads!lead_id(status)')
+            .not('quote_amount', 'is', null)
+            .not('leads.status', 'in', '("closed_won","closed_lost")'),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Pipeline query timeout')), 3000))
+        ])
+        pipelineValue = (pipelineResult as any)?.data?.reduce((sum: number, job: any) => sum + (job.quote_amount || 0), 0) || 0
+        console.log('Pipeline value:', pipelineValue)
+      } catch (error) {
+        console.warn('Failed to fetch pipeline value:', error)
       }
 
       return {
         success: true,
         data: {
-          totalRevenue,
+          commissions,
           totalJobs,
-          totalMeasurements,
-          callsMade: 0,
-          smsSent: 0,
+          conversionRate,
+          pipelineValue,
+          estimatesSent,
+          estimatesSentLastMonth,
           growth: {
-            revenue: 0,
+            commissions: 0, // TODO: Calculate month-over-month growth
             jobs: 0,
-            measurements: 0
+            estimates: estimatesSentLastMonth > 0 
+              ? ((estimatesSent - estimatesSentLastMonth) / estimatesSentLastMonth) * 100 
+              : 0
           }
         }
       }
@@ -488,15 +557,16 @@ export class AnalyticsService {
       return {
         success: true,
         data: {
-          totalRevenue: 0,
+          commissions: 0,
           totalJobs: 0,
-          totalMeasurements: 0,
-          callsMade: 0,
-          smsSent: 0,
+          conversionRate: 0,
+          pipelineValue: 0,
+          estimatesSent: 0,
+          estimatesSentLastMonth: 0,
           growth: {
-            revenue: 0,
+            commissions: 0,
             jobs: 0,
-            measurements: 0
+            estimates: 0
           }
         }
       }

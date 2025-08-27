@@ -14,11 +14,11 @@ import {
   DollarSign,
   TrendingUp,
   Calendar,
-  Phone,
   MapPin,
   Clock,
   Ruler,
-  MessageSquare
+  FileText,
+  Calculator
 } from "lucide-react"
 
 
@@ -32,15 +32,16 @@ export function DashboardContent() {
     statusBreakdown: {} as Record<string, number>
   })
   const [dashboardStats, setDashboardStats] = useState({
-    totalRevenue: 0,
+    commissions: 0,
     totalJobs: 0,
-    totalMeasurements: 0,
-    callsMade: 0,
-    smsSent: 0,
+    conversionRate: 0,
+    pipelineValue: 0,
+    estimatesSent: 0,
+    estimatesSentLastMonth: 0,
     growth: {
-      revenue: 0,
+      commissions: 0,
       jobs: 0,
-      measurements: 0
+      estimates: 0
     }
   })
   const [recentLeads, setRecentLeads] = useState<Lead[]>([])
@@ -82,12 +83,13 @@ export function DashboardContent() {
         })
         setRecentLeads(recent || [])
         setDashboardStats(dashStats || {
-          totalRevenue: 0,
+          commissions: 0,
           totalJobs: 0,
-          totalMeasurements: 0,
-          callsMade: 0,
-          smsSent: 0,
-          growth: { revenue: 0, jobs: 0, measurements: 0 }
+          conversionRate: 0,
+          pipelineValue: 0,
+          estimatesSent: 0,
+          estimatesSentLastMonth: 0,
+          growth: { commissions: 0, jobs: 0, estimates: 0 }
         })
         
         // Process activity response
@@ -128,12 +130,13 @@ export function DashboardContent() {
         })
         setRecentLeads([])
         setDashboardStats({
-          totalRevenue: 0,
+          commissions: 0,
           totalJobs: 0,
-          totalMeasurements: 0,
-          callsMade: 0,
-          smsSent: 0,
-          growth: { revenue: 0, jobs: 0, measurements: 0 }
+          conversionRate: 0,
+          pipelineValue: 0,
+          estimatesSent: 0,
+          estimatesSentLastMonth: 0,
+          growth: { commissions: 0, jobs: 0, estimates: 0 }
         })
         setRecentActivity([])
       } finally {
@@ -200,12 +203,13 @@ export function DashboardContent() {
         <Card className="p-6 bg-white border-slate-200 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-slate-600">Total Revenue</p>
-              <p className="text-3xl font-bold text-slate-900">${(dashboardStats?.totalRevenue || 0).toLocaleString()}</p>
-              <p className={`text-sm font-medium ${
-                (dashboardStats?.growth?.revenue || 0) >= 0 ? 'text-green-600' : 'text-red-600'
+              <p className="text-sm font-medium text-slate-600">Commissions</p>
+              <p className="text-3xl font-bold text-slate-900">${(dashboardStats?.commissions || 0).toLocaleString()}</p>
+              <p className="text-xs text-slate-500">This Month</p>
+              <p className={`text-sm font-medium mt-1 ${
+                (dashboardStats?.growth?.commissions || 0) >= 0 ? 'text-green-600' : 'text-red-600'
               }`}>
-                {(dashboardStats?.growth?.revenue || 0) >= 0 ? '+' : ''}{(dashboardStats?.growth?.revenue || 0).toFixed(1)}% from last month
+                {(dashboardStats?.growth?.commissions || 0) >= 0 ? '+' : ''}{(dashboardStats?.growth?.commissions || 0).toFixed(1)}% from last month
               </p>
             </div>
             <div className="p-3 bg-green-50 rounded-lg">
@@ -234,16 +238,12 @@ export function DashboardContent() {
         <Card className="p-6 bg-white border-slate-200 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-slate-600">Measurements</p>
-              <p className="text-3xl font-bold text-slate-900">{dashboardStats?.totalMeasurements || 0}</p>
-              <p className={`text-sm font-medium ${
-                (dashboardStats?.growth?.measurements || 0) >= 0 ? 'text-green-600' : 'text-red-600'
-              }`}>
-                {(dashboardStats?.growth?.measurements || 0) >= 0 ? '+' : ''}{(dashboardStats?.growth?.measurements || 0).toFixed(1)}% from last month
-              </p>
+              <p className="text-sm font-medium text-slate-600">Conversion Rate</p>
+              <p className="text-3xl font-bold text-slate-900">{(dashboardStats?.conversionRate || 0).toFixed(1)}%</p>
+              <p className="text-xs text-slate-500">Lead to Close</p>
             </div>
             <div className="p-3 bg-purple-50 rounded-lg">
-              <Ruler className="h-6 w-6 text-purple-600" />
+              <TrendingUp className="h-6 w-6 text-purple-600" />
             </div>
           </div>
         </Card>
@@ -266,34 +266,10 @@ export function DashboardContent() {
 
       {/* Secondary Stats Row */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="p-4 bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-600 rounded-lg">
-              <Phone className="h-4 w-4 text-white" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-blue-900">Calls Made</p>
-              <p className="text-xl font-bold text-blue-900">{dashboardStats?.callsMade || 0}</p>
-            </div>
-          </div>
-        </Card>
-        
-        <Card className="p-4 bg-gradient-to-r from-green-50 to-green-100 border-green-200">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-green-600 rounded-lg">
-              <MessageSquare className="h-4 w-4 text-white" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-green-900">SMS Sent</p>
-              <p className="text-xl font-bold text-green-900">{dashboardStats?.smsSent || 0}</p>
-            </div>
-          </div>
-        </Card>
-        
         <Card className="p-4 bg-gradient-to-r from-purple-50 to-purple-100 border-purple-200">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-purple-600 rounded-lg">
-              <TrendingUp className="h-4 w-4 text-white" />
+              <Users className="h-4 w-4 text-white" />
             </div>
             <div>
               <p className="text-sm font-medium text-purple-900">Active Leads</p>
@@ -302,14 +278,65 @@ export function DashboardContent() {
           </div>
         </Card>
         
-        <Card className="p-4 bg-gradient-to-r from-orange-50 to-orange-100 border-orange-200">
+        <Card className="p-4 bg-gradient-to-r from-green-50 to-green-100 border-green-200">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-orange-600 rounded-lg">
+            <div className="p-2 bg-green-600 rounded-lg">
               <Briefcase className="h-4 w-4 text-white" />
             </div>
             <div>
-              <p className="text-sm font-medium text-orange-900">Closed Won</p>
-              <p className="text-xl font-bold text-orange-900">{stats?.statusBreakdown?.closed_won || 0}</p>
+              <p className="text-sm font-medium text-green-900">Closed Won</p>
+              <p className="text-xl font-bold text-green-900">{stats?.statusBreakdown?.closed_won || 0}</p>
+            </div>
+          </div>
+        </Card>
+        
+        <Card className="p-4 bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-600 rounded-lg">
+              <FileText className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-blue-900">Estimates Sent</p>
+              <p className="text-xl font-bold text-blue-900">{dashboardStats?.estimatesSent || 0}</p>
+              <p className="text-xs text-blue-700">
+                {dashboardStats?.estimatesSent > dashboardStats?.estimatesSentLastMonth ? '↑' : '↓'} vs last month
+              </p>
+            </div>
+          </div>
+        </Card>
+        
+        <Card className={`p-4 bg-gradient-to-r ${
+          (dashboardStats?.pipelineValue || 0) >= 100000 
+            ? 'from-green-50 to-green-100 border-green-200' 
+            : (dashboardStats?.pipelineValue || 0) >= 50000
+            ? 'from-yellow-50 to-yellow-100 border-yellow-200'
+            : 'from-red-50 to-red-100 border-red-200'
+        }`}>
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-lg ${
+              (dashboardStats?.pipelineValue || 0) >= 100000 
+                ? 'bg-green-600' 
+                : (dashboardStats?.pipelineValue || 0) >= 50000
+                ? 'bg-yellow-600'
+                : 'bg-red-600'
+            }`}>
+              <Calculator className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <p className={`text-sm font-medium ${
+                (dashboardStats?.pipelineValue || 0) >= 100000 
+                  ? 'text-green-900' 
+                  : (dashboardStats?.pipelineValue || 0) >= 50000
+                  ? 'text-yellow-900'
+                  : 'text-red-900'
+              }`}>Pipeline Value</p>
+              <p className={`text-xl font-bold ${
+                (dashboardStats?.pipelineValue || 0) >= 100000 
+                  ? 'text-green-900' 
+                  : (dashboardStats?.pipelineValue || 0) >= 50000
+                  ? 'text-yellow-900'
+                  : 'text-red-900'
+              }`}>${(dashboardStats?.pipelineValue || 0).toLocaleString()}</p>
             </div>
           </div>
         </Card>

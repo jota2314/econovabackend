@@ -49,6 +49,13 @@ import {
   type AreaType,
   type FloorLevel
 } from "@/lib/utils/r-value-calculator"
+import { 
+  calculateMeasurementPrice, 
+  formatCurrency, 
+  calculateTotalEstimate, 
+  type InsulationType 
+} from "@/lib/utils/pricing-calculator"
+import { generateQuickEstimatePDF } from "@/lib/utils/estimate-pdf-generator"
 
 interface Measurement {
   id: string
@@ -811,10 +818,52 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         {/* Measurements List */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Square className="h-5 w-5" />
-              Measurements List
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Square className="h-5 w-5" />
+                Measurements List
+              </CardTitle>
+              {measurements.length > 0 && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="bg-green-600 hover:bg-green-700"
+                  onClick={() => {
+                    // Generate PDF estimate
+                    try {
+                      generateQuickEstimatePDF(
+                        measurements,
+                        job.job_name || 'Spray Foam Estimate',
+                        job.lead?.name || 'Customer'
+                      )
+                      
+                      // Also show the total in a toast
+                      const estimate = calculateTotalEstimate(
+                        measurements.map(m => ({
+                          squareFeet: m.square_feet,
+                          insulationType: m.insulation_type as InsulationType,
+                          rValue: m.r_value ? Number(m.r_value) : 0
+                        }))
+                      )
+                      
+                      toast.success(
+                        <div className="space-y-2">
+                          <p className="font-semibold">PDF Estimate Generated!</p>
+                          <p>Downloading PDF...</p>
+                          <p className="text-lg font-bold">Total: {formatCurrency(estimate.total)}</p>
+                        </div>
+                      )
+                    } catch (error) {
+                      console.error('Error generating PDF:', error)
+                      toast.error('Failed to generate PDF. Please try again.')
+                    }
+                  }}
+                >
+                  <Calculator className="h-4 w-4 mr-2" />
+                  Generate PDF Estimate
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             <ScrollArea className="h-[600px]">
@@ -838,6 +887,32 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                       onPhotoUpload={handlePhotoUpload}
                     />
                   ))}
+                  
+                  {/* Estimate Total Summary */}
+                  {measurements.length > 0 && (() => {
+                    const estimate = calculateTotalEstimate(
+                      measurements.map(m => ({
+                        squareFeet: m.square_feet,
+                        insulationType: m.insulation_type as InsulationType,
+                        rValue: m.r_value ? Number(m.r_value) : 0
+                      }))
+                    )
+                    
+                    return (
+                      <div className="mt-6 p-4 bg-gradient-to-r from-green-100 to-blue-100 rounded-lg border-2 border-green-300">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <h3 className="font-semibold text-lg text-slate-900">Estimate Total</h3>
+                            <p className="text-sm text-slate-600">All measurements combined</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm text-slate-600">Subtotal</p>
+                            <p className="text-2xl font-bold text-green-700">{formatCurrency(estimate.subtotal)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })()}
                 </div>
               )}
             </ScrollArea>
@@ -914,6 +989,13 @@ interface MeasurementCardProps {
 
 function MeasurementCard({ measurement, onDelete, onPhotoUpload }: MeasurementCardProps) {
   const [uploading, setUploading] = useState(false)
+  
+  // Calculate pricing for this measurement
+  const pricing = calculateMeasurementPrice(
+    measurement.square_feet,
+    measurement.insulation_type as InsulationType,
+    measurement.r_value ? Number(measurement.r_value) : 0
+  )
   
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     console.log('Photo change event triggered', e.target.files)
@@ -1016,6 +1098,20 @@ function MeasurementCard({ measurement, onDelete, onPhotoUpload }: MeasurementCa
         <div className="text-sm">
           <Label className="text-xs text-slate-500">Insulation Type</Label>
           <div className="font-medium capitalize">{measurement.insulation_type.replace('_', ' ')}</div>
+        </div>
+      )}
+
+      {/* Pricing Information */}
+      {measurement.insulation_type && measurement.r_value && pricing.pricePerSqft > 0 && (
+        <div className="grid grid-cols-2 gap-4 text-sm bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-3">
+          <div>
+            <Label className="text-xs text-slate-600 font-semibold">Price per Sq Ft</Label>
+            <div className="font-medium text-blue-700 text-base">{formatCurrency(pricing.pricePerSqft)}</div>
+          </div>
+          <div>
+            <Label className="text-xs text-slate-600 font-semibold">Total Price</Label>
+            <div className="font-bold text-green-700 text-lg">{formatCurrency(pricing.totalPrice)}</div>
+          </div>
         </div>
       )}
 
