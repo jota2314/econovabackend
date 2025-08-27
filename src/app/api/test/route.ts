@@ -45,6 +45,18 @@ export async function GET(request: NextRequest) {
       .select('id, full_name')
       .limit(3)
     
+    // Test jobs table
+    const { data: jobs, error: jobsError } = await supabase
+      .from('jobs')
+      .select('id, job_name, lead_id')
+      .limit(5)
+      
+    // Test measurements table
+    const { data: measurements, error: measurementsError } = await supabase
+      .from('measurements')
+      .select('id, job_id, room_name, square_feet')
+      .limit(10)
+    
     return NextResponse.json({
       success: true,
       message: 'Database connection working',
@@ -56,6 +68,16 @@ export async function GET(request: NextRequest) {
         users: {
           count: users?.length || 0,
           error: usersError?.message || null
+        },
+        jobs: {
+          count: jobs?.length || 0,
+          sample: jobs || [],
+          error: jobsError?.message || null
+        },
+        measurements: {
+          count: measurements?.length || 0,
+          sample: measurements || [],
+          error: measurementsError?.message || null
         }
       },
       env: envCheck,

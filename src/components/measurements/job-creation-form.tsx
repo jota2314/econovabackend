@@ -95,11 +95,12 @@ export function JobCreationForm({
         onOpenChange(false)
         onJobCreated(result.data.id)
       } else {
-        toast.error(`Failed to create job: ${result.error}`)
+        console.error('Job creation failed:', result)
+        toast.error(`Failed to create job: ${result.error || 'Unknown error'}`)
       }
     } catch (error) {
       console.error('Error creating job:', error)
-      toast.error('Failed to create job. Please try again.')
+      toast.error(`Failed to create job: ${error instanceof Error ? error.message : 'Network error'}`)
     } finally {
       setIsCreating(false)
     }

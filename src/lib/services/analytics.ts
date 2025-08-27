@@ -409,7 +409,10 @@ export class AnalyticsService {
         this.supabase.from('jobs').select('id', { count: 'exact' }),
         this.supabase
           .from('jobs')
-          .select('quote_amount')
+          .select(`
+            quote_amount,
+            leads!lead_id(status)
+          `)
           .eq('leads.status', 'closed_won')
           .gte('updated_at', startOfCurrentMonth.toISOString())
           .not('quote_amount', 'is', null),
@@ -423,7 +426,10 @@ export class AnalyticsService {
       const [lastMonthRevenueResult, lastMonthLeadsResult] = await Promise.all([
         this.supabase
           .from('jobs')
-          .select('quote_amount')
+          .select(`
+            quote_amount,
+            leads!lead_id(status)
+          `)
           .eq('leads.status', 'closed_won')
           .gte('updated_at', startOfLastMonth.toISOString())
           .lte('updated_at', endOfLastMonth.toISOString())
@@ -443,12 +449,16 @@ export class AnalyticsService {
       return {
         success: true,
         data: {
-          totalLeads: totalLeadsResult.count || 0,
-          activeJobs: activeJobsResult.count || 0,
-          monthlyRevenue: currentMonthRevenue,
-          newLeadsThisMonth: currentMonthLeads,
-          revenueGrowth: lastMonthRevenue > 0 ? ((currentMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100 : 0,
-          leadsGrowth: lastMonthLeads > 0 ? ((currentMonthLeads - lastMonthLeads) / lastMonthLeads) * 100 : 0
+          totalRevenue: currentMonthRevenue,
+          totalJobs: activeJobsResult.count || 0,
+          totalMeasurements: 0, // Will need separate query if needed
+          callsMade: 0, // Will need separate query if needed
+          smsSent: 0, // Will need separate query if needed
+          growth: {
+            revenue: lastMonthRevenue > 0 ? ((currentMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100 : 0,
+            jobs: 0, // Calculate if needed
+            measurements: 0 // Calculate if needed
+          }
         }
       }
 

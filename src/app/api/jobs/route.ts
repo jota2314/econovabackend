@@ -4,6 +4,17 @@ import { createClient } from '@/lib/supabase/server'
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient()
+    
+    // Get the authenticated user
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    
+    if (authError || !user) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
     const { searchParams } = new URL(request.url)
     const leadId = searchParams.get('leadId')
 
@@ -11,7 +22,8 @@ export async function GET(request: NextRequest) {
       .from('jobs')
       .select(`
         *,
-        lead:leads!lead_id(name, phone, address)
+        lead:leads!lead_id(name, phone, address),
+        measurements(id, room_name, surface_type, square_feet)
       `)
       .order('created_at', { ascending: false })
 
@@ -45,6 +57,18 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient()
+    
+    // Get the authenticated user
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    
+    if (authError || !user) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
     const body = await request.json()
     const { 
       job_name, 
@@ -64,7 +88,30 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const supabase = await createClient()
+    // First, ensure the user exists in the users table
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', user.id)
+      .single()
+
+    // If user doesn't exist, create them
+    if (!existingUser) {
+      const { error: userError } = await supabase
+        .from('users')
+        .insert({
+          id: user.id,
+          email: user.email || '',
+          full_name: user.user_metadata?.full_name || user.email || 'Unknown',
+          role: 'manager'
+        })
+        .single()
+      
+      if (userError) {
+        console.error('Error creating user:', userError)
+        // Continue anyway - we'll create job without created_by
+      }
+    }
 
     // Create the job
     const { data, error } = await supabase
@@ -77,7 +124,7 @@ export async function POST(request: NextRequest) {
         roof_rafters,
         scope_of_work,
         total_square_feet: 0,
-        created_by: '00000000-0000-0000-0000-000000000000' // System user for now
+        created_by: user.id
       })
       .select()
       .single()

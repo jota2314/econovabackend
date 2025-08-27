@@ -59,9 +59,7 @@ interface Job {
 
 const measurementSchema = z.object({
   room_name: z.string().min(1, "Room name is required"),
-  surface_type: z.enum(["wall", "ceiling"], {
-    required_error: "Surface type is required"
-  }),
+  surface_type: z.enum(["wall", "ceiling"]),
   height: z.number().min(0.1, "Height must be greater than 0"),
   width: z.number().min(0.1, "Width must be greater than 0"),
   notes: z.string().optional(),

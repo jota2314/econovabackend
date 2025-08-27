@@ -39,12 +39,21 @@ export class LeadsService {
 
       if (error) {
         console.error('Error fetching leads:', error)
-        return []
+        
+        // Handle specific database errors
+        if (error.message?.includes('relation "leads" does not exist')) {
+          throw new Error('Database tables not found. Please run the SQL setup first.')
+        } else if (error.message?.includes('JWT')) {
+          throw new Error('Authentication error. Please refresh the page.')
+        } else {
+          throw new Error(`Failed to fetch leads: ${error.message}`)
+        }
       }
       return data || []
     } catch (error) {
       console.error('Error in getLeads:', error)
-      return []
+      // Re-throw the error so the UI can handle it properly
+      throw error
     }
   }
 
@@ -74,6 +83,16 @@ export class LeadsService {
 
     if (error) throw error
     return data
+  }
+
+  async createMultipleLeads(leads: TablesInsert<'leads'>[]) {
+    const { data, error } = await this.supabase
+      .from('leads')
+      .insert(leads)
+      .select()
+
+    if (error) throw error
+    return data || []
   }
 
   async updateLead(id: string, updates: TablesUpdate<'leads'>) {

@@ -75,17 +75,31 @@ export default function JobsPage() {
   const loadJobs = async () => {
     try {
       setLoading(true)
+      console.log('🔄 Loading jobs...')
+      
       const response = await fetch('/api/jobs')
+      console.log('Jobs API response status:', response.status)
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Jobs API error:', errorText)
+        toast.error(`Failed to load jobs: ${response.status}`)
+        return
+      }
+      
       const result = await response.json()
+      console.log('Jobs API result:', result)
 
       if (result.success) {
-        setJobs(result.data)
+        console.log(`✅ Loaded ${result.data?.length || 0} jobs`)
+        setJobs(result.data || [])
       } else {
-        toast.error('Failed to load jobs')
+        console.error('Jobs API returned error:', result.error)
+        toast.error(`Failed to load jobs: ${result.error || 'Unknown error'}`)
       }
     } catch (error) {
-      console.error('Error loading jobs:', error)
-      toast.error('Failed to load jobs')
+      console.error('❌ Error loading jobs:', error)
+      toast.error('Failed to load jobs - please check console for details')
     } finally {
       setLoading(false)
     }
@@ -109,13 +123,31 @@ export default function JobsPage() {
     }
   }
 
-  const handleJobCreated = (jobId: string) => {
-    loadJobs()
-    // Optionally open the measurement interface for the new job
-    const newJob = jobs.find(j => j.id === jobId)
-    if (newJob) {
-      setSelectedJob(newJob)
-      setShowMeasurementInterface(true)
+  const handleJobCreated = async (jobId: string) => {
+    console.log('Job created, ID:', jobId)
+    
+    try {
+      // Always fetch the job directly to ensure we have the latest data
+      const response = await fetch(`/api/jobs/${jobId}`)
+      const result = await response.json()
+      
+      if (result.success && result.data) {
+        console.log('Job loaded successfully:', result.data)
+        setSelectedJob(result.data)
+        setShowMeasurementInterface(true)
+        // Refresh the jobs list
+        await loadJobs()
+      } else {
+        console.error('Failed to load job:', result.error)
+        toast.error('Job created but failed to open measurement interface')
+        // Still refresh the jobs list
+        await loadJobs()
+      }
+    } catch (error) {
+      console.error('Error loading new job:', error)
+      toast.error('Job created but failed to open measurement interface')
+      // Still refresh the jobs list
+      await loadJobs()
     }
   }
 
@@ -131,21 +163,25 @@ export default function JobsPage() {
     }
 
     try {
+      console.log(`Deleting job: ${jobId}`)
       const response = await fetch(`/api/jobs/${jobId}`, {
         method: 'DELETE'
       })
 
+      console.log(`Delete response status: ${response.status}`)
       const result = await response.json()
+      console.log(`Delete response:`, result)
 
       if (result.success) {
         setJobs(prev => prev.filter(job => job.id !== jobId))
         toast.success('Job deleted successfully')
       } else {
-        toast.error('Failed to delete job')
+        console.error('Delete failed:', result)
+        toast.error(`Failed to delete job: ${result.error || 'Unknown error'}`)
       }
     } catch (error) {
       console.error('Error deleting job:', error)
-      toast.error('Failed to delete job')
+      toast.error(`Failed to delete job: ${error instanceof Error ? error.message : 'Network error'}`)
     }
   }
 

@@ -11,7 +11,7 @@ import { LeadPipeline } from "@/components/leads/lead-pipeline"
 import { SMSModal } from "@/components/communications/sms-modal"
 import { CommunicationHistorySidebar } from "@/components/communications/communication-history-sidebar"
 import { Lead, TablesInsert } from "@/lib/types/database"
-import { createClient } from "@/lib/supabase/client"
+import { leadsService } from "@/lib/services/leads"
 import { useAuthContext } from "@/providers/auth-provider"
 import { toast } from "sonner"
 
@@ -29,60 +29,21 @@ export default function LeadsPage() {
   const [selectedLeadForComms, setSelectedLeadForComms] = useState<Lead | null>(null)
   
   const { user } = useAuthContext()
-  const supabase = createClient()
 
-  // Load leads from Supabase
+  // Load leads using service
   const loadLeads = async () => {
     try {
       console.log('🔄 Loading leads...')
       setLoading(true)
       
-      // Test database connection first
-      const { data: testData, error: testError } = await supabase
-        .from('leads')
-        .select('count(*)', { count: 'exact', head: true })
-
-      if (testError) {
-        console.error('❌ Database connection test failed:', testError)
-        if (testError.message?.includes('relation "leads" does not exist')) {
-          toast.error('Database table not found. Please run the SQL setup first.')
-        } else {
-          toast.error('Database connection failed. Please check configuration.')
-        }
-        return
-      }
-      
-      const { data, error } = await supabase
-        .from('leads')
-        .select('*')
-        .order('created_at', { ascending: false })
-
-      if (error) {
-        console.error('❌ Error loading leads:', error)
-        console.error('Error details:', {
-          message: error.message,
-          code: error.code,
-          details: error.details,
-          hint: error.hint
-        })
-        
-        // Show specific error messages
-        if (error.message?.includes('relation "leads" does not exist')) {
-          toast.error('Database table not found. Please run the SQL setup first.')
-        } else if (error.message?.includes('JWT')) {
-          toast.error('Authentication error. Please refresh the page.')
-        } else {
-          toast.error(`Failed to load leads: ${error.message}`)
-        }
-        return
-      }
-
+      const data = await leadsService.getLeads()
       console.log('✅ Successfully loaded', data?.length || 0, 'leads')
       setLeads(data || [])
       
     } catch (error) {
       console.error('❌ Exception loading leads:', error)
-      toast.error('Failed to load leads. Please try refreshing the page.')
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load leads. Please try refreshing the page.'
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -93,20 +54,10 @@ export default function LeadsPage() {
     try {
       if (selectedLead) {
         // Update existing lead
-        const { data, error } = await supabase
-          .from('leads')
-          .update({
-            ...leadData,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', selectedLead.id)
-          .select()
-          .single()
-
-        if (error) throw error
-
+        const updatedLead = await leadsService.updateLead(selectedLead.id, leadData)
+        
         setLeads(prev => prev.map(lead => 
-          lead.id === selectedLead.id ? data : lead
+          lead.id === selectedLead.id ? updatedLead : lead
         ))
         toast.success('Lead updated successfully')
       } else {
@@ -118,42 +69,9 @@ export default function LeadsPage() {
         
         console.log('Attempting to insert lead data:', insertData)
         
-        const { data, error } = await supabase
-          .from('leads')
-          .insert([insertData])
-          .select()
-          .single()
-
-        if (error) {
-          console.error('Database error details:', {
-            error,
-            code: error.code,
-            message: error.message,
-            details: error.details,
-            hint: error.hint
-          })
-          
-          if (error.code === 'PGRST116' || error.message?.includes('does not exist')) {
-            toast.error('Database tables not set up yet. Please run the SQL schema first.')
-            return
-          }
-          
-          // Check for RLS or permission errors
-          if (error.code === '42501' || error.message?.includes('permission denied')) {
-            toast.error('Permission denied. Check your RLS policies in Supabase.')
-            return
-          }
-          
-          // Check for column mismatch
-          if (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist')) {
-            toast.error('Database schema mismatch. Please check the table structure.')
-            return
-          }
-          
-          throw error
-        }
-
-        setLeads(prev => [data, ...prev])
+        const newLead = await leadsService.createLead(insertData)
+        
+        setLeads(prev => [newLead, ...prev])
         toast.success('Lead added successfully')
       }
 
@@ -178,15 +96,10 @@ export default function LeadsPage() {
         assigned_to: user?.id || null
       }))
 
-      const { data, error } = await supabase
-        .from('leads')
-        .insert(leadsWithUser)
-        .select()
+      const newLeads = await leadsService.createMultipleLeads(leadsWithUser)
 
-      if (error) throw error
-
-      setLeads(prev => [...data, ...prev])
-      toast.success(`Successfully imported ${data.length} leads`)
+      setLeads(prev => [...newLeads, ...prev])
+      toast.success(`Successfully imported ${newLeads.length} leads`)
     } catch (error) {
       console.error('Error importing leads:', error)
       toast.error('Failed to import leads')
@@ -197,20 +110,10 @@ export default function LeadsPage() {
   // Update lead status
   const handleUpdateStatus = async (leadId: string, status: Lead['status']) => {
     try {
-      const { data, error } = await supabase
-        .from('leads')
-        .update({ 
-          status,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', leadId)
-        .select()
-        .single()
-
-      if (error) throw error
-
+      const updatedLead = await leadsService.updateLeadStatus(leadId, status)
+      
       setLeads(prev => prev.map(lead => 
-        lead.id === leadId ? data : lead
+        lead.id === leadId ? updatedLead : lead
       ))
       toast.success('Lead status updated')
     } catch (error) {
@@ -226,13 +129,8 @@ export default function LeadsPage() {
     }
 
     try {
-      const { error } = await supabase
-        .from('leads')
-        .delete()
-        .eq('id', leadId)
-
-      if (error) throw error
-
+      await leadsService.deleteLead(leadId)
+      
       setLeads(prev => prev.filter(lead => lead.id !== leadId))
       toast.success('Lead deleted successfully')
     } catch (error) {

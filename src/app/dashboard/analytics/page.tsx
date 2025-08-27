@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DailyMetricsChart } from "@/components/analytics/daily-metrics-chart"
 import { PipelineConversionChart } from "@/components/analytics/pipeline-conversion-chart"
 import { CommissionTracking } from "@/components/analytics/commission-tracking"
@@ -10,7 +11,7 @@ import { RevenueBySourceChart } from "@/components/analytics/revenue-by-source-c
 import { PerformanceLeaderboard } from "@/components/analytics/performance-leaderboard"
 import { createClient } from "@/lib/supabase/client"
 import { User } from "@/lib/types/database"
-import { BarChart3, TrendingUp, Users, DollarSign } from "lucide-react"
+import { BarChart3, TrendingUp, Users, DollarSign, Trophy, Activity } from "lucide-react"
 
 interface Salesperson {
   id: string
@@ -23,8 +24,17 @@ export default function AnalyticsPage() {
   const [salespeople, setSalespeople] = useState<Salesperson[]>([])
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [selectedTab, setSelectedTab] = useState("overview")
 
   const supabase = createClient()
+
+  const tabOptions = [
+    { value: "overview", label: "Overview", icon: "📊" },
+    { value: "activity", label: "Activity", icon: "📈" },
+    { value: "pipeline", label: "Pipeline", icon: "👥" },
+    { value: "revenue", label: "Revenue", icon: "💰" },
+    { value: "performance", label: "Performance", icon: "🎯" }
+  ]
 
   useEffect(() => {
     loadInitialData()
@@ -100,15 +110,43 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
+      {/* Mobile Tab Selector - Compact Dropdown for small screens */}
+      <div className="md:hidden mb-4">
+        <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200">
+          <span className="text-sm font-medium text-slate-700 pl-2">View:</span>
+          <Select value={selectedTab} onValueChange={setSelectedTab}>
+            <SelectTrigger className="w-[200px] border-0 shadow-none focus:ring-0">
+              <SelectValue>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">{tabOptions.find(t => t.value === selectedTab)?.icon}</span>
+                  <span className="font-medium">{tabOptions.find(t => t.value === selectedTab)?.label}</span>
+                </div>
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {tabOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value} className="py-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg">{option.icon}</span>
+                    <span className="font-medium">{option.label}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       {/* Main Analytics Tabs */}
-      <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
+      <Tabs value={selectedTab} onValueChange={setSelectedTab} className="space-y-6">
+        {/* Desktop Tabs */}
+        <TabsList className="hidden md:grid w-full grid-cols-5">
           <TabsTrigger value="overview" className="flex items-center gap-2">
             <BarChart3 className="h-4 w-4" />
             Overview
           </TabsTrigger>
           <TabsTrigger value="activity" className="flex items-center gap-2">
-            <TrendingUp className="h-4 w-4" />
+            <Activity className="h-4 w-4" />
             Activity
           </TabsTrigger>
           <TabsTrigger value="pipeline" className="flex items-center gap-2">
@@ -120,7 +158,7 @@ export default function AnalyticsPage() {
             Revenue
           </TabsTrigger>
           <TabsTrigger value="performance" className="flex items-center gap-2">
-            <Users className="h-4 w-4" />
+            <Trophy className="h-4 w-4" />
             Performance
           </TabsTrigger>
         </TabsList>
