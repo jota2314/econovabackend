@@ -11,12 +11,10 @@ export class LeadsService {
     offset?: number
   }) {
     try {
+      // Simplified query to avoid timeouts - remove the join for now
       let query = this.supabase
         .from('leads')
-        .select(`
-          *,
-          assigned_user:users!assigned_to(full_name)
-        `)
+        .select('*')
         .order('created_at', { ascending: false })
 
       if (options?.status && options.status.length > 0) {
@@ -35,7 +33,13 @@ export class LeadsService {
         query = query.range(options.offset, (options.offset + (options.limit || 50)) - 1)
       }
 
-      const { data, error } = await query
+      console.log('Fetching leads...')
+      const result = await Promise.race([
+        query,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Leads query timeout')), 4000))
+      ])
+
+      const { data, error } = result as any
 
       if (error) {
         console.error('Error fetching leads:', error)
@@ -133,9 +137,15 @@ export class LeadsService {
         }
       }
 
-      const { data: leads, error } = await this.supabase
-        .from('leads')
-        .select('status, created_at')
+      console.log('Fetching lead stats...')
+      const result = await Promise.race([
+        this.supabase
+          .from('leads')
+          .select('status, created_at'),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Lead stats query timeout')), 3000))
+      ])
+
+      const { data: leads, error } = result as any
 
       if (error) {
         console.error('Error fetching lead stats:', error)

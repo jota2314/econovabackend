@@ -420,69 +420,65 @@ export class AnalyticsService {
 
       const now = new Date()
       const startOfCurrentMonth = startOfMonth(now)
-      const startOfLastMonth = startOfMonth(subDays(startOfCurrentMonth, 1))
-      const endOfLastMonth = endOfMonth(subDays(startOfCurrentMonth, 1))
 
-      // Get current month stats
-      const [
-        totalLeadsResult,
-        activeJobsResult,
-        monthlyRevenueResult,
-        leadsThisMonthResult
-      ] = await Promise.all([
-        this.supabase.from('leads').select('id', { count: 'exact' }),
-        this.supabase.from('jobs').select('id', { count: 'exact' }),
-        this.supabase
-          .from('jobs')
-          .select(`
-            quote_amount,
-            leads!lead_id(status)
-          `)
-          .eq('leads.status', 'closed_won')
-          .gte('updated_at', startOfCurrentMonth.toISOString())
-          .not('quote_amount', 'is', null),
-        this.supabase
-          .from('leads')
-          .select('id', { count: 'exact' })
-          .gte('created_at', startOfCurrentMonth.toISOString())
-      ])
+      // Simplified queries with individual error handling
+      let totalJobs = 0
+      let totalMeasurements = 0
+      
+      try {
+        console.log('Fetching total jobs...')
+        const jobsResult = await Promise.race([
+          this.supabase.from('jobs').select('id', { count: 'exact' }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Jobs query timeout')), 3000))
+        ])
+        totalJobs = (jobsResult as any)?.count || 0
+        console.log('Jobs count:', totalJobs)
+      } catch (error) {
+        console.warn('Failed to fetch jobs count:', error)
+      }
 
-      // Get last month stats for comparison
-      const [lastMonthRevenueResult, lastMonthLeadsResult] = await Promise.all([
-        this.supabase
-          .from('jobs')
-          .select(`
-            quote_amount,
-            leads!lead_id(status)
-          `)
-          .eq('leads.status', 'closed_won')
-          .gte('updated_at', startOfLastMonth.toISOString())
-          .lte('updated_at', endOfLastMonth.toISOString())
-          .not('quote_amount', 'is', null),
-        this.supabase
-          .from('leads')
-          .select('id', { count: 'exact' })
-          .gte('created_at', startOfLastMonth.toISOString())
-          .lte('created_at', endOfLastMonth.toISOString())
-      ])
+      try {
+        console.log('Fetching total measurements...')
+        const measurementsResult = await Promise.race([
+          this.supabase.from('measurements').select('id', { count: 'exact' }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Measurements query timeout')), 3000))
+        ])
+        totalMeasurements = (measurementsResult as any)?.count || 0
+        console.log('Measurements count:', totalMeasurements)
+      } catch (error) {
+        console.warn('Failed to fetch measurements count:', error)
+      }
 
-      const currentMonthRevenue = monthlyRevenueResult.data?.reduce((sum, job) => sum + (job.quote_amount || 0), 0) || 0
-      const lastMonthRevenue = lastMonthRevenueResult.data?.reduce((sum, job) => sum + (job.quote_amount || 0), 0) || 0
-      const currentMonthLeads = leadsThisMonthResult.count || 0
-      const lastMonthLeads = lastMonthLeadsResult.count || 0
+      // Simplified revenue calculation - just get jobs with quote amounts
+      let totalRevenue = 0
+      try {
+        console.log('Fetching revenue data...')
+        const revenueResult = await Promise.race([
+          this.supabase
+            .from('jobs')
+            .select('quote_amount')
+            .not('quote_amount', 'is', null)
+            .gte('updated_at', startOfCurrentMonth.toISOString()),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Revenue query timeout')), 3000))
+        ])
+        totalRevenue = (revenueResult as any)?.data?.reduce((sum: number, job: any) => sum + (job.quote_amount || 0), 0) || 0
+        console.log('Total revenue:', totalRevenue)
+      } catch (error) {
+        console.warn('Failed to fetch revenue:', error)
+      }
 
       return {
         success: true,
         data: {
-          totalRevenue: currentMonthRevenue,
-          totalJobs: activeJobsResult.count || 0,
-          totalMeasurements: 0, // Will need separate query if needed
-          callsMade: 0, // Will need separate query if needed
-          smsSent: 0, // Will need separate query if needed
+          totalRevenue,
+          totalJobs,
+          totalMeasurements,
+          callsMade: 0,
+          smsSent: 0,
           growth: {
-            revenue: lastMonthRevenue > 0 ? ((currentMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100 : 0,
-            jobs: 0, // Calculate if needed
-            measurements: 0 // Calculate if needed
+            revenue: 0,
+            jobs: 0,
+            measurements: 0
           }
         }
       }
@@ -523,58 +519,65 @@ export class AnalyticsService {
         }
       }
 
-      // Get recent communications
-      const { data: recentComms, error: commsError } = await this.supabase
-        .from('communications')
-        .select(`
-          id,
-          type,
-          direction,
-          created_at,
-          lead:leads!lead_id(name),
-          user:users!user_id(full_name)
-        `)
-        .order('created_at', { ascending: false })
-        .limit(limit)
+      // Simplified approach - fetch each type with individual timeouts
+      let recentComms: any[] = []
+      let recentLeads: any[] = []
+      let recentJobs: any[] = []
 
-      // Get recent leads
-      const { data: recentLeads, error: leadsError } = await this.supabase
-        .from('leads')
-        .select('id, name, status, created_at')
-        .order('created_at', { ascending: false })
-        .limit(limit)
+      try {
+        console.log('Fetching recent communications...')
+        const commsResult = await Promise.race([
+          this.supabase
+            .from('communications')
+            .select('id, type, direction, created_at')
+            .order('created_at', { ascending: false })
+            .limit(Math.min(limit, 5)),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Communications query timeout')), 2000))
+        ])
+        recentComms = (commsResult as any)?.data || []
+        console.log('Communications fetched:', recentComms.length)
+      } catch (error) {
+        console.warn('Failed to fetch communications:', error)
+      }
 
-      // Get recent jobs
-      const { data: recentJobs, error: jobsError } = await this.supabase
-        .from('jobs')
-        .select(`
-          id,
-          job_name,
-          total_square_feet,
-          created_at,
-          lead:leads!lead_id(name)
-        `)
-        .order('created_at', { ascending: false })
-        .limit(limit)
+      try {
+        console.log('Fetching recent leads...')
+        const leadsResult = await Promise.race([
+          this.supabase
+            .from('leads')
+            .select('id, name, status, created_at')
+            .order('created_at', { ascending: false })
+            .limit(Math.min(limit, 5)),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Leads query timeout')), 2000))
+        ])
+        recentLeads = (leadsResult as any)?.data || []
+        console.log('Leads fetched:', recentLeads.length)
+      } catch (error) {
+        console.warn('Failed to fetch leads:', error)
+      }
 
-      if (commsError || leadsError || jobsError) {
-        console.error('Error fetching recent activity:', { commsError, leadsError, jobsError })
-        return { 
-          success: true, 
-          data: {
-            communications: [],
-            leads: [],
-            jobs: []
-          }
-        }
+      try {
+        console.log('Fetching recent jobs...')
+        const jobsResult = await Promise.race([
+          this.supabase
+            .from('jobs')
+            .select('id, job_name, total_square_feet, created_at')
+            .order('created_at', { ascending: false })
+            .limit(Math.min(limit, 5)),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Jobs query timeout')), 2000))
+        ])
+        recentJobs = (jobsResult as any)?.data || []
+        console.log('Jobs fetched:', recentJobs.length)
+      } catch (error) {
+        console.warn('Failed to fetch jobs:', error)
       }
 
       return {
         success: true,
         data: {
-          communications: recentComms || [],
-          leads: recentLeads || [],
-          jobs: recentJobs || []
+          communications: recentComms,
+          leads: recentLeads,
+          jobs: recentJobs
         }
       }
 

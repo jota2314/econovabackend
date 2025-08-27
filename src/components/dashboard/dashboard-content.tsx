@@ -54,17 +54,18 @@ export function DashboardContent() {
         
         const analytics = new AnalyticsService()
         
-        // Fetch all data in parallel
+        // Fetch all data in parallel with individual logging
+        console.log('Starting dashboard data fetch...')
         const promises = [
-          leadsService.getLeadStats(),
-          leadsService.getLeads({ limit: 5 }),
-          analytics.getDashboardStats(),
-          analytics.getRecentActivity(8)
+          leadsService.getLeadStats().then(result => { console.log('Lead stats completed'); return result }),
+          leadsService.getLeads({ limit: 5 }).then(result => { console.log('Recent leads completed'); return result }),
+          analytics.getDashboardStats().then(result => { console.log('Dashboard stats completed'); return result }),
+          analytics.getRecentActivity(8).then(result => { console.log('Recent activity completed'); return result })
         ]
         
         // Add timeout to prevent infinite loading
         const timeout = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Request timeout')), 15000)
+          setTimeout(() => reject(new Error('Request timeout')), 8000)
         )
         
         const [leadStats, recent, dashStats, activityResponse] = await Promise.race([
