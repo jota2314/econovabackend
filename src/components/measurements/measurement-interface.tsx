@@ -334,9 +334,11 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
 
   // Handle photo upload
   const handlePhotoUpload = async (measurementId: string, file: File) => {
+    console.log('handlePhotoUpload called:', measurementId, file.name)
     // Validate file type and size
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
     if (!allowedTypes.includes(file.type)) {
+      console.log('Invalid file type:', file.type)
       toast.error('Please upload a valid image file (JPG, PNG, or WebP)')
       return
     }
@@ -914,8 +916,10 @@ function MeasurementCard({ measurement, onDelete, onPhotoUpload }: MeasurementCa
   const [uploading, setUploading] = useState(false)
   
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    console.log('Photo change event triggered', e.target.files)
     const file = e.target.files?.[0]
     if (file) {
+      console.log('File selected:', file.name, file.size, file.type)
       setUploading(true)
       try {
         await onPhotoUpload(measurement.id, file)
@@ -1025,15 +1029,24 @@ function MeasurementCard({ measurement, onDelete, onPhotoUpload }: MeasurementCa
       )}
 
       <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
-        <div className="relative">
+        <div>
           <input
             type="file"
             accept="image/*"
             onChange={handlePhotoChange}
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            className="hidden"
             id={`photo-${measurement.id}`}
+            disabled={uploading}
           />
-          <Button variant="outline" size="sm" className="relative" disabled={uploading}>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            disabled={uploading}
+            onClick={() => {
+              console.log('Button clicked, triggering file input')
+              document.getElementById(`photo-${measurement.id}`)?.click()
+            }}
+          >
             {uploading ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
             ) : (
