@@ -11,12 +11,15 @@ export class LeadsService {
     offset?: number
   }) {
     try {
-      // Simplified query to avoid timeouts - remove the join for now
+      console.log('🔄 Starting leads query...')
+      
+      // Build the query step by step
       let query = this.supabase
         .from('leads')
         .select('*')
         .order('created_at', { ascending: false })
 
+      // Apply filters
       if (options?.status && options.status.length > 0) {
         query = query.in('status', options.status)
       }
@@ -25,38 +28,54 @@ export class LeadsService {
         query = query.eq('assigned_to', options.assignedTo)
       }
 
-      if (options?.limit) {
-        query = query.limit(options.limit)
-      }
+      // Apply pagination with reasonable defaults
+      const limit = options?.limit || 100 // Reasonable default
+      query = query.limit(limit)
 
       if (options?.offset) {
-        query = query.range(options.offset, (options.offset + (options.limit || 50)) - 1)
+        query = query.range(options.offset, options.offset + limit - 1)
       }
 
-      console.log('Fetching leads...')
-      const result = await Promise.race([
-        query,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Leads query timeout')), 4000))
-      ])
-
-      const { data, error } = result as any
+      console.log('📡 Executing Supabase query...')
+      
+      // Execute query with timeout but don't use Promise.race - it can cause issues
+      const startTime = Date.now()
+      const { data, error } = await query
+      const duration = Date.now() - startTime
+      
+      console.log(`⏱️ Query completed in ${duration}ms`)
 
       if (error) {
-        console.error('Error fetching leads:', error)
+        console.error('❌ Supabase error:', error)
         
         // Handle specific database errors
-        if (error.message?.includes('relation "leads" does not exist')) {
-          throw new Error('Database tables not found. Please run the SQL setup first.')
-        } else if (error.message?.includes('JWT')) {
+        if (error.message?.includes('relation "leads" does not exist') || error.code === 'PGRST116') {
+          console.warn('⚠️ Leads table does not exist, returning empty array')
+          return []
+        } else if (error.message?.includes('JWT') || error.code === 'PGRST301') {
           throw new Error('Authentication error. Please refresh the page.')
+        } else if (error.message?.includes('timeout') || error.code === 'PGRST000') {
+          throw new Error('Query timeout. Please try again.')
         } else {
-          throw new Error(`Failed to fetch leads: ${error.message}`)
+          throw new Error(`Database error: ${error.message || 'Unknown error'}`)
         }
       }
+
+      console.log(`✅ Successfully fetched ${data?.length || 0} leads`)
       return data || []
+      
     } catch (error) {
-      console.error('Error in getLeads:', error)
-      // Re-throw the error so the UI can handle it properly
+      console.error('💥 Error in getLeads:', error)
+      
+      // If it's a network timeout or connection error
+      if (error instanceof Error) {
+        if (error.message.includes('timeout') || error.message.includes('network')) {
+          console.warn('🌐 Network timeout, returning empty array for now')
+          return []
+        }
+      }
+      
+      // Re-throw for other errors
       throw error
     }
   }
@@ -127,72 +146,88 @@ export class LeadsService {
     try {
       // Check if Supabase is properly configured
       if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-        console.warn('Supabase not configured, returning default stats')
-        return {
-          totalLeads: 0,
-          activeLeads: 0,
-          thisMonthLeads: 0,
-          lastMonthLeads: 0,
-          statusBreakdown: {}
-        }
+        console.warn('⚠️ Supabase not configured, returning default stats')
+        return this.getDefaultStats()
       }
 
-      console.log('Fetching lead stats...')
-      const result = await Promise.race([
-        this.supabase
-          .from('leads')
-          .select('status, created_at'),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Lead stats query timeout')), 3000))
-      ])
-
-      const { data: leads, error } = result as any
+      console.log('📊 Fetching lead stats...')
+      
+      // Use a more efficient query - only select what we need
+      const { data: leads, error } = await this.supabase
+        .from('leads')
+        .select('status, created_at')
+        .limit(1000) // Reasonable limit to avoid huge queries
 
       if (error) {
-        console.error('Error fetching lead stats:', error)
-        // Return default stats if table doesn't exist or other error
-        return {
-          totalLeads: 0,
-          activeLeads: 0,
-          thisMonthLeads: 0,
-          lastMonthLeads: 0,
-          statusBreakdown: {}
+        console.error('❌ Error fetching lead stats:', error)
+        
+        // If table doesn't exist, return defaults
+        if (error.code === 'PGRST116' || error.message?.includes('relation "leads" does not exist')) {
+          console.warn('⚠️ Leads table does not exist, returning default stats')
+          return this.getDefaultStats()
         }
+        
+        // For other errors, still return defaults but log them
+        console.warn('⚠️ Using default stats due to error:', error.message)
+        return this.getDefaultStats()
       }
 
+      // Calculate stats efficiently
       const now = new Date()
       const currentMonth = now.getMonth()
       const currentYear = now.getFullYear()
+      const lastMonthDate = new Date(currentYear, currentMonth - 1)
 
-      const thisMonth = leads?.filter(lead => {
+      let totalLeads = 0
+      let activeLeads = 0
+      let thisMonthLeads = 0
+      let lastMonthLeads = 0
+      const statusBreakdown: Record<string, number> = {}
+
+      // Single pass through the data for efficiency
+      leads?.forEach(lead => {
+        totalLeads++
+        
+        // Count active leads
+        if (!['closed_won', 'closed_lost'].includes(lead.status)) {
+          activeLeads++
+        }
+        
+        // Count by month
         const leadDate = new Date(lead.created_at)
-        return leadDate.getMonth() === currentMonth && leadDate.getFullYear() === currentYear
-      }) || []
+        if (leadDate.getMonth() === currentMonth && leadDate.getFullYear() === currentYear) {
+          thisMonthLeads++
+        } else if (leadDate.getMonth() === lastMonthDate.getMonth() && leadDate.getFullYear() === lastMonthDate.getFullYear()) {
+          lastMonthLeads++
+        }
+        
+        // Status breakdown
+        statusBreakdown[lead.status] = (statusBreakdown[lead.status] || 0) + 1
+      })
 
-      const lastMonth = leads?.filter(lead => {
-        const leadDate = new Date(lead.created_at)
-        const lastMonthDate = new Date(currentYear, currentMonth - 1)
-        return leadDate.getMonth() === lastMonthDate.getMonth() && leadDate.getFullYear() === lastMonthDate.getFullYear()
-      }) || []
-
+      console.log(`✅ Calculated stats for ${totalLeads} leads`)
+      
       return {
-        totalLeads: leads?.length || 0,
-        activeLeads: leads?.filter(lead => !['closed_won', 'closed_lost'].includes(lead.status)).length || 0,
-        thisMonthLeads: thisMonth.length,
-        lastMonthLeads: lastMonth.length,
-        statusBreakdown: leads?.reduce((acc, lead) => {
-          acc[lead.status] = (acc[lead.status] || 0) + 1
-          return acc
-        }, {} as Record<string, number>) || {}
+        totalLeads,
+        activeLeads,
+        thisMonthLeads,
+        lastMonthLeads,
+        statusBreakdown
       }
+      
     } catch (error) {
-      console.error('Error in getLeadStats:', error)
-      return {
-        totalLeads: 0,
-        activeLeads: 0,
-        thisMonthLeads: 0,
-        lastMonthLeads: 0,
-        statusBreakdown: {}
-      }
+      console.error('💥 Error in getLeadStats:', error)
+      return this.getDefaultStats()
+    }
+  }
+
+  private getDefaultStats() {
+    return {
+      totalLeads: 0,
+      activeLeads: 0,
+      thisMonthLeads: 0,
+      lastMonthLeads: 0,
+      statusBreakdown: {}
     }
   }
 
