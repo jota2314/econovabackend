@@ -263,7 +263,7 @@ export default function LeadsPage() {
               setSelectedLead(null)
               setShowAddDialog(true)
             }}
-            className="bg-orange-600 hover:bg-orange-700"
+            className=""
           >
             <Plus className="h-4 w-4 mr-2" />
             Add Lead

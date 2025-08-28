@@ -228,7 +228,7 @@ export default function JobsPage() {
         
         <Button
           onClick={() => setShowJobForm(true)}
-          className="bg-orange-600 hover:bg-orange-700"
+          className=""
         >
           <Plus className="h-4 w-4 mr-2" />
           New Job
@@ -320,7 +320,7 @@ export default function JobsPage() {
               }
             </p>
             {jobs.length === 0 && (
-              <Button onClick={() => setShowJobForm(true)} className="bg-orange-600 hover:bg-orange-700">
+              <Button onClick={() => setShowJobForm(true)} className="">
                 <Plus className="h-4 w-4 mr-2" />
                 Create First Job
               </Button>
@@ -410,7 +410,7 @@ export default function JobsPage() {
                   <Button
                     size="sm"
                     onClick={() => openMeasurementInterface(job)}
-                    className="bg-orange-600 hover:bg-orange-700"
+                    className=""
                   >
                     <Ruler className="h-4 w-4 mr-2" />
                     Measure

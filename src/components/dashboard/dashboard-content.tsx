@@ -185,7 +185,7 @@ export function DashboardContent() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
           <p className="mt-4 text-slate-600">Loading dashboard...</p>
         </div>
       </div>
@@ -257,8 +257,8 @@ export function DashboardContent() {
                 {getChangePercentage(stats?.thisMonthLeads || 0, stats?.lastMonthLeads || 0)} from last month
               </p>
             </div>
-            <div className="p-3 bg-orange-50 rounded-lg">
-              <Users className="h-6 w-6 text-orange-600" />
+            <div className="p-3 bg-secondary rounded-lg">
+              <Users className="h-6 w-6 text-secondary-foreground" />
             </div>
           </div>
         </Card>
@@ -364,8 +364,8 @@ export function DashboardContent() {
             ) : (
               recentActivity.map((activity, index) => (
                 <div key={index} className="flex items-start gap-3 p-3 border border-slate-100 rounded-lg">
-                  <div className="p-1.5 bg-orange-50 rounded-full">
-                    <Clock className="h-3 w-3 text-orange-600" />
+                  <div className="p-1.5 bg-secondary rounded-full">
+                    <Clock className="h-3 w-3 text-secondary-foreground" />
                   </div>
                   <div className="flex-1">
                     <p className="text-sm font-medium text-slate-900">{activity?.description || 'Activity'}</p>
@@ -451,16 +451,16 @@ export function DashboardContent() {
           </div>
         </Card>
 
-        <Card className="p-6 bg-gradient-to-r from-orange-50 to-orange-100 border-orange-200">
+        <Card className="p-6 bg-gradient-to-r from-secondary to-secondary/80 border-border">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-orange-900">Quick Actions</h3>
-              <p className="text-orange-700">Common tasks for field operations</p>
+              <h3 className="text-lg font-semibold text-secondary-foreground">Quick Actions</h3>
+              <p className="text-secondary-foreground/80">Common tasks for field operations</p>
             </div>
             <div className="flex gap-2 flex-wrap">
               <Button 
                 size="sm" 
-                className="bg-orange-600 hover:bg-orange-700"
+                className=""
                 onClick={() => router.push('/dashboard/leads')}
               >
                 Add New Lead
@@ -468,7 +468,7 @@ export function DashboardContent() {
               <Button 
                 variant="outline" 
                 size="sm" 
-                className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                className=""
                 onClick={() => router.push('/dashboard/jobs')}
               >
                 Schedule Measurement
@@ -476,7 +476,7 @@ export function DashboardContent() {
               <Button 
                 variant="outline" 
                 size="sm" 
-                className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                className=""
                 onClick={() => router.push('/dashboard/jobs')}
               >
                 Update Job Status
@@ -484,7 +484,7 @@ export function DashboardContent() {
               <Button 
                 variant="outline" 
                 size="sm" 
-                className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                className=""
                 onClick={() => router.push('/dashboard/analytics')}
               >
                 View Analytics

@@ -66,7 +66,7 @@ export function Header({
             <h1 className="text-lg font-semibold text-slate-900 hidden sm:block">
               {title}
             </h1>
-            <Badge variant="secondary" className="bg-green-50 text-green-700 border-green-200 hidden lg:flex">
+            <Badge variant="secondary" className="hidden lg:flex">
               Online
             </Badge>
           </div>
@@ -86,7 +86,7 @@ export function Header({
                 <Button variant="ghost" size="icon" className="relative">
                   <Bell className="h-4 w-4" />
                   {unreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 h-4 w-4 bg-orange-500 rounded-full text-[10px] text-white flex items-center justify-center">
+                    <span className="absolute -top-1 -right-1 h-4 w-4 bg-destructive rounded-full text-[10px] text-destructive-foreground flex items-center justify-center">
                       {unreadCount}
                     </span>
                   )}
@@ -132,7 +132,7 @@ export function Header({
                 <Button variant="ghost" className="relative h-8 w-8 rounded-full" suppressHydrationWarning>
                   <Avatar className="h-8 w-8">
                     <AvatarImage src={userData.avatar} alt={userData.name} />
-                    <AvatarFallback className="bg-orange-100 text-orange-700">
+                    <AvatarFallback className="bg-secondary text-secondary-foreground">
                       {userData.name.split(' ').map(n => n[0]).join('')}
                     </AvatarFallback>
                   </Avatar>

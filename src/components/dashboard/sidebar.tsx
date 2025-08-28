@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import Image from "next/image"
 import { usePathname, useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -11,7 +12,6 @@ import {
   Briefcase,
   BarChart3,
   Home,
-  SprayCan,
   LogOut,
   User2
 } from "lucide-react"
@@ -67,13 +67,14 @@ export function Sidebar({ className }: SidebarProps) {
     <div className={cn("pb-12 h-full", className)}>
       <div className="space-y-4 py-4">
         <div className="px-3 py-2">
-          <div className="flex items-center gap-2 mb-6 px-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-orange-500 to-orange-600 shadow-sm">
-              <SprayCan className="h-5 w-5 text-white" />
-            </div>
-            <h2 className="text-lg font-bold tracking-tight text-slate-900">
-              SprayFoam CRM
-            </h2>
+          <div className="flex items-center justify-center mb-6 px-2">
+            <Image
+              src="/Logo (4).png"
+              alt="Econova Energy Savings"
+              width={350}
+              height={85}
+              className="h-24 w-auto"
+            />
           </div>
           <div className="space-y-1">
             {navigationItems.map((item) => {
@@ -83,13 +84,13 @@ export function Sidebar({ className }: SidebarProps) {
                   key={item.href}
                   variant={active ? "secondary" : "ghost"}
                   className={cn(
-                    "w-full justify-start gap-3 text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors",
-                    active && "bg-gradient-to-r from-orange-50 to-orange-100/50 text-orange-900 hover:from-orange-100 hover:to-orange-100 font-semibold border-l-2 border-orange-500 rounded-l-none"
+                    "w-full justify-start gap-3 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors",
+                    active && "bg-secondary text-secondary-foreground hover:bg-secondary/80 font-semibold border-l-2 border-primary rounded-l-none"
                   )}
                   asChild
                 >
                   <Link href={item.href}>
-                    <item.icon className={cn("h-4 w-4 shrink-0", active ? "text-orange-600" : "text-slate-400")} />
+                    <item.icon className={cn("h-4 w-4 shrink-0", active ? "text-primary" : "text-muted-foreground")} />
                     <span className="truncate">{item.title}</span>
                   </Link>
                 </Button>
@@ -99,14 +100,14 @@ export function Sidebar({ className }: SidebarProps) {
         </div>
         <Separator />
         <div className="px-3 py-2">
-          <div className="text-xs text-slate-500 uppercase tracking-wider font-medium mb-3">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-3">
             Quick Actions
           </div>
           <div className="space-y-1">
             <Button 
               variant="ghost" 
               size="sm" 
-              className="w-full justify-start text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+              className="w-full justify-start text-xs text-muted-foreground hover:text-foreground hover:bg-muted"
               asChild
             >
               <Link href="/dashboard/leads">
@@ -116,7 +117,7 @@ export function Sidebar({ className }: SidebarProps) {
             <Button 
               variant="ghost" 
               size="sm" 
-              className="w-full justify-start text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+              className="w-full justify-start text-xs text-muted-foreground hover:text-foreground hover:bg-muted"
               asChild
             >
               <Link href="/dashboard/jobs">
@@ -126,7 +127,7 @@ export function Sidebar({ className }: SidebarProps) {
             <Button 
               variant="ghost" 
               size="sm" 
-              className="w-full justify-start text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+              className="w-full justify-start text-xs text-muted-foreground hover:text-foreground hover:bg-muted"
               asChild
             >
               <Link href="/dashboard/jobs">
@@ -141,7 +142,7 @@ export function Sidebar({ className }: SidebarProps) {
             <Button 
               variant="ghost" 
               size="sm" 
-              className="w-full justify-start gap-3 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+              className="w-full justify-start gap-3 text-xs text-muted-foreground hover:text-foreground hover:bg-muted"
               asChild
             >
               <Link href="/dashboard">
@@ -152,7 +153,7 @@ export function Sidebar({ className }: SidebarProps) {
             <Button 
               variant="ghost" 
               size="sm" 
-              className="w-full justify-start gap-3 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+              className="w-full justify-start gap-3 text-xs text-destructive hover:text-destructive/90 hover:bg-destructive/10"
               onClick={handleLogout}
             >
               <LogOut className="h-4 w-4" />

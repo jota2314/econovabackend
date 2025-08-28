@@ -42,13 +42,13 @@ export default function LoginPage() {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-500">
-              <SprayCan className="h-7 w-7 text-white" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary">
+              <SprayCan className="h-7 w-7 text-primary-foreground" />
             </div>
           </div>
           <CardTitle className="text-2xl">Welcome Back</CardTitle>
           <CardDescription>
-            Sign in to your SprayFoam CRM account
+            Sign in to your Econova CRM account
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
@@ -86,7 +86,7 @@ export default function LoginPage() {
           <CardFooter>
             <Button 
               type="submit" 
-              className="w-full bg-orange-600 hover:bg-orange-700" 
+              className="w-full" 
               disabled={loading}
             >
               {loading ? "Signing in..." : "Sign In"}
