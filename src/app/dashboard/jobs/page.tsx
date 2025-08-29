@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select"
 import { JobCreationForm } from "@/components/measurements/job-creation-form"
 import { MeasurementInterface } from "@/components/measurements/measurement-interface"
-import { Lead } from "@/lib/types/database"
+import { Lead, Job as DatabaseJob } from "@/lib/types/database"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
 import { 
@@ -30,33 +30,12 @@ import {
   Trash2
 } from "lucide-react"
 
-interface Job {
-  id: string
-  job_name: string
-  lead_id: string
-  measurement_type: 'field' | 'drawings'
-  project_type?: 'new_construction' | 'remodel' | null
-  total_square_feet: number
-  structural_framing: string
-  roof_rafters: string
-  scope_of_work?: string
-  created_at: string
-  updated_at: string
+interface Job extends DatabaseJob {
   lead?: {
     name: string
     phone: string
     address?: string
   }
-  measurements?: Array<{
-    id: string
-    room_name: string
-    floor_level?: 'first_floor' | 'second_floor' | 'basement'
-    area_type?: 'roof' | 'exterior_walls' | 'interior_walls' | 'basement_walls'
-    surface_type: 'wall' | 'ceiling'
-    square_feet: number
-    insulation_type?: 'closed_cell' | 'open_cell' | 'hybrid' | 'fiberglass' | 'roxul' | null
-    r_value?: number | null
-  }>
 }
 
 export default function JobsPage() {
@@ -65,6 +44,7 @@ export default function JobsPage() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedLead, setSelectedLead] = useState<string>("all")
+  const [selectedService, setSelectedService] = useState<string>("all")
   const [showJobForm, setShowJobForm] = useState(false)
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
   const [showMeasurementInterface, setShowMeasurementInterface] = useState(false)
@@ -201,8 +181,9 @@ export default function JobsPage() {
       job.lead?.name.toLowerCase().includes(searchTerm.toLowerCase())
     
     const matchesLead = selectedLead === "all" || job.lead_id === selectedLead
+    const matchesService = selectedService === "all" || job.service_type === selectedService
 
-    return matchesSearch && matchesLead
+    return matchesSearch && matchesLead && matchesService
   })
 
   if (showMeasurementInterface && selectedJob) {
@@ -296,6 +277,17 @@ export default function JobsPage() {
             ))}
           </SelectContent>
         </Select>
+        <Select value={selectedService} onValueChange={setSelectedService}>
+          <SelectTrigger className="w-full sm:w-[200px]">
+            <SelectValue placeholder="Filter by service" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Services</SelectItem>
+            <SelectItem value="insulation">Insulation</SelectItem>
+            <SelectItem value="hvac">HVAC</SelectItem>
+            <SelectItem value="plaster">Plaster</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Jobs List */}
@@ -335,14 +327,28 @@ export default function JobsPage() {
                 <div className="flex items-start justify-between">
                   <div>
                     <CardTitle className="text-lg">{job.job_name}</CardTitle>
-                    <div className="flex items-center gap-2 mt-2">
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
                       <User className="h-4 w-4 text-slate-400" />
                       <span className="text-sm text-slate-600">{job.lead?.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
                       <Badge 
                         variant="outline" 
                         className={job.measurement_type === 'field' ? 'border-green-300 text-green-700' : 'border-blue-300 text-blue-700'}
                       >
                         {job.measurement_type === 'field' ? 'Field' : 'Drawings'}
+                      </Badge>
+                      <Badge 
+                        variant="outline" 
+                        className="border-purple-300 text-purple-700 capitalize"
+                      >
+                        {job.service_type}
+                      </Badge>
+                      <Badge 
+                        variant="outline" 
+                        className="border-orange-300 text-orange-700 capitalize"
+                      >
+                        {job.building_type}
                       </Badge>
                     </div>
                   </div>

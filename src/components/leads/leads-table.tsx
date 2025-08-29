@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Select,
   SelectContent,
@@ -44,10 +45,13 @@ type SortDirection = 'asc' | 'desc'
 
 interface LeadsTableProps {
   leads: Lead[]
+  selectedLeads?: string[]
   onEditLead: (lead: Lead) => void
   onDeleteLead: (leadId: string) => void
   onUpdateStatus: (leadId: string, status: Lead['status']) => void
   onCallLead?: (lead: Lead) => void
+  onSelectLead?: (leadId: string, selected: boolean) => void
+  onSelectAll?: (selected: boolean) => void
   onSMSLead?: (lead: Lead) => void
   onViewHistory?: (lead: Lead) => void
 }
@@ -63,7 +67,18 @@ const statusConfig = {
   closed_lost: { label: 'Closed Lost', color: 'bg-red-100 text-red-800 border-red-200' },
 }
 
-export function LeadsTable({ leads, onEditLead, onDeleteLead, onUpdateStatus, onCallLead, onSMSLead, onViewHistory }: LeadsTableProps) {
+export function LeadsTable({ 
+  leads, 
+  selectedLeads = [], 
+  onEditLead, 
+  onDeleteLead, 
+  onUpdateStatus, 
+  onCallLead, 
+  onSMSLead, 
+  onViewHistory,
+  onSelectLead,
+  onSelectAll 
+}: LeadsTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [sortField, setSortField] = useState<SortField>('created_at')

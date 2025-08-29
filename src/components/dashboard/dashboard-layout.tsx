@@ -21,7 +21,7 @@ export function DashboardLayout({ children, title, user }: DashboardLayoutProps)
       <div className="grid lg:grid-cols-[280px_1fr] h-screen">
         <div className="hidden lg:block border-r bg-white">
           <ScrollArea className="h-full">
-            <Sidebar />
+            <Sidebar user={user} />
           </ScrollArea>
         </div>
         

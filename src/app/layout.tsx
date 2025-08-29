@@ -17,6 +17,14 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "SprayFoam CRM",
   description: "Professional spray foam insulation CRM system",
+  icons: {
+    icon: [
+      {
+        url: '/favicon.ico',
+        sizes: '32x32',
+      }
+    ],
+  }
 };
 
 export default function RootLayout({
