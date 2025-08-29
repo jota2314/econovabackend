@@ -1441,7 +1441,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                     variant="outline"
                     size="sm"
                     onClick={async () => {
-                      // Generate PDF estimate
+                      // Generate quick PDF estimate without saving to database
                       try {
                         await generateQuickEstimatePDF(
                           measurements as any,
@@ -1607,6 +1607,21 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                               }
                               
                               try {
+                                // First, save estimate to database
+                                const response = await fetch(`/api/jobs/${job.id}/estimate/generate`, {
+                                  method: 'POST',
+                                  headers: {
+                                    'Content-Type': 'application/json'
+                                  }
+                                })
+                                
+                                if (!response.ok) {
+                                  const errorData = await response.json()
+                                  throw new Error(errorData.error || 'Failed to create estimate')
+                                }
+                                
+                                const { data } = await response.json()
+                                
                                 // Prepare data for PDF generation
                                 const estimateData = measurements.map(m => ({
                                   room_name: m.room_name,
@@ -1627,10 +1642,16 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                                   job.lead?.name || 'Customer'
                                 )
                                 
-                                toast.success('Estimate PDF generated successfully!')
+                                toast.success(
+                                  <div className="space-y-2">
+                                    <p className="font-semibold">Estimate Created Successfully!</p>
+                                    <p>Estimate #{data.estimate.estimate_number}</p>
+                                    <p>PDF downloaded with {data.line_items.length} line items</p>
+                                  </div>
+                                )
                               } catch (error) {
                                 console.error('Error generating estimate:', error)
-                                toast.error('Failed to generate estimate PDF')
+                                toast.error(`Failed to generate estimate: ${error instanceof Error ? error.message : 'Unknown error'}`)
                               }
                             }}
                           >
