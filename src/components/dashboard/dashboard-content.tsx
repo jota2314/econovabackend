@@ -55,42 +55,70 @@ export function DashboardContent() {
         
         const analytics = new AnalyticsService()
         
-        // Fetch all data in parallel with individual logging
-        console.log('Starting dashboard data fetch...')
-        const promises = [
-          leadsService.getLeadStats().then(result => { console.log('Lead stats completed'); return result }),
-          leadsService.getLeads({ limit: 5 }).then(result => { console.log('Recent leads completed'); return result }),
-          analytics.getDashboardStats().then(result => { console.log('Dashboard stats completed'); return result }),
-          analytics.getRecentActivity(8).then(result => { console.log('Recent activity completed'); return result })
-        ]
+        // Fetch all data in parallel with better error handling
+        console.log('🔄 Starting dashboard data fetch...')
+        const startTime = Date.now()
         
-        // Add timeout to prevent infinite loading
-        const timeout = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Request timeout')), 8000)
-        )
+        const [leadStats, recent, dashStats, activityResponse] = await Promise.all([
+          leadsService.getLeadStats()
+            .then(result => { 
+              console.log('✅ Lead stats completed'); 
+              return result 
+            })
+            .catch(err => {
+              console.error('❌ Lead stats failed:', err)
+              return {
+                totalLeads: 0,
+                activeLeads: 0,
+                thisMonthLeads: 0,
+                lastMonthLeads: 0,
+                statusBreakdown: {}
+              }
+            }),
+          leadsService.getLeads({ limit: 5 })
+            .then(result => { 
+              console.log('✅ Recent leads completed'); 
+              return result 
+            })
+            .catch(err => {
+              console.error('❌ Recent leads failed:', err)
+              return []
+            }),
+          analytics.getDashboardStats()
+            .then(result => { 
+              console.log('✅ Dashboard stats completed'); 
+              return result 
+            })
+            .catch(err => {
+              console.error('❌ Dashboard stats failed:', err)
+              return {
+                commissions: 0,
+                totalJobs: 0,
+                conversionRate: 0,
+                pipelineValue: 0,
+                estimatesSent: 0,
+                estimatesSentLastMonth: 0,
+                growth: { commissions: 0, jobs: 0, estimates: 0 }
+              }
+            }),
+          analytics.getRecentActivity(8)
+            .then(result => { 
+              console.log('✅ Recent activity completed'); 
+              return result 
+            })
+            .catch(err => {
+              console.error('❌ Recent activity failed:', err)
+              return { success: false, data: { communications: [], leads: [], jobs: [] } }
+            })
+        ])
         
-        const [leadStats, recent, dashStats, activityResponse] = await Promise.race([
-          Promise.all(promises),
-          timeout
-        ]) as [any, any, any, any]
+        const duration = Date.now() - startTime
+        console.log(`✅ Dashboard data fetch completed in ${duration}ms`)
         
-        setStats(leadStats || {
-          totalLeads: 0,
-          activeLeads: 0,
-          thisMonthLeads: 0,
-          lastMonthLeads: 0,
-          statusBreakdown: {}
-        })
-        setRecentLeads(recent || [])
-        setDashboardStats(dashStats || {
-          commissions: 0,
-          totalJobs: 0,
-          conversionRate: 0,
-          pipelineValue: 0,
-          estimatesSent: 0,
-          estimatesSentLastMonth: 0,
-          growth: { commissions: 0, jobs: 0, estimates: 0 }
-        })
+        // Set the data (defaults are already handled in individual catch blocks)
+        setStats(leadStats)
+        setRecentLeads(recent)
+        setDashboardStats(dashStats)
         
         // Process activity response
         if (activityResponse?.success && activityResponse?.data) {
@@ -119,25 +147,35 @@ export function DashboardContent() {
           setRecentActivity([])
         }
       } catch (error) {
-        console.error('Error fetching dashboard data:', error)
-        // Set default empty states
-        setStats({
-          totalLeads: 0,
-          activeLeads: 0,
-          thisMonthLeads: 0,
-          lastMonthLeads: 0,
-          statusBreakdown: {}
-        })
-        setRecentLeads([])
-        setDashboardStats({
-          commissions: 0,
-          totalJobs: 0,
-          conversionRate: 0,
-          pipelineValue: 0,
-          estimatesSent: 0,
-          estimatesSentLastMonth: 0,
-          growth: { commissions: 0, jobs: 0, estimates: 0 }
-        })
+        console.error('💥 Dashboard data fetch failed:', error)
+        
+        // Individual services already handle their own errors and provide defaults
+        // This catch is for any unexpected errors in the processing logic
+        
+        // Set default empty states only if they haven't been set by individual catches
+        if (!stats.totalLeads && stats.totalLeads !== 0) {
+          setStats({
+            totalLeads: 0,
+            activeLeads: 0,
+            thisMonthLeads: 0,
+            lastMonthLeads: 0,
+            statusBreakdown: {}
+          })
+        }
+        if (!recentLeads.length) {
+          setRecentLeads([])
+        }
+        if (!dashboardStats.totalJobs && dashboardStats.totalJobs !== 0) {
+          setDashboardStats({
+            commissions: 0,
+            totalJobs: 0,
+            conversionRate: 0,
+            pipelineValue: 0,
+            estimatesSent: 0,
+            estimatesSentLastMonth: 0,
+            growth: { commissions: 0, jobs: 0, estimates: 0 }
+          })
+        }
         setRecentActivity([])
       } finally {
         setLoading(false)

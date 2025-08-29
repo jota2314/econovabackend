@@ -56,51 +56,70 @@ import {
   type InsulationType 
 } from "@/lib/utils/pricing-calculator"
 import { generateQuickEstimatePDF } from "@/lib/utils/estimate-pdf-generator"
+import { Job as DatabaseJob, InsulationMeasurement, PricingCatalog } from "@/lib/types/database"
+import { EstimateBuilder } from "./estimate-builder"
 
-interface Measurement {
+// Extended Job interface with lead information
+interface Job extends DatabaseJob {
+  lead?: {
+    name: string
+    phone: string
+    address?: string
+  }
+  measurements?: Measurement[]
+}
+
+// Using InsulationMeasurement type from database
+interface Measurement extends Omit<InsulationMeasurement, 'id' | 'job_id' | 'created_at' | 'updated_at'> {
   id: string
-  room_name: string  // Description/name of the wall section
-  floor_level?: string | null  // Text field for floor level
-  area_type?: 'exterior_walls' | 'interior_walls' | 'ceiling' | 'gable' | 'roof' | null
-  surface_type: 'wall' | 'ceiling'  // Keep original surface type
-  framing_size?: '2x4' | '2x6' | '2x8' | '2x10' | '2x12' | null
-  height: number
-  width: number
-  square_feet: number
-  insulation_type?: 'closed_cell' | 'open_cell' | 'fiberglass' | 'roxul' | null
-  r_value?: string | null  // Changed to string to match schema
-  photo_url?: string | null
-  notes?: string | null
   photo_file?: File | null
 }
 
-interface Job {
-  id: string
-  job_name: string
-  lead_id: string
-  project_type?: 'new_construction' | 'remodel' | null
-  total_square_feet: number
-  structural_framing: string
-  roof_rafters: string
-}
-
+// Insulation Schema
 const wallDimensionSchema = z.object({
   height: z.number().min(0.1, "Height must be greater than 0"),
   width: z.number().min(0.1, "Width must be greater than 0"),
 })
 
-const measurementSchema = z.object({
+const insulationMeasurementSchema = z.object({
   room_name: z.string().min(1, "Wall section name is required"),
   floor_level: z.string().optional(),
   area_type: z.enum(["exterior_walls", "interior_walls", "ceiling", "gable", "roof"]).optional(),
   surface_type: z.enum(["wall", "ceiling"]),
-  framing_size: z.enum(["2x4", "2x6", "2x8", "2x10", "2x12"]).optional(),
+  framing_size: z.enum(["2x4", "2x6", "2x8", "2x10", "2x12"]),
   wall_dimensions: z.array(wallDimensionSchema).min(1, "At least one wall section is required"),
-  insulation_type: z.enum(["closed_cell", "open_cell", "fiberglass", "roxul"]).optional(),
+  insulation_type: z.enum(["closed_cell", "open_cell", "fiberglass_batt", "fiberglass_blown", "hybrid"]).optional(),
   notes: z.string().optional(),
 })
 
-type MeasurementFormData = z.infer<typeof measurementSchema>
+// HVAC Schema
+const hvacMeasurementSchema = z.object({
+  room_name: z.string().min(1, "Room name is required"),
+  system_type: z.enum(["central_air", "heat_pump", "furnace"]),
+  tonnage: z.number().min(0.5, "Tonnage must be at least 0.5").max(20, "Tonnage must be less than 20"),
+  seer_rating: z.number().min(8, "SEER rating must be at least 8").max(30, "SEER rating must be less than 30").optional(),
+  ductwork_linear_feet: z.number().min(0, "Ductwork linear feet must be positive"),
+  return_vents_count: z.number().min(0, "Return vents count must be positive"),
+  supply_vents_count: z.number().min(0, "Supply vents count must be positive"),
+  notes: z.string().optional(),
+})
+
+// Plaster Schema
+const plasterMeasurementSchema = z.object({
+  room_name: z.string().min(1, "Room name is required"),
+  wall_condition: z.enum(["good", "fair", "poor"]),
+  ceiling_condition: z.enum(["good", "fair", "poor"]),
+  wall_square_feet: z.number().min(0, "Wall square feet must be positive"),
+  ceiling_square_feet: z.number().min(0, "Ceiling square feet must be positive"),
+  prep_work_hours: z.number().min(0, "Prep work hours must be positive"),
+  notes: z.string().optional(),
+})
+
+type InsulationMeasurementFormData = z.infer<typeof insulationMeasurementSchema>
+type HvacMeasurementFormData = z.infer<typeof hvacMeasurementSchema>
+type PlasterMeasurementFormData = z.infer<typeof plasterMeasurementSchema>
+
+type MeasurementFormData = InsulationMeasurementFormData | HvacMeasurementFormData | PlasterMeasurementFormData
 
 interface MeasurementInterfaceProps {
   job: Job
@@ -113,25 +132,108 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [showForm, setShowForm] = useState(true)
+  const [serviceType, setServiceType] = useState<'insulation' | 'hvac' | 'plaster'>(job.service_type || 'insulation')
+  const [pricing, setPricing] = useState<PricingCatalog[]>([])
+  const [loadingPricing, setLoadingPricing] = useState(false)
+  const [showEstimateBuilder, setShowEstimateBuilder] = useState(false)
 
-  const form = useForm<MeasurementFormData>({
-    resolver: zodResolver(measurementSchema),
-    defaultValues: {
-      room_name: "",  // Wall section name
-      floor_level: "",
-      area_type: "exterior_walls",
-      surface_type: "wall",
-      framing_size: "2x6",
-      wall_dimensions: [{ height: undefined as any, width: undefined as any }],
-      insulation_type: "closed_cell",
-      notes: ""
+  // Dynamic form based on service type
+  const getFormConfig = (serviceType: string) => {
+    switch (serviceType) {
+      case 'insulation':
+        return {
+          schema: insulationMeasurementSchema,
+          defaultValues: {
+            room_name: "",
+            floor_level: "",
+            area_type: "exterior_walls" as const,
+            surface_type: "wall" as const,
+            framing_size: "2x6" as const,
+            wall_dimensions: [{ height: undefined as any, width: undefined as any }],
+            insulation_type: "closed_cell" as const,
+            notes: ""
+          }
+        }
+      case 'hvac':
+        return {
+          schema: hvacMeasurementSchema,
+          defaultValues: {
+            room_name: "",
+            system_type: "central_air" as const,
+            tonnage: undefined as any,
+            seer_rating: undefined as any,
+            ductwork_linear_feet: undefined as any,
+            return_vents_count: undefined as any,
+            supply_vents_count: undefined as any,
+            notes: ""
+          }
+        }
+      case 'plaster':
+        return {
+          schema: plasterMeasurementSchema,
+          defaultValues: {
+            room_name: "",
+            wall_condition: "good" as const,
+            ceiling_condition: "good" as const,
+            wall_square_feet: undefined as any,
+            ceiling_square_feet: undefined as any,
+            prep_work_hours: undefined as any,
+            notes: ""
+          }
+        }
+      default:
+        return {
+          schema: insulationMeasurementSchema,
+          defaultValues: {
+            room_name: "",
+            floor_level: "",
+            area_type: "exterior_walls" as const,
+            surface_type: "wall" as const,
+            framing_size: "2x6" as const,
+            wall_dimensions: [{ height: undefined as any, width: undefined as any }],
+            insulation_type: "closed_cell" as const,
+            notes: ""
+          }
+        }
     }
+  }
+
+  const formConfig = getFormConfig(serviceType)
+  const form = useForm<any>({
+    resolver: zodResolver(formConfig.schema),
+    defaultValues: formConfig.defaultValues
   })
 
   const { fields, append, remove } = useFieldArray({
     control: form.control,
     name: "wall_dimensions"
   })
+
+  // Reset form when service type changes
+  useEffect(() => {
+    const newFormConfig = getFormConfig(serviceType)
+    form.reset(newFormConfig.defaultValues)
+  }, [serviceType, form])
+
+  // Load pricing data for the selected service type
+  const loadPricing = useCallback(async (service: string) => {
+    try {
+      setLoadingPricing(true)
+      const response = await fetch(`/api/pricing/${service}`)
+      const result = await response.json()
+
+      if (result.success) {
+        setPricing(result.data || [])
+      } else {
+        toast.error('Failed to load pricing data')
+      }
+    } catch (error) {
+      console.error('Error loading pricing:', error)
+      toast.error('Failed to load pricing data')
+    } finally {
+      setLoadingPricing(false)
+    }
+  }, [])
 
   // Load existing measurements
   const loadMeasurements = useCallback(async () => {
@@ -155,7 +257,14 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
 
   useEffect(() => {
     loadMeasurements()
-  }, [loadMeasurements])
+    loadPricing(serviceType)
+  }, [loadMeasurements, loadPricing, serviceType])
+
+  // Handle service type change
+  const handleServiceTypeChange = (newServiceType: 'insulation' | 'hvac' | 'plaster') => {
+    setServiceType(newServiceType)
+    loadPricing(newServiceType)
+  }
 
   // Calculate total square feet
   const totalSquareFeet = measurements.reduce((total, measurement) => {
@@ -192,19 +301,23 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
   }>)
 
   // Add new measurement(s) - one for each wall dimension
-  const addMeasurement = async (data: MeasurementFormData) => {
+  const addMeasurement = async (data: any) => {
     try {
       setSaving(true)
       
-      // Calculate R-value based on project type and area type
-      const projectType = (job.project_type as ProjectType) || 'new_construction'
-      const rValueResult = data.area_type 
-        ? calculateRValue(projectType, data.area_type)
-        : { rValue: 0 }  // Default if no area type
+      if (serviceType === 'insulation') {
+        // Handle insulation measurements
+        const insulationData = data as InsulationMeasurementFormData
+        
+        // Calculate R-value based on project type and area type
+        const projectType = (job.project_type as ProjectType) || 'new_construction'
+        const rValueResult = insulationData.area_type 
+          ? calculateRValue(projectType, insulationData.area_type)
+          : { rValue: 0 }  // Default if no area type
 
-      // Create a measurement for each valid wall dimension
-      const validWalls = data.wall_dimensions.filter(wall => wall.height > 0 && wall.width > 0)
-      const newMeasurements: Measurement[] = []
+        // Create a measurement for each valid wall dimension
+        const validWalls = insulationData.wall_dimensions.filter((wall: any) => wall.height > 0 && wall.width > 0)
+        const newMeasurements: Measurement[] = []
       
       for (let i = 0; i < validWalls.length; i++) {
         const wall = validWalls[i]
@@ -212,17 +325,17 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         
         const newMeasurement: Measurement = {
           id: `temp-${Date.now()}-${i}`,
-          room_name: validWalls.length > 1 ? `${data.room_name} - Wall ${i + 1}` : data.room_name,
-          floor_level: data.floor_level || null,
-          area_type: data.area_type,
-          surface_type: data.surface_type,
-          framing_size: data.framing_size || null,
+          room_name: validWalls.length > 1 ? `${insulationData.room_name} - Wall ${i + 1}` : insulationData.room_name,
+          floor_level: insulationData.floor_level || null,
+          area_type: insulationData.area_type,
+          surface_type: insulationData.surface_type,
+          framing_size: insulationData.framing_size,
           height: wall.height,
           width: wall.width,
           square_feet,
-          insulation_type: data.insulation_type || null,
+          insulation_type: insulationData.insulation_type || null,
           r_value: rValueResult?.rValue?.toString() || null,
-          notes: data.notes || null,
+          notes: insulationData.notes || null,
           photo_url: null,
           photo_file: null
         }
@@ -233,7 +346,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
       setMeasurements(prev => [...prev, ...newMeasurements])
       
       // Save each measurement to database
-      const savedMeasurements = []
+      const savedMeasurements: { tempId: string; realId: string }[] = []
       let errorCount = 0
       
       for (const measurement of newMeasurements) {
@@ -296,17 +409,113 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         toast.error(`${errorCount} wall${errorCount !== 1 ? 's' : ''} failed to save`)
       }
 
-      if (savedMeasurements.length > 0) {
-        form.reset({
-          room_name: "", // Clear for next measurement
-          floor_level: data.floor_level, // Keep floor level
-          area_type: data.area_type, // Keep area type
-          surface_type: "wall", // Reset to default
-          framing_size: data.framing_size, // Keep framing size
-          wall_dimensions: [{ height: undefined as any, width: undefined as any }], // Reset to single wall
-          insulation_type: data.insulation_type, // Keep insulation type
-          notes: ""
+        if (savedMeasurements.length > 0) {
+          form.reset({
+            room_name: "", // Clear for next measurement
+            floor_level: insulationData.floor_level, // Keep floor level
+            area_type: insulationData.area_type, // Keep area type
+            surface_type: "wall", // Reset to default
+            framing_size: insulationData.framing_size, // Keep framing size
+            wall_dimensions: [{ height: undefined as any, width: undefined as any }], // Reset to single wall
+            insulation_type: insulationData.insulation_type, // Keep insulation type
+            notes: ""
+          })
+        }
+      } else if (serviceType === 'hvac') {
+        // Handle HVAC measurements
+        const hvacData = data as HvacMeasurementFormData
+        
+        const newMeasurement = {
+          room_name: hvacData.room_name,
+          system_type: hvacData.system_type,
+          tonnage: hvacData.tonnage,
+          seer_rating: hvacData.seer_rating,
+          ductwork_linear_feet: hvacData.ductwork_linear_feet,
+          return_vents_count: hvacData.return_vents_count,
+          supply_vents_count: hvacData.supply_vents_count,
+          notes: hvacData.notes
+        }
+
+        const response = await fetch(`/api/jobs/${job.id}/measurements`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(newMeasurement)
         })
+
+        const result = await response.json()
+
+        if (result.success) {
+          // Add to local state with temp ID until we reload
+          setMeasurements(prev => [...prev, { 
+            ...newMeasurement, 
+            id: result.data.id,
+            square_feet: 0, // HVAC doesn't use square feet
+            height: 0,
+            width: 0,
+            surface_type: 'wall',
+            framing_size: null,
+            area_type: null,
+            floor_level: null,
+            insulation_type: null,
+            r_value: null,
+            photo_url: null
+          } as any])
+          
+          toast.success('HVAC measurement added successfully')
+          form.reset(formConfig.defaultValues)
+        } else {
+          console.error('Failed to save HVAC measurement:', result.error)
+          toast.error(`Failed to add HVAC measurement: ${result.error}`)
+        }
+      } else if (serviceType === 'plaster') {
+        // Handle Plaster measurements
+        const plasterData = data as PlasterMeasurementFormData
+        
+        const newMeasurement = {
+          room_name: plasterData.room_name,
+          wall_condition: plasterData.wall_condition,
+          ceiling_condition: plasterData.ceiling_condition,
+          wall_square_feet: plasterData.wall_square_feet,
+          ceiling_square_feet: plasterData.ceiling_square_feet,
+          prep_work_hours: plasterData.prep_work_hours,
+          notes: plasterData.notes
+        }
+
+        const response = await fetch(`/api/jobs/${job.id}/measurements`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(newMeasurement)
+        })
+
+        const result = await response.json()
+
+        if (result.success) {
+          // Add to local state with temp ID until we reload
+          setMeasurements(prev => [...prev, { 
+            ...newMeasurement, 
+            id: result.data.id,
+            square_feet: plasterData.wall_square_feet + plasterData.ceiling_square_feet,
+            height: 0,
+            width: 0,
+            surface_type: 'wall',
+            framing_size: null,
+            area_type: null,
+            floor_level: null,
+            insulation_type: null,
+            r_value: null,
+            photo_url: null
+          } as any])
+          
+          toast.success('Plaster measurement added successfully')
+          form.reset(formConfig.defaultValues)
+        } else {
+          console.error('Failed to save plaster measurement:', result.error)
+          toast.error(`Failed to add plaster measurement: ${result.error}`)
+        }
       }
     } catch (error) {
       console.error('Error adding measurement:', error)
@@ -422,6 +631,642 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
     }
   }, [totalSquareFeet])
 
+  // Calculate total square footage from form dimensions
+  const calculateTotalSquareFeet = () => {
+    const wallDimensions = form.watch('wall_dimensions') || []
+    return wallDimensions.reduce((total: number, wall: any) => {
+      if (wall?.height && wall?.width) {
+        return total + (wall.height * wall.width)
+      }
+      return total
+    }, 0)
+  }
+
+  // Calculate real-time pricing
+  const calculateRealtimePrice = () => {
+    const insulationType = form.watch('insulation_type')
+    const totalSqFt = calculateTotalSquareFeet()
+    
+    if (!insulationType || totalSqFt === 0) return null
+    
+    // Get R-value based on project type and area type
+    const projectType = (job.project_type as ProjectType) || 'new_construction'
+    const areaType = form.watch('area_type')
+    const rValueResult = areaType ? calculateRValue(projectType, areaType) : { rValue: 0 }
+    const rValue = rValueResult?.rValue || 0
+    
+    return calculateMeasurementPrice(totalSqFt, insulationType as InsulationType, rValue)
+  }
+
+  // Watch form changes to update real-time calculations
+  const realtimePrice = calculateRealtimePrice()
+  const totalSqFt = calculateTotalSquareFeet()
+
+  // Render different forms based on service type
+  const renderInsulationForm = () => (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(addMeasurement)} className="space-y-4">
+        {/* Floor/Area Name */}
+        <FormField
+          control={form.control}
+          name="room_name"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="flex items-center gap-2">
+                <Building2 className="h-4 w-4" />
+                Area Name
+              </FormLabel>
+              <FormControl>
+                <Input 
+                  placeholder="Living Room, Master Bedroom, etc." 
+                  {...field} 
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* Insulation Type Selection */}
+        <FormField
+          control={form.control}
+          name="insulation_type"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="flex items-center gap-2">
+                <Ruler className="h-4 w-4" />
+                Insulation Type
+              </FormLabel>
+              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select insulation type" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent className="min-w-0 [&_[data-highlighted]]:bg-green-600 [&_[data-highlighted]]:text-white">
+                  <SelectItem value="closed_cell">
+                    <div className="flex flex-col py-2 group-data-[highlighted]:text-white">
+                      <span className="font-medium text-slate-900 group-data-[highlighted]:text-white">Closed Cell Spray Foam</span>
+                      <span className="text-xs text-slate-500 group-data-[highlighted]:text-slate-200">Higher R-value per inch, air/vapor/moisture barrier.</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="open_cell">
+                    <div className="flex flex-col py-2 group-data-[highlighted]:text-white">
+                      <span className="font-medium text-slate-900 group-data-[highlighted]:text-white">Open Cell Spray Foam</span>
+                      <span className="text-xs text-slate-500 group-data-[highlighted]:text-slate-200">Lower cost, flexible, sound dampening.</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="fiberglass_batt">
+                    <div className="flex flex-col py-2 group-data-[highlighted]:text-white">
+                      <span className="font-medium text-slate-900 group-data-[highlighted]:text-white">Fiberglass Batt</span>
+                      <span className="text-xs text-slate-500 group-data-[highlighted]:text-slate-200">Pre-cut blanket rolls for stud bays.</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="fiberglass_blown">
+                    <div className="flex flex-col py-2 group-data-[highlighted]:text-white">
+                      <span className="font-medium text-slate-900 group-data-[highlighted]:text-white">Fiberglass Blown-in</span>
+                      <span className="text-xs text-slate-500 group-data-[highlighted]:text-slate-200">Loose fill for attics/irregular cavities.</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="hybrid">
+                    <div className="flex flex-col py-2 group-data-[highlighted]:text-white">
+                      <span className="font-medium text-slate-900 group-data-[highlighted]:text-white">Hybrid (Open + Closed Cell)</span>
+                      <span className="text-xs text-slate-500 group-data-[highlighted]:text-slate-200">Combination approach: closed cell against exterior/condensing surfaces for vapor control, open cell to fill remaining cavity.</span>
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* Area Type and Framing */}
+        <div className="grid grid-cols-2 gap-4">
+          <FormField
+            control={form.control}
+            name="area_type"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Area Type</FormLabel>
+                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select area" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="exterior_walls">Exterior Walls</SelectItem>
+                    <SelectItem value="interior_walls">Interior Walls</SelectItem>
+                    <SelectItem value="ceiling">Ceiling</SelectItem>
+                    <SelectItem value="gable">Gable</SelectItem>
+                    <SelectItem value="roof">Roof</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="framing_size"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Framing Size</FormLabel>
+                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Framing" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="2x4">2x4</SelectItem>
+                    <SelectItem value="2x6">2x6</SelectItem>
+                    <SelectItem value="2x8">2x8</SelectItem>
+                    <SelectItem value="2x10">2x10</SelectItem>
+                    <SelectItem value="2x12">2x12</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        {/* Wall Dimensions Section */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <Label className="text-sm font-medium">Wall Dimensions</Label>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => append({ height: undefined as any, width: undefined as any })}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Wall
+            </Button>
+          </div>
+          
+          {fields.map((field, index) => (
+            <div key={field.id} className="flex gap-2 items-end">
+              <FormField
+                control={form.control}
+                name={`wall_dimensions.${index}.height`}
+                render={({ field }) => (
+                  <FormItem className="flex-1">
+                    {index === 0 && <FormLabel className="text-xs">Height (ft)</FormLabel>}
+                    <FormControl>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        placeholder="8.0"
+                        {...field}
+                        onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <FormField
+                control={form.control}
+                name={`wall_dimensions.${index}.width`}
+                render={({ field }) => (
+                  <FormItem className="flex-1">
+                    {index === 0 && <FormLabel className="text-xs">Width (ft)</FormLabel>}
+                    <FormControl>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        placeholder="12.0"
+                        {...field}
+                        onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <div className="w-16 text-center">
+                {index === 0 && <Label className="text-xs block mb-1">Sq Ft</Label>}
+                <div className="h-10 flex items-center justify-center text-sm font-medium text-slate-600 bg-slate-50 rounded border">
+                  {(() => {
+                    const height = form.watch(`wall_dimensions.${index}.height`)
+                    const width = form.watch(`wall_dimensions.${index}.width`)
+                    return height && width ? (height * width).toFixed(1) : '0'
+                  })()}
+                </div>
+              </div>
+              
+              {fields.length > 1 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => remove(index)}
+                  className="text-red-600 hover:text-red-700 p-2"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Real-time Totals */}
+        {totalSqFt > 0 && (
+          <div className="p-3 bg-gradient-to-r from-blue-50 to-green-50 rounded-lg border">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-sm font-medium text-slate-700">Total Area:</span>
+              <span className="text-lg font-bold text-blue-600">{totalSqFt.toFixed(1)} sq ft</span>
+            </div>
+            
+            {realtimePrice && realtimePrice.pricePerSqft > 0 && (
+              <>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-600">Price per sq ft:</span>
+                  <span className="font-medium text-green-600">{formatCurrency(realtimePrice.pricePerSqft)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium text-slate-700">Estimated Total:</span>
+                  <span className="text-xl font-bold text-green-700">{formatCurrency(realtimePrice.totalPrice)}</span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Notes */}
+        <FormField
+          control={form.control}
+          name="notes"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Special Requirements (Optional)</FormLabel>
+              <FormControl>
+                <Textarea 
+                  placeholder="Prep work needed, fire retardant required, access notes, etc."
+                  rows={2}
+                  {...field} 
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <Button type="submit" className="w-full" disabled={saving || totalSqFt === 0}>
+          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+          Add Measurement {totalSqFt > 0 && `(${totalSqFt.toFixed(1)} sq ft)`}
+        </Button>
+      </form>
+    </Form>
+  )
+
+  const renderHvacForm = () => (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(addMeasurement)} className="space-y-4">
+        <FormField
+          control={form.control}
+          name="room_name"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="flex items-center gap-2">
+                <Building2 className="h-4 w-4" />
+                Room Name
+              </FormLabel>
+              <FormControl>
+                <Input 
+                  placeholder="Living Room, Master Bedroom, etc." 
+                  {...field} 
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="system_type"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>System Type</FormLabel>
+              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select system type" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="central_air">Central Air</SelectItem>
+                  <SelectItem value="heat_pump">Heat Pump</SelectItem>
+                  <SelectItem value="furnace">Furnace</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <div className="grid grid-cols-2 gap-4">
+          <FormField
+            control={form.control}
+            name="tonnage"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Tonnage</FormLabel>
+                <FormControl>
+                  <Input 
+                    type="number"
+                    step="0.5"
+                    placeholder="2.5" 
+                    {...field}
+                    onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="seer_rating"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>SEER Rating (Optional)</FormLabel>
+                <FormControl>
+                  <Input 
+                    type="number"
+                    placeholder="13" 
+                    {...field}
+                    onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) : undefined)}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <FormField
+          control={form.control}
+          name="ductwork_linear_feet"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Ductwork Linear Feet</FormLabel>
+              <FormControl>
+                <Input 
+                  type="number"
+                  placeholder="150" 
+                  {...field}
+                  onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <div className="grid grid-cols-2 gap-4">
+          <FormField
+            control={form.control}
+            name="return_vents_count"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Return Vents Count</FormLabel>
+                <FormControl>
+                  <Input 
+                    type="number"
+                    placeholder="8" 
+                    {...field}
+                    onChange={(e) => field.onChange(parseInt(e.target.value))}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="supply_vents_count"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Supply Vents Count</FormLabel>
+                <FormControl>
+                  <Input 
+                    type="number"
+                    placeholder="12" 
+                    {...field}
+                    onChange={(e) => field.onChange(parseInt(e.target.value))}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <FormField
+          control={form.control}
+          name="notes"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Notes (Optional)</FormLabel>
+              <FormControl>
+                <Textarea 
+                  placeholder="Additional notes about the HVAC system..."
+                  {...field} 
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <Button type="submit" className="w-full" disabled={saving}>
+          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+          Add HVAC Measurement
+        </Button>
+      </form>
+    </Form>
+  )
+
+  const renderPlasterForm = () => (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(addMeasurement)} className="space-y-4">
+        <FormField
+          control={form.control}
+          name="room_name"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="flex items-center gap-2">
+                <Building2 className="h-4 w-4" />
+                Room Name
+              </FormLabel>
+              <FormControl>
+                <Input 
+                  placeholder="Living Room, Master Bedroom, etc." 
+                  {...field} 
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <div className="grid grid-cols-2 gap-4">
+          <FormField
+            control={form.control}
+            name="wall_condition"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Wall Condition</FormLabel>
+                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select condition" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="good">Good</SelectItem>
+                    <SelectItem value="fair">Fair</SelectItem>
+                    <SelectItem value="poor">Poor</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="ceiling_condition"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Ceiling Condition</FormLabel>
+                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select condition" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="good">Good</SelectItem>
+                    <SelectItem value="fair">Fair</SelectItem>
+                    <SelectItem value="poor">Poor</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <FormField
+            control={form.control}
+            name="wall_square_feet"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Wall Square Feet</FormLabel>
+                <FormControl>
+                  <Input 
+                    type="number"
+                    placeholder="120" 
+                    {...field}
+                    onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="ceiling_square_feet"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Ceiling Square Feet</FormLabel>
+                <FormControl>
+                  <Input 
+                    type="number"
+                    placeholder="200" 
+                    {...field}
+                    onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <FormField
+          control={form.control}
+          name="prep_work_hours"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Prep Work Hours</FormLabel>
+              <FormControl>
+                <Input 
+                  type="number"
+                  step="0.5"
+                  placeholder="4" 
+                  {...field}
+                  onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="notes"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Notes (Optional)</FormLabel>
+              <FormControl>
+                <Textarea 
+                  placeholder="Additional notes about the plaster work..."
+                  {...field} 
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <Button type="submit" className="w-full" disabled={saving}>
+          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+          Add Plaster Measurement
+        </Button>
+      </form>
+    </Form>
+  )
+
+  const renderCurrentForm = () => {
+    switch (serviceType) {
+      case 'insulation':
+        return renderInsulationForm()
+      case 'hvac':
+        return renderHvacForm()
+      case 'plaster':
+        return renderPlasterForm()
+      default:
+        return renderInsulationForm()
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -445,6 +1290,69 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
           </Button>
         </div>
       </div>
+
+      {/* Service Type Selection */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Building className="h-5 w-5" />
+            Service Configuration
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="service-type">Service Type</Label>
+              <Select value={serviceType} onValueChange={handleServiceTypeChange}>
+                <SelectTrigger id="service-type">
+                  <SelectValue placeholder="Select service type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="insulation">Spray Foam Insulation</SelectItem>
+                  <SelectItem value="hvac">HVAC Services</SelectItem>
+                  <SelectItem value="plaster">Plaster Services</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="building-type">Building Type</Label>
+              <Select value={job.building_type} disabled>
+                <SelectTrigger id="building-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="residential">Residential</SelectItem>
+                  <SelectItem value="commercial">Commercial</SelectItem>
+                  <SelectItem value="industrial">Industrial</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          {loadingPricing && (
+            <div className="mt-2 flex items-center gap-2 text-sm text-slate-600">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading pricing data...
+            </div>
+          )}
+          {pricing.length > 0 ? (
+            <div className="mt-4">
+              <Label className="text-sm font-medium">Available Pricing Items:</Label>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {pricing.map((item) => (
+                  <Badge key={item.id} variant="secondary" className="text-xs">
+                    {item.item_name || 'Pricing Item'} - ${item.base_price || 0}/{item.unit || 'unit'}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-4 text-sm text-slate-500">
+              <Label className="text-sm font-medium">Pricing Information:</Label>
+              <p className="mt-1">Pricing data will be available once the pricing catalog is configured.</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Project Summary */}
       <Card className="border-orange-200 bg-orange-50">
@@ -510,307 +1418,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(addMeasurement)} className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="room_name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="flex items-center gap-2">
-                          <Building2 className="h-4 w-4" />
-                          Floor Level
-                        </FormLabel>
-                        <FormControl>
-                          <Input 
-                            placeholder="First Floor, Second Floor, Basement, etc." 
-                            {...field} 
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="area_type"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Area Type</FormLabel>
-                        <Select 
-                          onValueChange={(value) => {
-                            field.onChange(value)
-                            // Auto-calculate R-value when area type changes
-                            if (value) {
-                              const projectType = (job.project_type as ProjectType) || 'new_construction'
-                              const rValueResult = calculateRValue(projectType, value as AreaType)
-                              // Note: R-value will be calculated when saving
-                            }
-                          }} 
-                          value={field.value}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select area type" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="roof">Roof</SelectItem>
-                            <SelectItem value="exterior_walls">Exterior Walls</SelectItem>
-                            <SelectItem value="interior_walls">Interior Walls</SelectItem>
-                            <SelectItem value="basement_walls">Basement Walls</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="surface_type"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Surface Type</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="wall">Wall</SelectItem>
-                              <SelectItem value="ceiling">Ceiling</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="framing_size"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Framing Size</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select framing" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="2x4">2x4</SelectItem>
-                              <SelectItem value="2x6">2x6</SelectItem>
-                              <SelectItem value="2x8">2x8</SelectItem>
-                              <SelectItem value="2x10">2x10</SelectItem>
-                              <SelectItem value="2x12">2x12</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="insulation_type"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Insulation Type</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select insulation type" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="closed_cell">Closed Cell</SelectItem>
-                              <SelectItem value="open_cell">Open Cell</SelectItem>
-                              <SelectItem value="fiberglass">Fiberglass</SelectItem>
-                              <SelectItem value="roxul">Roxul</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  {/* Wall Dimensions Section */}
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-base font-semibold text-slate-900">Wall Dimensions</Label>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => append({ height: undefined as any, width: undefined as any })}
-                        className="text-orange-600 border-orange-200 hover:bg-orange-50"
-                      >
-                        <Plus className="h-4 w-4 mr-1" />
-                        Add Wall
-                      </Button>
-                    </div>
-
-                    <div className="space-y-3">
-                      {fields.map((field, index) => (
-                        <div key={field.id} className="flex items-start gap-3 p-3 border border-slate-200 rounded-lg bg-slate-50">
-                          <div className="flex-1 grid grid-cols-2 gap-3">
-                            <FormField
-                              control={form.control}
-                              name={`wall_dimensions.${index}.height`}
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="flex items-center gap-2 text-sm">
-                                    <Ruler className="h-3 w-3" />
-                                    Height (ft)
-                                  </FormLabel>
-                                  <FormControl>
-                                    <Input 
-                                      type="number" 
-                                      step="0.1" 
-                                      min="0.1"
-                                      placeholder="8.0"
-                                      {...field}
-                                      value={field.value || ''}
-                                      onChange={(e) => {
-                                        const value = e.target.value
-                                        field.onChange(value === '' ? undefined : parseFloat(value))
-                                      }}
-                                      className="h-9"
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-
-                            <FormField
-                              control={form.control}
-                              name={`wall_dimensions.${index}.width`}
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel className="flex items-center gap-2 text-sm">
-                                    <Ruler className="h-3 w-3 rotate-90" />
-                                    Width (ft)
-                                  </FormLabel>
-                                  <FormControl>
-                                    <Input 
-                                      type="number" 
-                                      step="0.1" 
-                                      min="0.1"
-                                      placeholder="12.0"
-                                      {...field}
-                                      value={field.value || ''}
-                                      onChange={(e) => {
-                                        const value = e.target.value
-                                        field.onChange(value === '' ? undefined : parseFloat(value))
-                                      }}
-                                      className="h-9"
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-
-                          <div className="flex flex-col items-center gap-2">
-                            <div className="text-xs text-slate-500 text-center">
-                              Wall {index + 1}
-                            </div>
-                            {form.watch(`wall_dimensions.${index}.height`) && form.watch(`wall_dimensions.${index}.width`) && 
-                             form.watch(`wall_dimensions.${index}.height`) > 0 && form.watch(`wall_dimensions.${index}.width`) > 0 && (
-                              <div className="text-xs text-green-600 font-medium text-center">
-                                {(form.watch(`wall_dimensions.${index}.height`) * form.watch(`wall_dimensions.${index}.width`)).toFixed(1)} sq ft
-                              </div>
-                            )}
-                            {fields.length > 1 && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => remove(index)}
-                                className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                              >
-                                <X className="h-3 w-3" />
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Auto-calculated total square footage and R-value */}
-                  {(() => {
-                    const wallDimensions = form.watch('wall_dimensions') || []
-                    const totalSquareFeet = wallDimensions
-                      .filter(wall => wall.height > 0 && wall.width > 0)
-                      .reduce((sum, wall) => sum + (wall.height * wall.width), 0)
-                    
-                    return totalSquareFeet > 0 && (
-                      <div className="bg-green-50 border border-green-200 rounded-lg p-3 space-y-2">
-                        <div className="flex items-center gap-2">
-                          <Square className="h-4 w-4 text-green-600" />
-                          <span className="text-green-900 font-medium">
-                            Total: {totalSquareFeet.toFixed(1)} sq ft ({wallDimensions.filter(w => w.height > 0 && w.width > 0).length} wall{wallDimensions.filter(w => w.height > 0 && w.width > 0).length !== 1 ? 's' : ''})
-                          </span>
-                        </div>
-                        {form.watch('area_type') && job.project_type && (
-                          <div className="text-sm text-green-700">
-                            R-Value: R-{calculateRValue(job.project_type as ProjectType, form.watch('area_type') as AreaType).rValue}
-                            <span className="ml-2 text-xs">
-                              (MA {job.project_type === 'new_construction' ? 'New Construction' : 'Remodel'} Code)
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })()}
-
-                  <FormField
-                    control={form.control}
-                    name="notes"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Notes (Optional)</FormLabel>
-                        <FormControl>
-                          <Textarea 
-                            placeholder="Any special notes about this measurement..."
-                            className="resize-none"
-                            rows={2}
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <Button 
-                    type="submit" 
-                    className="w-full bg-orange-600 hover:bg-orange-700"
-                    disabled={saving}
-                  >
-                    {saving ? (
-                      <>
-                        <Save className="mr-2 h-4 w-4 animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="mr-2 h-4 w-4" />
-                        Add Measurement
-                      </>
-                    )}
-                  </Button>
-                </form>
-              </Form>
+              {renderCurrentForm()}
             </CardContent>
           </Card>
         )}
@@ -823,46 +1431,58 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                 <Square className="h-5 w-5" />
                 Measurements List
               </CardTitle>
-              {measurements.length > 0 && (
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="bg-green-600 hover:bg-green-700"
-                  onClick={() => {
-                    // Generate PDF estimate
-                    try {
-                      generateQuickEstimatePDF(
-                        measurements,
-                        job.job_name || 'Spray Foam Estimate',
-                        job.lead?.name || 'Customer'
-                      )
-                      
-                      // Also show the total in a toast
-                      const estimate = calculateTotalEstimate(
-                        measurements.map(m => ({
-                          squareFeet: m.square_feet,
-                          insulationType: m.insulation_type as InsulationType,
-                          rValue: m.r_value ? Number(m.r_value) : 0
-                        }))
-                      )
-                      
-                      toast.success(
-                        <div className="space-y-2">
-                          <p className="font-semibold">PDF Estimate Generated!</p>
-                          <p>Downloading PDF...</p>
-                          <p className="text-lg font-bold">Total: {formatCurrency(estimate.total)}</p>
-                        </div>
-                      )
-                    } catch (error) {
-                      console.error('Error generating PDF:', error)
-                      toast.error('Failed to generate PDF. Please try again.')
-                    }
-                  }}
-                >
-                  <Calculator className="h-4 w-4 mr-2" />
-                  Generate PDF Estimate
-                </Button>
-              )}
+              <div className="flex gap-2">
+                {measurements.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      // Generate PDF estimate
+                      try {
+                        generateQuickEstimatePDF(
+                          measurements as any,
+                          job.job_name || 'Spray Foam Estimate',
+                          job.lead?.name || 'Customer'
+                        )
+                        
+                        // Also show the total in a toast
+                        const estimate = calculateTotalEstimate(
+                          measurements.map(m => ({
+                            squareFeet: m.square_feet,
+                            insulationType: m.insulation_type as InsulationType,
+                            rValue: m.r_value ? Number(m.r_value) : 0
+                          }))
+                        )
+                        
+                        toast.success(
+                          <div className="space-y-2">
+                            <p className="font-semibold">Quick PDF Generated!</p>
+                            <p>Downloading PDF...</p>
+                            <p className="text-lg font-bold">Total: {formatCurrency(estimate.total)}</p>
+                          </div>
+                        )
+                      } catch (error) {
+                        console.error('Error generating PDF:', error)
+                        toast.error('Failed to generate PDF. Please try again.')
+                      }
+                    }}
+                  >
+                    <Calculator className="h-4 w-4 mr-2" />
+                    Quick PDF
+                  </Button>
+                )}
+                {measurements.length > 0 && (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="bg-green-600 hover:bg-green-700"
+                    onClick={() => setShowEstimateBuilder(true)}
+                  >
+                    <Calculator className="h-4 w-4 mr-2" />
+                    Generate Estimate
+                  </Button>
+                )}
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -975,6 +1595,19 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Estimate Builder Modal */}
+      {showEstimateBuilder && (
+        <EstimateBuilder
+          job={job}
+          measurements={measurements}
+          onClose={() => setShowEstimateBuilder(false)}
+          onEstimateCreated={(estimate) => {
+            toast.success(`Estimate created: ${formatCurrency(estimate.total_amount)}`)
+            setShowEstimateBuilder(false)
+          }}
+        />
       )}
     </div>
   )

@@ -1,7 +1,7 @@
 // Pricing calculator for spray foam insulation
 // Prices include material + labor
 
-export type InsulationType = 'open_cell' | 'closed_cell' | 'batt' | 'blown_in' | null
+export type InsulationType = 'open_cell' | 'closed_cell' | 'fiberglass_batt' | 'fiberglass_blown' | 'hybrid' | null
 
 interface PricingRule {
   minRValue: number
@@ -11,7 +11,7 @@ interface PricingRule {
 }
 
 // Open Cell Foam pricing (per sqft, includes material + labor)
-const OPEN_CELL_PRICING: PricingRule[] = [
+export const OPEN_CELL_PRICING: PricingRule[] = [
   { minRValue: 0, maxRValue: 15, pricePerSqft: 1.65, thickness: '3.5"' },
   { minRValue: 16, maxRValue: 21, pricePerSqft: 1.90, thickness: '5.5"' },
   { minRValue: 22, maxRValue: 28, pricePerSqft: 2.20, thickness: '7"' },
@@ -24,7 +24,7 @@ const OPEN_CELL_PRICING: PricingRule[] = [
 ]
 
 // Closed Cell Foam pricing (per sqft, includes material + labor)
-const CLOSED_CELL_PRICING: PricingRule[] = [
+export const CLOSED_CELL_PRICING: PricingRule[] = [
   { minRValue: 0, maxRValue: 7, pricePerSqft: 1.80, thickness: '1"' },
   { minRValue: 8, maxRValue: 13, pricePerSqft: 2.30, thickness: '1.5"' },
   { minRValue: 14, maxRValue: 15, pricePerSqft: 2.80, thickness: '2"' },
@@ -36,8 +36,8 @@ const CLOSED_CELL_PRICING: PricingRule[] = [
   { minRValue: 50, maxRValue: 999, pricePerSqft: 8.70, thickness: '7+"' }, // Default for higher R-values
 ]
 
-// Batt insulation pricing (simplified)
-const BATT_PRICING: PricingRule[] = [
+// Fiberglass Batt insulation pricing 
+export const FIBERGLASS_BATT_PRICING: PricingRule[] = [
   { minRValue: 0, maxRValue: 13, pricePerSqft: 0.80 },
   { minRValue: 14, maxRValue: 19, pricePerSqft: 1.00 },
   { minRValue: 20, maxRValue: 30, pricePerSqft: 1.20 },
@@ -45,13 +45,22 @@ const BATT_PRICING: PricingRule[] = [
   { minRValue: 39, maxRValue: 999, pricePerSqft: 1.80 },
 ]
 
-// Blown-in insulation pricing (simplified)
-const BLOWN_IN_PRICING: PricingRule[] = [
+// Fiberglass Blown-in insulation pricing
+export const FIBERGLASS_BLOWN_PRICING: PricingRule[] = [
   { minRValue: 0, maxRValue: 19, pricePerSqft: 0.90 },
   { minRValue: 20, maxRValue: 30, pricePerSqft: 1.10 },
   { minRValue: 31, maxRValue: 38, pricePerSqft: 1.30 },
   { minRValue: 39, maxRValue: 49, pricePerSqft: 1.60 },
   { minRValue: 50, maxRValue: 999, pricePerSqft: 1.90 },
+]
+
+// Hybrid insulation pricing (average of closed cell and open cell)
+export const HYBRID_PRICING: PricingRule[] = [
+  { minRValue: 0, maxRValue: 15, pricePerSqft: 1.72, thickness: '3.5"' }, // Average of open/closed for this range
+  { minRValue: 16, maxRValue: 21, pricePerSqft: 2.90, thickness: '4"' },   // Average pricing
+  { minRValue: 22, maxRValue: 30, pricePerSqft: 3.95, thickness: '5.5"' }, // Average pricing
+  { minRValue: 31, maxRValue: 38, pricePerSqft: 4.75, thickness: '7.5"' }, // Average pricing
+  { minRValue: 39, maxRValue: 999, pricePerSqft: 6.10, thickness: '10"' }, // Average pricing
 ]
 
 /**
@@ -69,11 +78,14 @@ export function getPricePerSqft(insulationType: InsulationType, rValue: number):
     case 'closed_cell':
       pricingTable = CLOSED_CELL_PRICING
       break
-    case 'batt':
-      pricingTable = BATT_PRICING
+    case 'fiberglass_batt':
+      pricingTable = FIBERGLASS_BATT_PRICING
       break
-    case 'blown_in':
-      pricingTable = BLOWN_IN_PRICING
+    case 'fiberglass_blown':
+      pricingTable = FIBERGLASS_BLOWN_PRICING
+      break
+    case 'hybrid':
+      pricingTable = HYBRID_PRICING
       break
     default:
       return 0
