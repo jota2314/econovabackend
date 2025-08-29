@@ -24,25 +24,35 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
+import React from "react"
 import { Lead } from "@/lib/types/database"
 import { toast } from "sonner"
-import { Loader2, Briefcase, User, Home, FileText } from "lucide-react"
+import { Loader2, Briefcase, User, Home, FileText, Wind, Thermometer, Hammer, Building } from "lucide-react"
 
 const jobSchema = z.object({
   job_name: z.string().min(1, "Job name is required"),
   lead_id: z.string().min(1, "Lead selection is required"),
+  service_type: z.enum(["insulation", "hvac", "plaster"], {
+    required_error: "Service type is required"
+  }),
+  building_type: z.enum(["residential", "commercial", "industrial"], {
+    required_error: "Building type is required"
+  }),
   measurement_type: z.enum(["field", "drawings"], {
     required_error: "Measurement type is required"
   }),
-  project_type: z.enum(["new_construction", "remodel"], {
-    required_error: "Project type is required"
-  }),
-  structural_framing: z.enum(["2x4", "2x6", "2x8", "2x10", "2x12"], {
-    required_error: "Structural framing is required"
-  }),
-  roof_rafters: z.enum(["2x4", "2x6", "2x8", "2x10", "2x12"], {
-    required_error: "Roof rafters size is required"
-  }),
+  // Insulation fields
+  project_type: z.enum(["new_construction", "retrofit"]).optional(),
+  structural_framing: z.enum(["2x4", "2x6", "2x8", "2x10", "2x12"]).optional(),
+  roof_rafters: z.enum(["2x4", "2x6", "2x8", "2x10", "2x12"]).optional(),
+  // HVAC fields
+  system_type: z.enum(["central_air", "heat_pump", "furnace"]).optional(),
+  install_type: z.enum(["new_install", "replacement"]).optional(),
+  tonnage_estimate: z.string().optional(),
+  // Plaster fields
+  plaster_job_type: z.enum(["repair", "new", "skim_coat"]).optional(),
+  number_of_rooms: z.string().optional(),
+  approximate_sqft: z.string().optional(),
   scope_of_work: z.string().optional(),
 })
 
@@ -68,12 +78,20 @@ export function JobCreationForm({
   const form = useForm<JobFormData>({
     resolver: zodResolver(jobSchema),
     defaultValues: {
-      job_name: selectedLead ? `${selectedLead.name} - Spray Foam Project` : "",
+      job_name: selectedLead ? `${selectedLead.name} - Service Project` : "",
       lead_id: selectedLead?.id || "",
+      service_type: "insulation",
+      building_type: "residential",
       measurement_type: "field",
       project_type: "new_construction",
       structural_framing: "2x6",
       roof_rafters: "2x6",
+      system_type: "central_air",
+      install_type: "new_install",
+      tonnage_estimate: "",
+      plaster_job_type: "repair",
+      number_of_rooms: "",
+      approximate_sqft: "",
       scope_of_work: ""
     }
   })
@@ -83,21 +101,65 @@ export function JobCreationForm({
       setIsCreating(true)
       console.log('Creating job:', data)
 
+      // Prepare job data with service-specific fields
+      const jobData = {
+        ...data,
+        job_complexity: 'standard', // Default complexity
+        // Clean up optional fields based on service type
+        ...(data.service_type === 'insulation' && {
+          project_type: data.project_type,
+          structural_framing: data.structural_framing,
+          roof_rafters: data.roof_rafters,
+        }),
+        ...(data.service_type === 'hvac' && {
+          system_type: data.system_type,
+          install_type: data.install_type,
+          tonnage_estimate: data.tonnage_estimate,
+        }),
+        ...(data.service_type === 'plaster' && {
+          plaster_job_type: data.plaster_job_type,
+          number_of_rooms: data.number_of_rooms,
+          approximate_sqft: data.approximate_sqft,
+        }),
+      }
+
       const response = await fetch('/api/jobs', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(data)
+        body: JSON.stringify(jobData)
       })
 
       const result = await response.json()
 
       if (result.success) {
-        toast.success(`Job "${data.job_name}" created successfully!`)
+        const jobId = result.data.id
+        const serviceType = data.service_type
+        
+        toast.success(`${serviceType.charAt(0).toUpperCase() + serviceType.slice(1)} job "${data.job_name}" created successfully!`)
         form.reset()
         onOpenChange(false)
-        onJobCreated(result.data.id)
+        
+        // Service-specific routing
+        if (window.location.pathname.includes('/jobs')) {
+          // If we're on the jobs page, call the onJobCreated callback
+          onJobCreated(jobId)
+        } else {
+          // Otherwise, redirect to service-specific measurement page
+          const serviceRoutes = {
+            insulation: `/jobs/${jobId}/measurements/insulation`,
+            hvac: `/jobs/${jobId}/measurements/hvac`,
+            plaster: `/jobs/${jobId}/measurements/plaster`
+          }
+          
+          const targetRoute = serviceRoutes[serviceType as keyof typeof serviceRoutes]
+          if (targetRoute) {
+            window.location.href = targetRoute
+          } else {
+            onJobCreated(jobId)
+          }
+        }
       } else {
         console.error('Job creation failed:', result)
         toast.error(`Failed to create job: ${result.error || 'Unknown error'}`)
@@ -111,6 +173,28 @@ export function JobCreationForm({
   }
 
   const selectedLeadData = leads.find(lead => lead.id === form.watch('lead_id'))
+  const serviceType = form.watch('service_type')
+  const buildingType = form.watch('building_type')
+
+  // Dynamic job name based on service type
+  const updateJobName = (leadName: string, service: string) => {
+    const serviceNames = {
+      insulation: 'Spray Foam Project',
+      hvac: 'HVAC Project',
+      plaster: 'Plaster Project'
+    }
+    return `${leadName} - ${serviceNames[service as keyof typeof serviceNames]}`
+  }
+
+  // Watch for lead and service type changes to update job name
+  React.useEffect(() => {
+    if (selectedLeadData && serviceType) {
+      const newJobName = updateJobName(selectedLeadData.name, serviceType)
+      if (form.getValues('job_name') !== newJobName) {
+        form.setValue('job_name', newJobName)
+      }
+    }
+  }, [selectedLeadData, serviceType, form])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -121,7 +205,7 @@ export function JobCreationForm({
             Create New Measurement Job
           </DialogTitle>
           <DialogDescription>
-            Create a new job for field measurements and spray foam installation planning.
+            Create a new job for insulation, HVAC, or plaster services with field measurements and planning.
           </DialogDescription>
         </DialogHeader>
 
@@ -182,6 +266,75 @@ export function JobCreationForm({
               </div>
             )}
 
+            {/* Service Type */}
+            <FormField
+              control={form.control}
+              name="service_type"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center gap-2">
+                    <Briefcase className="h-4 w-4" />
+                    Service Type *
+                  </FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select service type" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="insulation">
+                        <div className="flex items-center gap-2">
+                          <Wind className="h-4 w-4 text-blue-600" />
+                          <span>Insulation</span>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="hvac">
+                        <div className="flex items-center gap-2">
+                          <Thermometer className="h-4 w-4 text-green-600" />
+                          <span>HVAC</span>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="plaster">
+                        <div className="flex items-center gap-2">
+                          <Hammer className="h-4 w-4 text-yellow-600" />
+                          <span>Plaster</span>
+                        </div>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {/* Building Type */}
+            <FormField
+              control={form.control}
+              name="building_type"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center gap-2">
+                    <Building className="h-4 w-4" />
+                    Building Type *
+                  </FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select building type" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="residential">Residential</SelectItem>
+                      <SelectItem value="commercial">Commercial</SelectItem>
+                      <SelectItem value="industrial">Industrial</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
             {/* Job Name */}
             <FormField
               control={form.control}
@@ -195,29 +348,6 @@ export function JobCreationForm({
                   <FormControl>
                     <Input placeholder="Enter job name" {...field} />
                   </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Project Type */}
-            <FormField
-              control={form.control}
-              name="project_type"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Project Type</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="new_construction">New Construction</SelectItem>
-                      <SelectItem value="remodel">Remodel</SelectItem>
-                    </SelectContent>
-                  </Select>
                   <FormMessage />
                 </FormItem>
               )}
@@ -246,58 +376,223 @@ export function JobCreationForm({
               )}
             />
 
-            {/* Structural Details */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="structural_framing"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Structural Framing</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="2x4">2x4</SelectItem>
-                        <SelectItem value="2x6">2x6</SelectItem>
-                        <SelectItem value="2x8">2x8</SelectItem>
-                        <SelectItem value="2x10">2x10</SelectItem>
-                        <SelectItem value="2x12">2x12</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            {/* Service-Specific Fields */}
+            {serviceType === 'insulation' && (
+              <div className="space-y-4 border-l-4 border-blue-500 pl-4">
+                <h3 className="font-semibold text-blue-900 flex items-center gap-2">
+                  <Wind className="h-4 w-4" />
+                  Insulation Details
+                </h3>
+                
+                {/* Project Type for Insulation */}
+                <FormField
+                  control={form.control}
+                  name="project_type"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Project Type</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="new_construction">New Construction</SelectItem>
+                          <SelectItem value="retrofit">Retrofit</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-              <FormField
-                control={form.control}
-                name="roof_rafters"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Roof Rafters</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                {/* Structural Details */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="structural_framing"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Structural Framing</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="2x4">2x4</SelectItem>
+                            <SelectItem value="2x6">2x6</SelectItem>
+                            <SelectItem value="2x8">2x8</SelectItem>
+                            <SelectItem value="2x10">2x10</SelectItem>
+                            <SelectItem value="2x12">2x12</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="roof_rafters"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Roof Rafters</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="2x4">2x4</SelectItem>
+                            <SelectItem value="2x6">2x6</SelectItem>
+                            <SelectItem value="2x8">2x8</SelectItem>
+                            <SelectItem value="2x10">2x10</SelectItem>
+                            <SelectItem value="2x12">2x12</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+            )}
+
+            {serviceType === 'hvac' && (
+              <div className="space-y-4 border-l-4 border-green-500 pl-4">
+                <h3 className="font-semibold text-green-900 flex items-center gap-2">
+                  <Thermometer className="h-4 w-4" />
+                  HVAC Details
+                </h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="system_type"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>System Type</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="central_air">Central Air</SelectItem>
+                            <SelectItem value="heat_pump">Heat Pump</SelectItem>
+                            <SelectItem value="furnace">Furnace</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="install_type"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Installation Type</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="new_install">New Installation</SelectItem>
+                            <SelectItem value="replacement">Replacement</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <FormField
+                  control={form.control}
+                  name="tonnage_estimate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Tonnage Estimate</FormLabel>
                       <FormControl>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
+                        <Input placeholder="e.g., 3 ton, 4 ton" {...field} />
                       </FormControl>
-                      <SelectContent>
-                        <SelectItem value="2x4">2x4</SelectItem>
-                        <SelectItem value="2x6">2x6</SelectItem>
-                        <SelectItem value="2x8">2x8</SelectItem>
-                        <SelectItem value="2x10">2x10</SelectItem>
-                        <SelectItem value="2x12">2x12</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
+
+            {serviceType === 'plaster' && (
+              <div className="space-y-4 border-l-4 border-yellow-500 pl-4">
+                <h3 className="font-semibold text-yellow-900 flex items-center gap-2">
+                  <Hammer className="h-4 w-4" />
+                  Plaster Details
+                </h3>
+                
+                <FormField
+                  control={form.control}
+                  name="plaster_job_type"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Job Type</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="repair">Repair</SelectItem>
+                          <SelectItem value="new">New</SelectItem>
+                          <SelectItem value="skim_coat">Skim Coat</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="number_of_rooms"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Number of Rooms</FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g., 3" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="approximate_sqft"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Approximate Square Footage</FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g., 1200" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Scope of Work */}
             <FormField
@@ -311,7 +606,7 @@ export function JobCreationForm({
                   </FormLabel>
                   <FormControl>
                     <Textarea 
-                      placeholder="Enter details about the spray foam work to be performed..."
+                      placeholder={`Enter details about the ${serviceType} work to be performed...`}
                       className="min-h-[80px] resize-none"
                       {...field} 
                     />
@@ -336,7 +631,7 @@ export function JobCreationForm({
                 className="bg-orange-600 hover:bg-orange-700"
               >
                 {isCreating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Create Job & Start Measuring
+                Create {serviceType ? serviceType.charAt(0).toUpperCase() + serviceType.slice(1) : ''} Job & Start Measuring
               </Button>
             </DialogFooter>
           </form>

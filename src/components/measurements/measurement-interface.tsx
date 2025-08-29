@@ -38,7 +38,11 @@ import {
   Building2,
   ChevronDown,
   ChevronRight,
-  Loader2
+  Loader2,
+  FileText,
+  DollarSign,
+  Edit,
+  Check
 } from "lucide-react"
 import { 
   calculateRValue, 
@@ -149,7 +153,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             area_type: "exterior_walls" as const,
             surface_type: "wall" as const,
             framing_size: "2x6" as const,
-            wall_dimensions: [{ height: undefined as any, width: undefined as any }],
+            wall_dimensions: [{ height: 0, width: 0 }],
             insulation_type: "closed_cell" as const,
             notes: ""
           }
@@ -160,11 +164,11 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
           defaultValues: {
             room_name: "",
             system_type: "central_air" as const,
-            tonnage: undefined as any,
-            seer_rating: undefined as any,
-            ductwork_linear_feet: undefined as any,
-            return_vents_count: undefined as any,
-            supply_vents_count: undefined as any,
+            tonnage: 0,
+            seer_rating: 0,
+            ductwork_linear_feet: 0,
+            return_vents_count: 0,
+            supply_vents_count: 0,
             notes: ""
           }
         }
@@ -175,9 +179,9 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             room_name: "",
             wall_condition: "good" as const,
             ceiling_condition: "good" as const,
-            wall_square_feet: undefined as any,
-            ceiling_square_feet: undefined as any,
-            prep_work_hours: undefined as any,
+            wall_square_feet: 0,
+            ceiling_square_feet: 0,
+            prep_work_hours: 0,
             notes: ""
           }
         }
@@ -190,7 +194,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             area_type: "exterior_walls" as const,
             surface_type: "wall" as const,
             framing_size: "2x6" as const,
-            wall_dimensions: [{ height: undefined as any, width: undefined as any }],
+            wall_dimensions: [{ height: 0, width: 0 }],
             insulation_type: "closed_cell" as const,
             notes: ""
           }
@@ -416,7 +420,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             area_type: insulationData.area_type, // Keep area type
             surface_type: "wall", // Reset to default
             framing_size: insulationData.framing_size, // Keep framing size
-            wall_dimensions: [{ height: undefined as any, width: undefined as any }], // Reset to single wall
+            wall_dimensions: [{ height: 0, width: 0 }], // Reset to single wall
             insulation_type: insulationData.insulation_type, // Keep insulation type
             notes: ""
           })
@@ -802,7 +806,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => append({ height: undefined as any, width: undefined as any })}
+              onClick={() => append({ height: 0, width: 0 })}
             >
               <Plus className="h-4 w-4 mr-2" />
               Add Wall
@@ -823,7 +827,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                         step="0.1"
                         placeholder="8.0"
                         {...field}
-                        onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                        onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) || 0 : 0)}
                       />
                     </FormControl>
                     <FormMessage />
@@ -843,7 +847,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                         step="0.1"
                         placeholder="12.0"
                         {...field}
-                        onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                        onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) || 0 : 0)}
                       />
                     </FormControl>
                     <FormMessage />
@@ -921,7 +925,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
 
         <Button type="submit" className="w-full" disabled={saving || totalSqFt === 0}>
           {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-          Add Measurement {totalSqFt > 0 && `(${totalSqFt.toFixed(1)} sq ft)`}
+          Add to Estimate {totalSqFt > 0 && `($${realtimePrice ? realtimePrice.totalPrice.toFixed(2) : '0.00'})`}
         </Button>
       </form>
     </Form>
@@ -986,7 +990,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                     step="0.5"
                     placeholder="2.5" 
                     {...field}
-                    onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                    onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) || 0 : 0)}
                   />
                 </FormControl>
                 <FormMessage />
@@ -1005,7 +1009,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                     type="number"
                     placeholder="13" 
                     {...field}
-                    onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) : undefined)}
+                    onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) || 0 : 0)}
                   />
                 </FormControl>
                 <FormMessage />
@@ -1025,7 +1029,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                   type="number"
                   placeholder="150" 
                   {...field}
-                  onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                  onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) || 0 : 0)}
                 />
               </FormControl>
               <FormMessage />
@@ -1092,7 +1096,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
 
         <Button type="submit" className="w-full" disabled={saving}>
           {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-          Add HVAC Measurement
+          Add to Estimate
         </Button>
       </form>
     </Form>
@@ -1181,7 +1185,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                     type="number"
                     placeholder="120" 
                     {...field}
-                    onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                    onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) || 0 : 0)}
                   />
                 </FormControl>
                 <FormMessage />
@@ -1200,7 +1204,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                     type="number"
                     placeholder="200" 
                     {...field}
-                    onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                    onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) || 0 : 0)}
                   />
                 </FormControl>
                 <FormMessage />
@@ -1221,7 +1225,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                   step="0.5"
                   placeholder="4" 
                   {...field}
-                  onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                  onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) || 0 : 0)}
                 />
               </FormControl>
               <FormMessage />
@@ -1248,7 +1252,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
 
         <Button type="submit" className="w-full" disabled={saving}>
           {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-          Add Plaster Measurement
+          Add to Estimate
         </Button>
       </form>
     </Form>
@@ -1414,7 +1418,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Plus className="h-5 w-5" />
-                Add New Measurement
+                Add Line Item
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -1423,23 +1427,23 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
           </Card>
         )}
 
-        {/* Measurements List */}
+        {/* Estimate Summary */}
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2">
-                <Square className="h-5 w-5" />
-                Measurements List
+                <DollarSign className="h-5 w-5" />
+                Estimate Summary
               </CardTitle>
               <div className="flex gap-2">
                 {measurements.length > 0 && (
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => {
+                    onClick={async () => {
                       // Generate PDF estimate
                       try {
-                        generateQuickEstimatePDF(
+                        await generateQuickEstimatePDF(
                           measurements as any,
                           job.job_name || 'Spray Foam Estimate',
                           job.lead?.name || 'Customer'
@@ -1493,22 +1497,66 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                 </div>
               ) : measurements.length === 0 ? (
                 <div className="text-center py-8 text-slate-500">
-                  <Square className="mx-auto h-12 w-12 text-slate-300 mb-4" />
-                  <p>No measurements yet</p>
-                  <p className="text-sm">Add your first measurement to get started</p>
+                  <FileText className="mx-auto h-12 w-12 text-slate-300 mb-4" />
+                  <p>No line items yet</p>
+                  <p className="text-sm">Add your first line item to build the estimate</p>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {measurements.map((measurement) => (
-                    <MeasurementCard
-                      key={measurement.id}
-                      measurement={measurement}
-                      onDelete={deleteMeasurement}
-                      onPhotoUpload={handlePhotoUpload}
-                    />
-                  ))}
+                <div className="space-y-6">
+                  {/* LINE ITEMS Header */}
+                  <div className="border-b pb-2">
+                    <h3 className="font-semibold text-slate-900 uppercase tracking-wide text-sm">Line Items</h3>
+                  </div>
+
+                  {/* Individual Line Items */}
+                  {measurements.map((measurement, index) => {
+                    const pricePerSqft = calculateMeasurementPrice(measurement.square_feet, measurement.insulation_type as InsulationType, Number(measurement.r_value) || 0)?.pricePerSqft || 0
+                    const totalPrice = measurement.square_feet * pricePerSqft
+                    
+                    return (
+                      <div key={measurement.id} className="border rounded-lg p-4 bg-white">
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="flex-1">
+                            <div className="font-semibold text-slate-900">
+                              Item {index + 1}: {measurement.floor_level} - {getAreaDisplayName(measurement.area_type)}
+                            </div>
+                            <div className="text-sm text-slate-600 mt-1">
+                              {measurement.insulation_type === 'closed_cell' ? 'Closed Cell' : 
+                               measurement.insulation_type === 'open_cell' ? 'Open Cell' : 
+                               measurement.insulation_type} R-{measurement.r_value} ({Math.ceil((Number(measurement.r_value) || 0) / 3.5)}")" | {measurement.framing_size} Framing
+                            </div>
+                            <div className="text-lg font-semibold text-slate-900 mt-2">
+                              {measurement.square_feet} sqft @ ${pricePerSqft.toFixed(2)}/sqft = <span className="text-green-600">${totalPrice.toFixed(2)}</span>
+                            </div>
+                          </div>
+                          <div className="flex gap-2 ml-4">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => {
+                                // TODO: Implement edit functionality
+                                toast.info('Edit functionality coming soon')
+                              }}
+                            >
+                              <Edit className="h-3 w-3 mr-1" />
+                              Edit
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => deleteMeasurement(measurement.id)}
+                            >
+                              <Trash2 className="h-3 w-3 mr-1" />
+                              Delete
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
                   
-                  {/* Estimate Total Summary */}
+                  {/* ESTIMATE TOTALS */}
                   {measurements.length > 0 && (() => {
                     const estimate = calculateTotalEstimate(
                       measurements.map(m => ({
@@ -1518,18 +1566,98 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                       }))
                     )
                     
+                    const TAX_RATE = 0.0625 // 6.25% MA tax rate
+                    const subtotal = estimate.subtotal
+                    const tax = subtotal * TAX_RATE
+                    const total = subtotal + tax
+                    const requiresApproval = total > 10000
+                    
                     return (
-                      <div className="mt-6 p-4 bg-gradient-to-r from-green-100 to-blue-100 rounded-lg border-2 border-green-300">
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <h3 className="font-semibold text-lg text-slate-900">Estimate Total</h3>
-                            <p className="text-sm text-slate-600">All measurements combined</p>
+                      <div className="mt-6 space-y-4">
+                        {/* Divider */}
+                        <div className="border-t-2 border-dashed border-slate-300 pt-4">
+                          <h3 className="font-semibold text-slate-900 uppercase tracking-wide text-sm">Estimate Totals</h3>
+                        </div>
+                        
+                        {/* Totals Breakdown */}
+                        <div className="space-y-2 text-lg">
+                          <div className="flex justify-between">
+                            <span>Subtotal:</span>
+                            <span className="font-semibold">{formatCurrency(subtotal)}</span>
                           </div>
-                          <div className="text-right">
-                            <p className="text-sm text-slate-600">Subtotal</p>
-                            <p className="text-2xl font-bold text-green-700">{formatCurrency(estimate.subtotal)}</p>
+                          <div className="flex justify-between text-sm text-slate-600">
+                            <span>Tax (6.25%):</span>
+                            <span>{formatCurrency(tax)}</span>
+                          </div>
+                          <Separator />
+                          <div className="flex justify-between text-xl font-bold text-slate-900">
+                            <span>TOTAL:</span>
+                            <span className="text-green-600">{formatCurrency(total)}</span>
                           </div>
                         </div>
+                        
+                        {/* Action Buttons */}
+                        <div className="flex gap-2 pt-4">
+                          <Button
+                            className="flex-1 bg-blue-600 hover:bg-blue-700"
+                            onClick={async () => {
+                              if (measurements.length === 0) {
+                                toast.error('Please add at least one line item to generate an estimate')
+                                return
+                              }
+                              
+                              try {
+                                // Prepare data for PDF generation
+                                const estimateData = measurements.map(m => ({
+                                  room_name: m.room_name,
+                                  floor_level: m.floor_level,
+                                  area_type: m.area_type,
+                                  surface_type: m.surface_type,
+                                  square_feet: m.square_feet,
+                                  height: m.height,
+                                  width: m.width,
+                                  insulation_type: m.insulation_type as InsulationType,
+                                  r_value: m.r_value,
+                                  framing_size: m.framing_size
+                                }))
+                                
+                                await generateQuickEstimatePDF(
+                                  estimateData,
+                                  job.job_name,
+                                  job.lead?.name || 'Customer'
+                                )
+                                
+                                toast.success('Estimate PDF generated successfully!')
+                              } catch (error) {
+                                console.error('Error generating estimate:', error)
+                                toast.error('Failed to generate estimate PDF')
+                              }
+                            }}
+                          >
+                            <FileText className="h-4 w-4 mr-2" />
+                            Generate Estimate
+                          </Button>
+                          
+                          {requiresApproval && (
+                            <Button
+                              variant="outline"
+                              className="flex-1 border-orange-300 text-orange-700 hover:bg-orange-50"
+                              onClick={() => {
+                                // TODO: Implement submit for approval functionality
+                                toast.info('Submit for Approval functionality coming soon')
+                              }}
+                            >
+                              <Check className="h-4 w-4 mr-2" />
+                              Submit for Approval
+                            </Button>
+                          )}
+                        </div>
+                        
+                        {requiresApproval && (
+                          <div className="text-xs text-orange-600 bg-orange-50 p-2 rounded">
+                            ⚠️ Estimates over $10,000 require manager approval before sending to customer.
+                          </div>
+                        )}
                       </div>
                     )
                   })()}

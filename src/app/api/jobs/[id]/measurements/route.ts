@@ -323,20 +323,19 @@ export async function POST(
     let measurement = null
     let insertError = null
 
-    try {
+    // For insulation measurements, try the new table first but fall back to measurements table on any error
+    if (job.service_type === 'insulation') {
+      // Try new insulation_measurements table first
       const result = await supabase
         .from(tableName)
         .insert(insertData)
         .select()
         .single()
       
-      measurement = result.data
-      insertError = result.error
-    } catch (tableError) {
-      console.warn(`Table ${tableName} not found, falling back to measurements table`)
-      
-      // Fallback to original measurements table for insulation
-      if (job.service_type === 'insulation') {
+      if (result.error) {
+        console.warn(`insulation_measurements table error (${result.error.code}), falling back to measurements table`)
+        
+        // Fallback to original measurements table
         const fallbackResult = await supabase
           .from('measurements')
           .insert({
@@ -345,9 +344,11 @@ export async function POST(
             floor_level: insertData.floor_level,
             area_type: insertData.area_type,
             surface_type: insertData.surface_type,
+            framing_size: insertData.framing_size, // Include framing_size in fallback
             height: insertData.height,
             width: insertData.width,
             insulation_type: insertData.insulation_type,
+            r_value: insertData.r_value,
             notes: insertData.notes
           })
           .select()
@@ -356,6 +357,22 @@ export async function POST(
         measurement = fallbackResult.data
         insertError = fallbackResult.error
       } else {
+        measurement = result.data
+        insertError = result.error
+      }
+    } else {
+      // For other service types, try the specialized table
+      try {
+        const result = await supabase
+          .from(tableName)
+          .insert(insertData)
+          .select()
+          .single()
+        
+        measurement = result.data
+        insertError = result.error
+      } catch (tableError) {
+        console.warn(`Table ${tableName} not found`)
         // For HVAC and Plaster, return error since we can't fallback
         return NextResponse.json(
           { success: false, error: `${tableName} table not available yet. Please contact administrator.` },

@@ -1,11 +1,11 @@
 // Massachusetts R-Value Calculator for Spray Foam Insulation
 
-export type ProjectType = 'new_construction' | 'remodel'
+export type ProjectType = 'new_construction' | 'remodel' | 'retrofit'
 export type AreaType = 'roof' | 'exterior_walls' | 'interior_walls' | 'basement_walls' | 'ceiling' | 'gable'
 export type FloorLevel = 'first_floor' | 'second_floor' | 'basement'
 
 // Massachusetts Building Code R-Values
-const MA_R_VALUES: Record<ProjectType, Record<AreaType, number>> = {
+const MA_R_VALUES: Record<string, Record<AreaType, number>> = {
   new_construction: {
     roof: 60,
     exterior_walls: 30,
@@ -15,6 +15,14 @@ const MA_R_VALUES: Record<ProjectType, Record<AreaType, number>> = {
     gable: 30,
   },
   remodel: {
+    roof: 49,
+    exterior_walls: 21,
+    interior_walls: 13,
+    basement_walls: 15,
+    ceiling: 49,
+    gable: 21,
+  },
+  retrofit: {
     roof: 49,
     exterior_walls: 21,
     interior_walls: 13,
@@ -41,13 +49,18 @@ export function calculateRValue(
   projectType: ProjectType,
   areaType: AreaType
 ): RValueResult {
-  const rValue = MA_R_VALUES[projectType][areaType]
+  // Fallback to 'new_construction' if projectType is not found
+  const validProjectType = MA_R_VALUES[projectType] ? projectType : 'new_construction'
+  const rValue = MA_R_VALUES[validProjectType]?.[areaType] || 30 // Default to 30 if not found
+  
+  const projectDisplayName = validProjectType === 'new_construction' ? 'New Construction' : 
+                             validProjectType === 'retrofit' ? 'Retrofit' : 'Remodel'
   
   return {
     rValue,
     projectType,
     areaType,
-    description: `Massachusetts ${projectType === 'new_construction' ? 'New Construction' : 'Remodel'} - ${getAreaDisplayName(areaType)}: R-${rValue}`,
+    description: `Massachusetts ${projectDisplayName} - ${getAreaDisplayName(areaType)}: R-${rValue}`,
   }
 }
 

@@ -24,7 +24,7 @@ interface EstimateData {
   notes?: string
 }
 
-export function generateEstimatePDF(data: EstimateData): void {
+export async function generateEstimatePDF(data: EstimateData): Promise<void> {
   const pdf = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -36,21 +36,44 @@ export function generateEstimatePDF(data: EstimateData): void {
   const margin = 20
   let yPosition = margin
 
-  // Company Header
-  pdf.setFillColor(245, 124, 0) // Orange color
+  // Company Header - Clean White with Logo
+  pdf.setFillColor(255, 255, 255) // White background
   pdf.rect(0, 0, pageWidth, 40, 'F')
   
-  pdf.setTextColor(255, 255, 255)
-  pdf.setFontSize(24)
-  pdf.setFont('helvetica', 'bold')
-  pdf.text('SPRAY FOAM INSULATION', pageWidth / 2, 15, { align: 'center' })
+  // Add company logo
+  try {
+    const logoWidth = 50
+    const logoHeight = 20
+    const logoX = 15
+    const logoY = 10
+    
+    // Load logo using fetch from public folder
+    const logoResponse = await fetch('/logo1.png')
+    if (logoResponse.ok) {
+      const logoBlob = await logoResponse.blob()
+      const logoBase64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(reader.result as string)
+        reader.readAsDataURL(logoBlob)
+      })
+      
+      pdf.addImage(logoBase64, 'PNG', logoX, logoY, logoWidth, logoHeight)
+    } else {
+      throw new Error('Logo not found')
+    }
+    
+  } catch (error) {
+    console.log('Logo loading failed, using company name instead')
+    // Fallback: Show company name instead of logo
+    pdf.setTextColor(0, 0, 0)
+    pdf.setFontSize(14)
+    pdf.setFont('helvetica', 'bold')
+    pdf.text('ECONOVA ENERGY SAVINGS', 15, 25)
+  }
   
-  pdf.setFontSize(14)
-  pdf.setFont('helvetica', 'normal')
-  pdf.text('PROFESSIONAL ESTIMATE', pageWidth / 2, 25, { align: 'center' })
-  
+  pdf.setTextColor(0, 0, 0) // Black text
   pdf.setFontSize(10)
-  pdf.text(`Generated: ${data.generatedDate.toLocaleDateString()}`, pageWidth / 2, 32, { align: 'center' })
+  pdf.text(`Generated: ${data.generatedDate.toLocaleDateString()}`, pageWidth - 50, 25)
 
   yPosition = 50
 
@@ -247,18 +270,18 @@ export function generateEstimatePDF(data: EstimateData): void {
   }
   
   pdf.text('Thank you for your business!', pageWidth / 2, footerY, { align: 'center' })
-  pdf.text(`Page ${pdf.getCurrentPageInfo().pageNumber}`, pageWidth - margin, footerY, { align: 'right' })
+  pdf.text('Page 1', pageWidth - margin, footerY, { align: 'right' })
 
   // Save the PDF
   const fileName = `estimate_${data.jobName.replace(/[^a-z0-9]/gi, '_')}_${data.generatedDate.getTime()}.pdf`
   pdf.save(fileName)
 }
 
-export function generateQuickEstimatePDF(
+export async function generateQuickEstimatePDF(
   measurements: EstimateData['measurements'],
   jobName: string = 'Quick Estimate',
   customerName: string = 'Customer'
-): void {
+): Promise<void> {
   const estimateData: EstimateData = {
     jobName,
     customerName,
@@ -267,5 +290,5 @@ export function generateQuickEstimatePDF(
     validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
   }
 
-  generateEstimatePDF(estimateData)
+  await generateEstimatePDF(estimateData)
 }

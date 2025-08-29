@@ -41,14 +41,22 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Parse project_type from scope_of_work if stored as JSON
+    // Parse service-specific data from scope_of_work if stored as JSON
     const enhancedJobs = data?.map((job: any) => {
       if (job.scope_of_work) {
         try {
           const parsed = JSON.parse(job.scope_of_work)
           return {
             ...job,
+            // Extract service-specific fields
             project_type: parsed.project_type || null,
+            system_type: parsed.system_type || null,
+            install_type: parsed.install_type || null,
+            tonnage_estimate: parsed.tonnage_estimate || null,
+            plaster_job_type: parsed.plaster_job_type || null,
+            number_of_rooms: parsed.number_of_rooms || null,
+            approximate_sqft: parsed.approximate_sqft || null,
+            job_complexity: parsed.job_complexity || 'standard',
             scope_of_work: parsed.description || job.scope_of_work
           }
         } catch (e) {
@@ -90,18 +98,30 @@ export async function POST(request: NextRequest) {
     const { 
       job_name, 
       lead_id, 
+      service_type,
+      building_type,
       measurement_type,
+      job_complexity,
+      // Insulation fields
       project_type, 
       structural_framing, 
-      roof_rafters, 
+      roof_rafters,
+      // HVAC fields
+      system_type,
+      install_type,
+      tonnage_estimate,
+      // Plaster fields
+      plaster_job_type,
+      number_of_rooms,
+      approximate_sqft,
       scope_of_work 
     } = body
 
-    console.log('Creating job:', body)
+    console.log('Creating multi-trade job:', body)
 
-    if (!job_name || !lead_id || !measurement_type) {
+    if (!job_name || !lead_id || !service_type || !building_type || !measurement_type) {
       return NextResponse.json(
-        { success: false, error: 'Job name, lead ID, and measurement type are required' },
+        { success: false, error: 'Job name, lead ID, service type, building type, and measurement type are required' },
         { status: 400 }
       )
     }
@@ -131,22 +151,44 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Store project_type in scope_of_work as JSON if column doesn't exist
-    const enhancedScopeOfWork = {
+    // Store service-specific data in scope_of_work as JSON structure
+    const serviceSpecificData = {
       description: scope_of_work || '',
-      project_type: project_type || 'new_construction'
+      service_type,
+      building_type,
+      job_complexity: job_complexity || 'standard',
+      // Insulation fields
+      ...(service_type === 'insulation' && {
+        project_type: project_type || 'new_construction',
+        structural_framing,
+        roof_rafters
+      }),
+      // HVAC fields
+      ...(service_type === 'hvac' && {
+        system_type,
+        install_type,
+        tonnage_estimate
+      }),
+      // Plaster fields
+      ...(service_type === 'plaster' && {
+        plaster_job_type,
+        number_of_rooms,
+        approximate_sqft
+      })
     }
     
-    // Create the job
+    // Create the job with new multi-trade structure
     const { data, error } = await supabase
       .from('jobs')
       .insert({
         job_name,
         lead_id,
+        service_type,
+        building_type: building_type,
         measurement_type,
-        structural_framing,
-        roof_rafters,
-        scope_of_work: JSON.stringify(enhancedScopeOfWork),
+        structural_framing: service_type === 'insulation' ? structural_framing : null,
+        roof_rafters: service_type === 'insulation' ? roof_rafters : null,
+        scope_of_work: JSON.stringify(serviceSpecificData),
         total_square_feet: 0,
         created_by: user.id
       })
