@@ -36,7 +36,7 @@ export async function POST(
 
     // Get all measurements for the job
     const { data: measurements, error: measurementsError } = await supabase
-      .from('insulation_measurements')
+      .from('measurements')
       .select('*')
       .eq('job_id', id)
 
@@ -75,7 +75,7 @@ export async function POST(
       description: string
       quantity: number
       unit_price: number
-      total_price: number
+      total: number
     }> = []
 
     let totalAmount = 0
@@ -114,20 +114,24 @@ export async function POST(
           description: `${group_data.insulation_type || 'Insulation'} - ${group_data.framing_size} framing`,
           quantity: group_data.total_square_feet,
           unit_price: unitPrice,
-          total_price: totalPrice
+          total: totalPrice
         })
 
         totalAmount += totalPrice
       }
     }
 
-    // Create the estimate
+    // Create the estimate with new fields
+    const subtotal = totalAmount / 1.0625 // Remove the 6.25% markup to get subtotal
     const { data: estimate, error: estimateError } = await supabase
       .from('estimates')
       .insert({
         job_id: id,
         estimate_number: estimateNumber,
         total_amount: totalAmount,
+        subtotal: subtotal,
+        markup_percentage: 6.25,
+        locks_measurements: false, // Will be set to true when approved
         status: 'draft',
         valid_until: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
         created_by: user.id

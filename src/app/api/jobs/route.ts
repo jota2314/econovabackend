@@ -18,14 +18,29 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const leadId = searchParams.get('leadId')
 
+    // Get user's role to determine data access
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
     let query = supabase
       .from('jobs')
       .select(`
         *,
         lead:leads!lead_id(name, phone, address),
-        measurements(id, room_name, floor_level, area_type, surface_type, framing_size, square_feet, insulation_type, r_value, photo_url, notes)
+        measurements(id, room_name, floor_level, area_type, surface_type, framing_size, square_feet, insulation_type, r_value, photo_url, notes),
+        estimates(id, estimate_number, subtotal, status, created_by)
       `)
       .order('created_at', { ascending: false })
+
+    // Apply role-based filtering
+    if (userProfile?.role === 'salesperson' || userProfile?.role === 'lead_hunter') {
+      // Salesperson and lead hunters can only see their own jobs
+      query = query.eq('created_by', user.id)
+    }
+    // Managers and admins can see all jobs (no filter needed)
 
     if (leadId) {
       query = query.eq('lead_id', leadId)

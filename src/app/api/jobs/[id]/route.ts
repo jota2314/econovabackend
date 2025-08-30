@@ -117,7 +117,7 @@ export async function PATCH(
     }
     
     // Add any other valid job fields from otherUpdates
-    const validJobFields = ['job_name', 'measurement_type', 'structural_framing', 'roof_rafters', 'scope_of_work', 'quote_amount', 'quote_sent_at']
+    const validJobFields = ['job_name', 'measurement_type', 'structural_framing', 'roof_rafters', 'scope_of_work', 'quote_amount', 'quote_sent_at', 'workflow_status']
     for (const [key, value] of Object.entries(otherUpdates)) {
       if (validJobFields.includes(key) && value !== undefined) {
         jobUpdate[key] = value

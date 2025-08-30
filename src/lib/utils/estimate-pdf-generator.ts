@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf'
 import { formatCurrency, calculateMeasurementPrice, type InsulationType } from './pricing-calculator'
+import { calculateHybridRValue, calculateHybridPricing, formatHybridSystemDescription } from './hybrid-calculator'
 
 interface EstimateData {
   jobName: string
@@ -15,9 +16,12 @@ interface EstimateData {
     square_feet: number
     height: number
     width: number
-    insulation_type?: InsulationType
+    insulation_type?: InsulationType | 'hybrid'
     r_value?: string | number | null
     framing_size?: string | null
+    closed_cell_inches?: number
+    open_cell_inches?: number
+    is_hybrid_system?: boolean
   }>
   generatedDate: Date
   validUntil?: Date
@@ -132,8 +136,9 @@ export async function generateEstimatePDF(data: EstimateData): Promise<void> {
   let itemCount = 0
 
   data.measurements.forEach((measurement, index) => {
-    // Check if we need a new page
-    if (yPosition > pageHeight - 40 || (itemCount > 0 && itemCount % itemsPerPage === 0)) {
+    // Check if we need a new page (hybrid systems may need more space)
+    const rowHeight = measurement.is_hybrid_system && measurement.insulation_type === 'hybrid' ? 12 : 6
+    if (yPosition > pageHeight - 50 || (itemCount > 0 && itemCount % itemsPerPage === 0)) {
       pdf.addPage()
       yPosition = margin
       
@@ -153,16 +158,43 @@ export async function generateEstimatePDF(data: EstimateData): Promise<void> {
       pdf.setFont('helvetica', 'normal')
     }
 
-    const pricing = calculateMeasurementPrice(
-      measurement.square_feet,
-      measurement.insulation_type as InsulationType,
-      measurement.r_value ? Number(measurement.r_value) : 0
-    )
+    // Calculate pricing for hybrid and regular systems
+    let pricing
+    let totalPrice = 0
+    let insulationDisplay = 'N/A'
+    let pricePerSqftDisplay = 'N/A'
+
+    if (measurement.is_hybrid_system && measurement.insulation_type === 'hybrid') {
+      // Calculate hybrid pricing
+      const hybridCalc = calculateHybridRValue(
+        measurement.closed_cell_inches || 0, 
+        measurement.open_cell_inches || 0
+      )
+      const hybridPricing = calculateHybridPricing(hybridCalc)
+      totalPrice = measurement.square_feet * hybridPricing.totalPricePerSqft
+      
+      insulationDisplay = `Hybrid ${hybridCalc.closedCellInches}"CC+${hybridCalc.openCellInches}"OC`
+      pricePerSqftDisplay = formatCurrency(hybridPricing.totalPricePerSqft)
+    } else {
+      // Regular system pricing
+      pricing = calculateMeasurementPrice(
+        measurement.square_feet,
+        measurement.insulation_type as InsulationType,
+        measurement.r_value ? Number(measurement.r_value) : 0
+      )
+      totalPrice = pricing?.totalPrice || 0
+      
+      insulationDisplay = measurement.insulation_type 
+        ? measurement.insulation_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()).substring(0, 12)
+        : 'N/A'
+      
+      pricePerSqftDisplay = pricing?.pricePerSqft ? formatCurrency(pricing.pricePerSqft) : 'N/A'
+    }
 
     // Alternate row coloring
     if (index % 2 === 0) {
       pdf.setFillColor(250, 250, 250)
-      pdf.rect(margin, yPosition - 4, pageWidth - (margin * 2), 6, 'F')
+      pdf.rect(margin, yPosition - 4, pageWidth - (margin * 2), rowHeight, 'F')
     }
 
     pdf.setFontSize(8)
@@ -180,24 +212,39 @@ export async function generateEstimatePDF(data: EstimateData): Promise<void> {
     
     pdf.text(description, margin + 2, yPosition)
     pdf.text(measurement.square_feet.toFixed(1), margin + 70, yPosition)
+    pdf.text(insulationDisplay, margin + 90, yPosition)
     
-    const insulationType = measurement.insulation_type 
-      ? measurement.insulation_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
-      : 'N/A'
-    pdf.text(insulationType.substring(0, 12), margin + 90, yPosition)
-    
+    // R-Value display
     pdf.text(measurement.r_value ? `R-${measurement.r_value}` : 'N/A', margin + 115, yPosition)
     
-    if (pricing.pricePerSqft > 0) {
-      pdf.text(formatCurrency(pricing.pricePerSqft), margin + 135, yPosition)
-      pdf.text(formatCurrency(pricing.totalPrice), margin + 155, yPosition)
-      subtotal += pricing.totalPrice
+    // Hybrid system breakdown (on second line for hybrid)
+    if (measurement.is_hybrid_system && measurement.insulation_type === 'hybrid' && 
+        (measurement.closed_cell_inches || 0) > 0 && (measurement.open_cell_inches || 0) > 0) {
+      pdf.setFontSize(7)
+      pdf.setTextColor(100, 100, 100)
+      const hybridCalc = calculateHybridRValue(
+        measurement.closed_cell_inches || 0, 
+        measurement.open_cell_inches || 0
+      )
+      const hybridPricing = calculateHybridPricing(hybridCalc)
+      
+      // Show pricing breakdown
+      pdf.text(`${hybridCalc.closedCellInches}" Closed ($${hybridPricing.closedCellPrice.toFixed(2)}) + ${hybridCalc.openCellInches}" Open ($${hybridPricing.openCellPrice.toFixed(2)}) = $${hybridPricing.totalPricePerSqft.toFixed(2)}/sqft`, margin + 2, yPosition + 4)
+      pdf.setTextColor(0, 0, 0)
+      pdf.setFontSize(8)
+    }
+    
+    if (totalPrice > 0) {
+      pdf.text(pricePerSqftDisplay, margin + 135, yPosition)
+      pdf.text(formatCurrency(totalPrice), margin + 155, yPosition)
+      subtotal += totalPrice
     } else {
       pdf.text('TBD', margin + 135, yPosition)
       pdf.text('TBD', margin + 155, yPosition)
     }
 
-    yPosition += 6
+    // Adjust spacing for hybrid systems
+    yPosition += rowHeight
     itemCount++
   })
 

@@ -116,6 +116,7 @@ export type Database = {
           scope_of_work: string | null
           quote_amount: number | null
           quote_sent_at: string | null
+          job_status: 'pending' | 'in_progress' | 'won' | 'lost'
           created_by: string
           created_at: string
           updated_at: string
@@ -134,6 +135,7 @@ export type Database = {
           scope_of_work?: string | null
           quote_amount?: number | null
           quote_sent_at?: string | null
+          job_status?: 'pending' | 'in_progress' | 'won' | 'lost'
           created_by: string
           created_at?: string
           updated_at?: string
@@ -152,6 +154,7 @@ export type Database = {
           scope_of_work?: string | null
           quote_amount?: number | null
           quote_sent_at?: string | null
+          job_status?: 'pending' | 'in_progress' | 'won' | 'lost'
           created_by?: string
           created_at?: string
           updated_at?: string
@@ -173,71 +176,6 @@ export type Database = {
           }
         ]
       }
-      insulation_measurements: {
-        Row: {
-          id: string
-          job_id: string
-          room_name: string
-          floor_level: string | null
-          area_type: 'exterior_walls' | 'interior_walls' | 'ceiling' | 'gable' | 'roof' | null
-          surface_type: 'wall' | 'ceiling'
-          framing_size: '2x4' | '2x6' | '2x8' | '2x10' | '2x12'
-          height: number
-          width: number
-          square_feet: number
-          insulation_type: 'closed_cell' | 'open_cell' | 'batt' | 'blown_in' | null
-          r_value: string | null
-          photo_url: string | null
-          notes: string | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          job_id: string
-          room_name: string
-          floor_level?: string | null
-          area_type?: 'exterior_walls' | 'interior_walls' | 'ceiling' | 'gable' | 'roof' | null
-          surface_type: 'wall' | 'ceiling'
-          framing_size: '2x4' | '2x6' | '2x8' | '2x10' | '2x12'
-          height: number
-          width: number
-          square_feet: number
-          insulation_type?: 'closed_cell' | 'open_cell' | 'batt' | 'blown_in' | null
-          r_value?: string | null
-          photo_url?: string | null
-          notes?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          job_id?: string
-          room_name?: string
-          floor_level?: string | null
-          area_type?: 'exterior_walls' | 'interior_walls' | 'ceiling' | 'gable' | 'roof' | null
-          surface_type?: 'wall' | 'ceiling'
-          framing_size?: '2x4' | '2x6' | '2x8' | '2x10' | '2x12'
-          height?: number
-          width?: number
-          square_feet?: number
-          insulation_type?: 'closed_cell' | 'open_cell' | 'batt' | 'blown_in' | null
-          r_value?: string | null
-          photo_url?: string | null
-          notes?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "insulation_measurements_job_id_fkey"
-            columns: ["job_id"]
-            isOneToOne: false
-            referencedRelation: "jobs"
-            referencedColumns: ["id"]
-          }
-        ]
-      }
       measurements: {
         Row: {
           id: string
@@ -249,10 +187,16 @@ export type Database = {
           height: number
           width: number
           square_feet: number
-          insulation_type: 'closed_cell' | 'open_cell' | 'batt' | 'blown_in' | null
+          insulation_type: 'closed_cell' | 'open_cell' | 'batt' | 'blown_in' | 'hybrid' | null
           r_value: string | null
+          closed_cell_inches: number
+          open_cell_inches: number
+          is_hybrid_system: boolean
           photo_url: string | null
           notes: string | null
+          locked_by_estimate_id: string | null
+          is_locked: boolean
+          locked_at: string | null
           created_at: string
           updated_at: string
         }
@@ -266,10 +210,16 @@ export type Database = {
           height: number
           width: number
           square_feet: number
-          insulation_type?: 'closed_cell' | 'open_cell' | 'batt' | 'blown_in' | null
+          insulation_type?: 'closed_cell' | 'open_cell' | 'batt' | 'blown_in' | 'hybrid' | null
           r_value?: string | null
+          closed_cell_inches?: number
+          open_cell_inches?: number
+          is_hybrid_system?: boolean
           photo_url?: string | null
           notes?: string | null
+          locked_by_estimate_id?: string | null
+          is_locked?: boolean
+          locked_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -283,10 +233,16 @@ export type Database = {
           height?: number
           width?: number
           square_feet?: number
-          insulation_type?: 'closed_cell' | 'open_cell' | 'batt' | 'blown_in' | null
+          insulation_type?: 'closed_cell' | 'open_cell' | 'batt' | 'blown_in' | 'hybrid' | null
           r_value?: string | null
+          closed_cell_inches?: number
+          open_cell_inches?: number
+          is_hybrid_system?: boolean
           photo_url?: string | null
           notes?: string | null
+          locked_by_estimate_id?: string | null
+          is_locked?: boolean
+          locked_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -448,9 +404,15 @@ export type Database = {
           job_id: string
           estimate_number: string
           total_amount: number
-          status: 'draft' | 'sent' | 'approved' | 'rejected'
+          status: 'draft' | 'pending_approval' | 'sent' | 'approved' | 'rejected'
+          service_type: 'insulation' | 'hvac' | 'plaster' | null
           valid_until: string | null
           created_by: string
+          approved_by: string | null
+          approved_at: string | null
+          locks_measurements: boolean
+          subtotal: number
+          markup_percentage: number
           created_at: string
           updated_at: string
         }
@@ -459,9 +421,15 @@ export type Database = {
           job_id: string
           estimate_number: string
           total_amount: number
-          status?: 'draft' | 'sent' | 'approved' | 'rejected'
+          status?: 'draft' | 'pending_approval' | 'sent' | 'approved' | 'rejected'
+          service_type?: 'insulation' | 'hvac' | 'plaster' | null
           valid_until?: string | null
           created_by: string
+          approved_by?: string | null
+          approved_at?: string | null
+          locks_measurements?: boolean
+          subtotal?: number
+          markup_percentage?: number
           created_at?: string
           updated_at?: string
         }
@@ -470,9 +438,15 @@ export type Database = {
           job_id?: string
           estimate_number?: string
           total_amount?: number
-          status?: 'draft' | 'sent' | 'approved' | 'rejected'
+          status?: 'draft' | 'pending_approval' | 'sent' | 'approved' | 'rejected'
+          service_type?: 'insulation' | 'hvac' | 'plaster' | null
           valid_until?: string | null
           created_by?: string
+          approved_by?: string | null
+          approved_at?: string | null
+          locks_measurements?: boolean
+          subtotal?: number
+          markup_percentage?: number
           created_at?: string
           updated_at?: string
         }
@@ -500,7 +474,7 @@ export type Database = {
           description: string
           quantity: number
           unit_price: number
-          total_price: number
+          total: number
           created_at: string
         }
         Insert: {
@@ -509,7 +483,7 @@ export type Database = {
           description: string
           quantity: number
           unit_price: number
-          total_price: number
+          total: number
           created_at?: string
         }
         Update: {
@@ -518,7 +492,7 @@ export type Database = {
           description?: string
           quantity?: number
           unit_price?: number
-          total_price?: number
+          total?: number
           created_at?: string
         }
         Relationships: [
@@ -631,7 +605,6 @@ export type Enums<
 
 export type Lead = Tables<'leads'>
 export type Job = Tables<'jobs'>
-export type InsulationMeasurement = Tables<'insulation_measurements'>
 export type HvacMeasurement = Tables<'hvac_measurements'>
 export type PlasterMeasurement = Tables<'plaster_measurements'>
 export type PricingCatalog = Tables<'pricing_catalog'>

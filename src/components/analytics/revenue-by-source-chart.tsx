@@ -207,21 +207,21 @@ export function RevenueBySourceChart({ className }: RevenueBySourceChartProps) {
             {/* Detailed Table */}
             <div className="space-y-2">
               <h4 className="font-semibold text-gray-900 mb-3">Source Breakdown</h4>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+              <div className="overflow-x-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: '#cbd5e1 #f1f5f9' }}>
+                <table className="w-full text-sm min-w-[600px]">
                   <thead>
                     <tr className="border-b">
-                      <th className="text-left py-2">Source</th>
-                      <th className="text-right py-2">Revenue</th>
-                      <th className="text-right py-2">Leads</th>
-                      <th className="text-right py-2">Avg Deal</th>
-                      <th className="text-right py-2">Conversion</th>
+                      <th className="text-left py-2 px-3 min-w-[120px]">Source</th>
+                      <th className="text-right py-2 px-3 min-w-[100px]">Revenue</th>
+                      <th className="text-right py-2 px-3 min-w-[80px]">Leads</th>
+                      <th className="text-right py-2 px-3 min-w-[100px]">Avg Deal</th>
+                      <th className="text-right py-2 px-3 min-w-[100px]">Conversion</th>
                     </tr>
                   </thead>
                   <tbody>
                     {Array.isArray(data) ? data.map((source, index) => (
                       <tr key={source.lead_source} className="border-b">
-                        <td className="py-3">
+                        <td className="py-3 px-3">
                           <div className="flex items-center gap-2">
                             <div 
                               className="w-3 h-3 rounded" 
@@ -230,14 +230,14 @@ export function RevenueBySourceChart({ className }: RevenueBySourceChartProps) {
                             {source.lead_source}
                           </div>
                         </td>
-                        <td className="text-right py-3 font-semibold">
+                        <td className="text-right py-3 px-3 font-semibold">
                           ${source.total_revenue.toLocaleString()}
                         </td>
-                        <td className="text-right py-3">{source.lead_count}</td>
-                        <td className="text-right py-3">
+                        <td className="text-right py-3 px-3">{source.lead_count}</td>
+                        <td className="text-right py-3 px-3">
                           ${source.avg_deal_size.toLocaleString()}
                         </td>
-                        <td className="text-right py-3">
+                        <td className="text-right py-3 px-3">
                           {source.conversion_rate.toFixed(1)}%
                         </td>
                       </tr>

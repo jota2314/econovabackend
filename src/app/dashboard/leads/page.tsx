@@ -28,7 +28,8 @@ import {
   Users,
   TrendingUp,
   CheckSquare,
-  Settings
+  Settings,
+  AlertCircle
 } from "lucide-react"
 import { LeadsTable } from "@/components/leads/leads-table"
 import { LeadFormDialog } from "@/components/leads/lead-form-dialog"
@@ -134,7 +135,7 @@ export default function LeadsPage() {
         // Add new lead
         const insertData = {
           ...leadData,
-          assigned_to: null // Set to null for now since users table is empty
+          assigned_to: user?.id || null // Auto-assign to the current user creating the lead
         }
         
         console.log('Attempting to insert lead data:', insertData)
@@ -409,10 +410,25 @@ export default function LeadsPage() {
     applyFilters()
   }, [leads, searchTerm, quickFilter, serviceFilter, statusFilter])
 
-  // Load leads on component mount
+  // Load leads on component mount when user is authenticated
   useEffect(() => {
-    loadLeads()
-  }, [])
+    if (user) {
+      loadLeads()
+    } else {
+      console.log('⚠️ Waiting for authentication...')
+    }
+  }, [user])
+
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 text-yellow-500 mx-auto" />
+          <p className="mt-4 text-slate-600">Please log in to view leads</p>
+        </div>
+      </div>
+    )
+  }
 
   if (loading) {
     return (

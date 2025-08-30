@@ -31,17 +31,45 @@ import {
   MoreHorizontal,
   MessageSquare,
   PhoneCall,
-  History
+  History,
+  Settings,
+  Eye,
+  EyeOff
 } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuCheckboxItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel
 } from "@/components/ui/dropdown-menu"
 
 type SortField = 'name' | 'status' | 'created_at'
 type SortDirection = 'asc' | 'desc'
+
+type ColumnKey = 'name' | 'contact' | 'address' | 'status' | 'source' | 'date' | 'actions'
+
+const defaultColumns: Record<ColumnKey, boolean> = {
+  name: true,
+  contact: true,
+  address: false, // Hidden by default to save space
+  status: true,
+  source: false, // Hidden by default on mobile
+  date: false, // Hidden by default on mobile
+  actions: true
+}
+
+const columnLabels: Record<ColumnKey, string> = {
+  name: 'Name',
+  contact: 'Contact',
+  address: 'Address',
+  status: 'Status',
+  source: 'Source',
+  date: 'Date Added',
+  actions: 'Actions'
+}
 
 interface LeadsTableProps {
   leads: Lead[]
@@ -83,6 +111,7 @@ export function LeadsTable({
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [sortField, setSortField] = useState<SortField>('created_at')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
+  const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(defaultColumns)
 
   const filteredAndSortedLeads = useMemo(() => {
     const filtered = leads.filter(lead => {
@@ -132,6 +161,25 @@ export function LeadsTable({
     })
   }
 
+  const toggleColumn = (column: ColumnKey) => {
+    setVisibleColumns(prev => ({
+      ...prev,
+      [column]: !prev[column]
+    }))
+  }
+
+  const resetColumns = () => {
+    setVisibleColumns(defaultColumns)
+  }
+
+  const showAllColumns = () => {
+    const allVisible = Object.keys(columnLabels).reduce((acc, key) => {
+      acc[key as ColumnKey] = true
+      return acc
+    }, {} as Record<ColumnKey, boolean>)
+    setVisibleColumns(allVisible)
+  }
+
   return (
     <div className="space-y-4">
       {/* Filters */}
@@ -158,6 +206,39 @@ export function LeadsTable({
             ))}
           </SelectContent>
         </Select>
+
+        {/* Column Visibility Toggle */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="default" className="shrink-0">
+              <Settings className="h-4 w-4 mr-2" />
+              Columns
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuLabel>Toggle Columns</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {Object.entries(columnLabels).map(([key, label]) => (
+              <DropdownMenuCheckboxItem
+                key={key}
+                checked={visibleColumns[key as ColumnKey]}
+                onCheckedChange={() => toggleColumn(key as ColumnKey)}
+                disabled={key === 'name'} // Always keep name visible
+              >
+                {label}
+              </DropdownMenuCheckboxItem>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={showAllColumns}>
+              <Eye className="h-4 w-4 mr-2" />
+              Show All
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={resetColumns}>
+              <EyeOff className="h-4 w-4 mr-2" />
+              Reset Default
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Results count */}
@@ -166,190 +247,227 @@ export function LeadsTable({
       </div>
 
       {/* Table */}
-      <div className="rounded-md border bg-white">
-        <Table>
+      <div className="w-full border border-gray-200 rounded-lg bg-white">
+        <div 
+          style={{ 
+            overflowX: 'scroll',
+            overflowY: 'hidden',
+            width: '100%',
+            WebkitOverflowScrolling: 'touch',
+            scrollbarWidth: 'auto'
+          }}
+        >
+          <Table 
+            className="border-collapse"
+            style={{ 
+              width: '1000px',
+              minWidth: '1000px',
+              tableLayout: 'fixed'
+            }}
+          >
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[200px]">
-                <Button
-                  variant="ghost"
-                  onClick={() => handleSort('name')}
-                  className="h-auto p-0 font-medium"
-                >
-                  Name
-                  <ArrowUpDown className="ml-2 h-4 w-4" />
-                </Button>
-              </TableHead>
-              <TableHead>Contact</TableHead>
-              <TableHead>Address</TableHead>
-              <TableHead>
-                <Button
-                  variant="ghost"
-                  onClick={() => handleSort('status')}
-                  className="h-auto p-0 font-medium"
-                >
-                  Status
-                  <ArrowUpDown className="ml-2 h-4 w-4" />
-                </Button>
-              </TableHead>
-              <TableHead>Source</TableHead>
-              <TableHead>
-                <Button
-                  variant="ghost"
-                  onClick={() => handleSort('created_at')}
-                  className="h-auto p-0 font-medium"
-                >
-                  Date Added
-                  <ArrowUpDown className="ml-2 h-4 w-4" />
-                </Button>
-              </TableHead>
-              <TableHead className="w-[140px]">Actions</TableHead>
+              {visibleColumns.name && (
+                <TableHead className="min-w-[200px]">
+                  <Button
+                    variant="ghost"
+                    onClick={() => handleSort('name')}
+                    className="h-auto p-0 font-medium"
+                  >
+                    Name
+                    <ArrowUpDown className="ml-2 h-4 w-4" />
+                  </Button>
+                </TableHead>
+              )}
+              {visibleColumns.contact && <TableHead className="min-w-[180px]">Contact</TableHead>}
+              {visibleColumns.address && <TableHead className="min-w-[200px]">Address</TableHead>}
+              {visibleColumns.status && (
+                <TableHead className="min-w-[140px]">
+                  <Button
+                    variant="ghost"
+                    onClick={() => handleSort('status')}
+                    className="h-auto p-0 font-medium"
+                  >
+                    Status
+                    <ArrowUpDown className="ml-2 h-4 w-4" />
+                  </Button>
+                </TableHead>
+              )}
+              {visibleColumns.source && <TableHead className="min-w-[120px]">Source</TableHead>}
+              {visibleColumns.date && (
+                <TableHead className="min-w-[120px]">
+                  <Button
+                    variant="ghost"
+                    onClick={() => handleSort('created_at')}
+                    className="h-auto p-0 font-medium"
+                  >
+                    Date Added
+                    <ArrowUpDown className="ml-2 h-4 w-4" />
+                  </Button>
+                </TableHead>
+              )}
+              {visibleColumns.actions && <TableHead className="min-w-[140px]">Actions</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredAndSortedLeads.map((lead) => (
               <TableRow key={lead.id}>
-                <TableCell className="font-medium">
-                  <div>
-                    <div className="font-semibold text-slate-900">
-                      {lead.name}
-                    </div>
-                    {lead.company && (
-                      <div className="text-xs text-slate-500">
-                        {lead.company}
+                {visibleColumns.name && (
+                  <TableCell className="font-medium">
+                    <div>
+                      <div className="font-semibold text-slate-900">
+                        {lead.name}
                       </div>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-1 text-sm">
-                      <Phone className="h-3 w-3 text-slate-400" />
-                      <a 
-                        href={`tel:${lead.phone}`}
-                        className="hover:text-orange-600 transition-colors"
-                      >
-                        {lead.phone}
-                      </a>
+                      {lead.company && (
+                        <div className="text-xs text-slate-500">
+                          {lead.company}
+                        </div>
+                      )}
                     </div>
-                    {lead.email && (
+                  </TableCell>
+                )}
+                {visibleColumns.contact && (
+                  <TableCell>
+                    <div className="space-y-1">
                       <div className="flex items-center gap-1 text-sm">
-                        <Mail className="h-3 w-3 text-slate-400" />
+                        <Phone className="h-3 w-3 text-slate-400" />
                         <a 
-                          href={`mailto:${lead.email}`}
+                          href={`tel:${lead.phone}`}
                           className="hover:text-orange-600 transition-colors"
                         >
-                          {lead.email}
+                          {lead.phone}
                         </a>
                       </div>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  {lead.address && (
-                    <div className="flex items-start gap-1">
-                      <MapPin className="h-3 w-3 text-slate-400 mt-0.5 flex-shrink-0" />
-                      <div className="text-sm">
-                        <div>{lead.address}</div>
-                        {(lead.city && lead.state) && (
-                          <div className="text-slate-500">
-                            {lead.city}, {lead.state}
-                          </div>
-                        )}
-                      </div>
+                      {lead.email && (
+                        <div className="flex items-center gap-1 text-sm">
+                          <Mail className="h-3 w-3 text-slate-400" />
+                          <a 
+                            href={`mailto:${lead.email}`}
+                            className="hover:text-orange-600 transition-colors"
+                          >
+                            {lead.email}
+                          </a>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <Select
-                    value={lead.status}
-                    onValueChange={(value) => onUpdateStatus(lead.id, value as Lead['status'])}
-                  >
-                    <SelectTrigger className="w-[120px] h-auto">
-                      <Badge variant="outline" className={statusConfig[lead.status].color}>
-                        {statusConfig[lead.status].label}
+                  </TableCell>
+                )}
+                {visibleColumns.address && (
+                  <TableCell>
+                    {lead.address && (
+                      <div className="flex items-start gap-1">
+                        <MapPin className="h-3 w-3 text-slate-400 mt-0.5 flex-shrink-0" />
+                        <div className="text-sm">
+                          <div>{lead.address}</div>
+                          {(lead.city && lead.state) && (
+                            <div className="text-slate-500">
+                              {lead.city}, {lead.state}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </TableCell>
+                )}
+                {visibleColumns.status && (
+                  <TableCell>
+                    <Select
+                      value={lead.status}
+                      onValueChange={(value) => onUpdateStatus(lead.id, value as Lead['status'])}
+                    >
+                      <SelectTrigger className="w-[120px] h-auto">
+                        <Badge variant="outline" className={statusConfig[lead.status].color}>
+                          {statusConfig[lead.status].label}
+                        </Badge>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(statusConfig).map(([value, config]) => (
+                          <SelectItem key={value} value={value}>
+                            <Badge variant="outline" className={config.color}>
+                              {config.label}
+                            </Badge>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                )}
+                {visibleColumns.source && (
+                  <TableCell>
+                    {lead.lead_source && (
+                      <Badge variant="outline" className="text-xs">
+                        {lead.lead_source.replace('_', ' ')}
                       </Badge>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(statusConfig).map(([value, config]) => (
-                        <SelectItem key={value} value={value}>
-                          <Badge variant="outline" className={config.color}>
-                            {config.label}
-                          </Badge>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </TableCell>
-                <TableCell>
-                  {lead.lead_source && (
-                    <Badge variant="outline" className="text-xs">
-                      {lead.lead_source.replace('_', ' ')}
-                    </Badge>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <div className="text-sm text-slate-600">
-                    {formatDate(lead.created_at)}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1">
-                    {/* Communication buttons */}
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                      onClick={() => onCallLead?.(lead)}
-                      title="Call"
-                    >
-                      <PhoneCall className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
-                      onClick={() => onSMSLead?.(lead)}
-                      title="Send SMS"
-                    >
-                      <MessageSquare className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      className="h-8 w-8 text-purple-600 hover:text-purple-700 hover:bg-purple-50"
-                      onClick={() => onViewHistory?.(lead)}
-                      title="View History"
-                    >
-                      <History className="h-4 w-4" />
-                    </Button>
+                    )}
+                  </TableCell>
+                )}
+                {visibleColumns.date && (
+                  <TableCell>
+                    <div className="text-sm text-slate-600">
+                      {formatDate(lead.created_at)}
+                    </div>
+                  </TableCell>
+                )}
+                {visibleColumns.actions && (
+                  <TableCell>
+                    <div className="flex items-center gap-1">
+                      {/* Communication buttons */}
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                        onClick={() => onCallLead?.(lead)}
+                        title="Call"
+                      >
+                        <PhoneCall className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
+                        onClick={() => onSMSLead?.(lead)}
+                        title="Send SMS"
+                      >
+                        <MessageSquare className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="h-8 w-8 text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                        onClick={() => onViewHistory?.(lead)}
+                        title="View History"
+                      >
+                        <History className="h-4 w-4" />
+                      </Button>
 
-                    {/* More actions dropdown */}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => onEditLead(lead)}>
-                          <Edit className="h-4 w-4 mr-2" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => onDeleteLead(lead.id)}
-                          className="text-red-600"
-                        >
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </TableCell>
+                      {/* More actions dropdown */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => onEditLead(lead)}>
+                            <Edit className="h-4 w-4 mr-2" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => onDeleteLead(lead.id)}
+                            className="text-red-600"
+                          >
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </TableCell>
+                )}
               </TableRow>
             ))}
           </TableBody>
         </Table>
+        </div>
         
         {filteredAndSortedLeads.length === 0 && (
           <div className="text-center py-10 text-slate-500">

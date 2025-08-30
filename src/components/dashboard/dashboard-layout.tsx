@@ -28,12 +28,12 @@ export function DashboardLayout({ children, title, user }: DashboardLayoutProps)
         <div className="flex flex-col overflow-hidden">
           <Header title={title} user={user} />
           
-          <main className="flex-1 overflow-hidden">
-            <ScrollArea className="h-full">
+          <main className="flex-1 overflow-y-auto overflow-x-visible">
+            <div className="min-h-full">
               <div className="p-4 lg:p-6 space-y-6">
                 {children}
               </div>
-            </ScrollArea>
+            </div>
           </main>
         </div>
       </div>

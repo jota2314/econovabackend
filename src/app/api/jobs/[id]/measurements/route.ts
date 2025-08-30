@@ -42,84 +42,18 @@ export async function GET(
       )
     }
 
-    // Query the appropriate measurements table based on service type
-    // Note: Falling back to original measurements table if new tables don't exist
-    let measurements = []
-    let error = null
-
-    try {
-      switch (job.service_type) {
-        case 'insulation':
-          try {
-            const insulationResult = await supabase
-              .from('insulation_measurements')
-              .select('*')
-              .eq('job_id', id)
-              .order('created_at', { ascending: true })
-            measurements = insulationResult.data
-            error = insulationResult.error
-          } catch (insulationError) {
-            console.warn('insulation_measurements table not found, using measurements table')
-            // Fallback to original measurements table
-            const fallbackResult = await supabase
-              .from('measurements')
-              .select('*')
-              .eq('job_id', id)
-              .order('created_at', { ascending: true })
-            measurements = fallbackResult.data
-            error = fallbackResult.error
-          }
-          break
-        case 'hvac':
-          try {
-            const hvacResult = await supabase
-              .from('hvac_measurements')
-              .select('*')
-              .eq('job_id', id)
-              .order('created_at', { ascending: true })
-            measurements = hvacResult.data
-            error = hvacResult.error
-          } catch (hvacError) {
-            console.warn('hvac_measurements table not found, returning empty array')
-            measurements = []
-            error = null
-          }
-          break
-        case 'plaster':
-          try {
-            const plasterResult = await supabase
-              .from('plaster_measurements')
-              .select('*')
-              .eq('job_id', id)
-              .order('created_at', { ascending: true })
-            measurements = plasterResult.data
-            error = plasterResult.error
-          } catch (plasterError) {
-            console.warn('plaster_measurements table not found, returning empty array')
-            measurements = []
-            error = null
-          }
-          break
-        default:
-          // Default to insulation and original measurements table
-          const defaultResult = await supabase
-            .from('measurements')
-            .select('*')
-            .eq('job_id', id)
-            .order('created_at', { ascending: true })
-          measurements = defaultResult.data
-          error = defaultResult.error
-      }
-    } catch (tableError) {
-      console.warn('Error querying measurement tables, falling back to measurements table:', tableError)
-      const fallbackResult = await supabase
-        .from('measurements')
-        .select('*')
-        .eq('job_id', id)
-        .order('created_at', { ascending: true })
-      measurements = fallbackResult.data
-      error = fallbackResult.error
-    }
+    // Query measurements from the single measurements table (include lock status)
+    const { data: measurements, error } = await supabase
+      .from('measurements')
+      .select('*')
+      .eq('job_id', id)
+      .order('created_at', { ascending: true })
+    
+    console.log(`[GET /api/jobs/${id}/measurements] Result:`, { 
+      data: measurements,
+      error: error,
+      count: measurements?.length || 0
+    })
 
     if (error) {
       console.error(`[GET /api/jobs/${id}/measurements] Database error:`, error)
@@ -176,6 +110,25 @@ export async function POST(
       )
     }
 
+    // Check if measurements are locked by an approved estimate
+    const { data: lockedMeasurements } = await supabase
+      .from('measurements')
+      .select('locked_by_estimate_id')
+      .eq('job_id', id)
+      .eq('is_locked', true)
+      .limit(1)
+    
+    if (lockedMeasurements && lockedMeasurements.length > 0) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'Measurements are locked by an approved estimate',
+          locked_by_estimate: lockedMeasurements[0].locked_by_estimate_id
+        },
+        { status: 403 }
+      )
+    }
+
     // First get the job to determine the service type
     const { data: job, error: jobError } = await supabase
       .from('jobs')
@@ -208,7 +161,11 @@ export async function POST(
           framing_size, 
           height, 
           width, 
-          insulation_type, 
+          insulation_type,
+          r_value,
+          closed_cell_inches,
+          open_cell_inches,
+          is_hybrid_system,
           notes: insulationNotes 
         } = body
 
@@ -220,7 +177,7 @@ export async function POST(
           )
         }
 
-        const square_feet = parseFloat(height) * parseFloat(width)
+        // Don't calculate square_feet - it's a generated column in the database
         
         insertData = {
           job_id: id,
@@ -231,13 +188,16 @@ export async function POST(
           framing_size,
           height: parseFloat(height),
           width: parseFloat(width),
-          square_feet,
+          // square_feet is generated automatically - don't insert it
           insulation_type: insulation_type || null,
-          r_value: null,
+          r_value: r_value || null,
+          closed_cell_inches: closed_cell_inches ? parseFloat(closed_cell_inches) : 0,
+          open_cell_inches: open_cell_inches ? parseFloat(open_cell_inches) : 0,
+          is_hybrid_system: is_hybrid_system || false,
           notes: insulationNotes || null
         }
         
-        tableName = 'insulation_measurements'
+        tableName = 'measurements'
         break
 
       case 'hvac':
@@ -323,62 +283,38 @@ export async function POST(
     let measurement = null
     let insertError = null
 
-    // For insulation measurements, try the new table first but fall back to measurements table on any error
-    if (job.service_type === 'insulation') {
-      // Try new insulation_measurements table first
-      const result = await supabase
-        .from(tableName)
-        .insert(insertData)
-        .select()
-        .single()
-      
-      if (result.error) {
-        console.warn(`insulation_measurements table error (${result.error.code}), falling back to measurements table`)
-        
-        // Fallback to original measurements table
-        const fallbackResult = await supabase
+    // Insert measurement into the appropriate table
+    try {
+      let result: any
+      if (job.service_type === 'insulation') {
+        // Use the main measurements table for insulation
+        result = await supabase
           .from('measurements')
-          .insert({
-            job_id: id,
-            room_name: insertData.room_name,
-            floor_level: insertData.floor_level,
-            area_type: insertData.area_type,
-            surface_type: insertData.surface_type,
-            framing_size: insertData.framing_size, // Include framing_size in fallback
-            height: insertData.height,
-            width: insertData.width,
-            insulation_type: insertData.insulation_type,
-            r_value: insertData.r_value,
-            notes: insertData.notes
-          })
-          .select()
-          .single()
-        
-        measurement = fallbackResult.data
-        insertError = fallbackResult.error
-      } else {
-        measurement = result.data
-        insertError = result.error
-      }
-    } else {
-      // For other service types, try the specialized table
-      try {
-        const result = await supabase
-          .from(tableName)
           .insert(insertData)
           .select()
           .single()
-        
-        measurement = result.data
-        insertError = result.error
-      } catch (tableError) {
-        console.warn(`Table ${tableName} not found`)
-        // For HVAC and Plaster, return error since we can't fallback
-        return NextResponse.json(
-          { success: false, error: `${tableName} table not available yet. Please contact administrator.` },
-          { status: 503 }
-        )
+      } else if (job.service_type === 'hvac') {
+        result = await supabase
+          .from('hvac_measurements')
+          .insert(insertData)
+          .select()
+          .single()
+      } else if (job.service_type === 'plaster') {
+        result = await supabase
+          .from('plaster_measurements')
+          .insert(insertData)
+          .select()
+          .single()
       }
+      
+      measurement = result?.data
+      insertError = result?.error
+    } catch (tableError) {
+      console.warn(`Table ${tableName} not found`)
+      return NextResponse.json(
+        { success: false, error: `${tableName} table not available yet. Please contact administrator.` },
+        { status: 503 }
+      )
     }
 
     if (insertError) {
@@ -405,7 +341,7 @@ export async function POST(
 
     console.log(`[POST /api/jobs/${id}/measurements] Success:`, { 
       id: measurement.id,
-      square_feet: measurement.square_feet
+      ...(job.service_type === 'insulation' && 'square_feet' in measurement && { square_feet: measurement.square_feet })
     })
 
     return NextResponse.json({

@@ -13,11 +13,36 @@ export class LeadsService {
     try {
       console.log('🔄 Starting leads query...')
       
+      // Get current user and their role
+      const { data: { user } } = await this.supabase.auth.getUser()
+      let userRole = 'salesperson' // default role
+      
+      if (user) {
+        const { data: userProfile } = await this.supabase
+          .from('users')
+          .select('role')
+          .eq('id', user.id)
+          .single()
+        
+        if (userProfile) {
+          userRole = userProfile.role
+        }
+      }
+      
       // Build the query step by step
       let query = this.supabase
         .from('leads')
         .select('*')
         .order('created_at', { ascending: false })
+      
+      // Apply role-based filtering
+      if (userRole === 'salesperson' || userRole === 'lead_hunter') {
+        // Salesperson and lead hunters see only their assigned leads
+        if (user) {
+          query = query.eq('assigned_to', user.id)
+        }
+      }
+      // Managers and admins can see all leads (no filter needed)
 
       // Apply filters
       if (options?.status && options.status.length > 0) {
@@ -152,11 +177,38 @@ export class LeadsService {
 
       console.log('📊 Fetching lead stats...')
       
-      // Use a more efficient query - only select what we need
-      const { data: leads, error } = await this.supabase
+      // Get current user and their role for role-based filtering
+      const { data: { user } } = await this.supabase.auth.getUser()
+      let userRole = 'salesperson' // default role
+      
+      if (user) {
+        const { data: userProfile } = await this.supabase
+          .from('users')
+          .select('role')
+          .eq('id', user.id)
+          .single()
+        
+        if (userProfile) {
+          userRole = userProfile.role
+        }
+      }
+      
+      // Build query with role-based filtering
+      let query = this.supabase
         .from('leads')
         .select('status, created_at')
         .limit(1000) // Reasonable limit to avoid huge queries
+      
+      // Apply role-based filtering
+      if (userRole === 'salesperson' || userRole === 'lead_hunter') {
+        // Salesperson and lead hunters see only their assigned leads
+        if (user) {
+          query = query.eq('assigned_to', user.id)
+        }
+      }
+      // Managers and admins can see all leads (no filter needed)
+      
+      const { data: leads, error } = await query
 
       if (error) {
         console.error('❌ Error fetching lead stats:', error)

@@ -20,6 +20,7 @@ import {
   FileText,
   Calculator
 } from "lucide-react"
+import { EstimateCard } from "@/components/dashboard/estimate-card"
 
 
 export function DashboardContent() {
@@ -153,29 +154,25 @@ export function DashboardContent() {
         // This catch is for any unexpected errors in the processing logic
         
         // Set default empty states only if they haven't been set by individual catches
-        if (!stats.totalLeads && stats.totalLeads !== 0) {
-          setStats({
-            totalLeads: 0,
-            activeLeads: 0,
-            thisMonthLeads: 0,
-            lastMonthLeads: 0,
-            statusBreakdown: {}
-          })
-        }
-        if (!recentLeads.length) {
-          setRecentLeads([])
-        }
-        if (!dashboardStats.totalJobs && dashboardStats.totalJobs !== 0) {
-          setDashboardStats({
-            commissions: 0,
-            totalJobs: 0,
-            conversionRate: 0,
-            pipelineValue: 0,
-            estimatesSent: 0,
-            estimatesSentLastMonth: 0,
-            growth: { commissions: 0, jobs: 0, estimates: 0 }
-          })
-        }
+        setStats(prevStats => prevStats.totalLeads === undefined ? {
+          totalLeads: 0,
+          activeLeads: 0,
+          thisMonthLeads: 0,
+          lastMonthLeads: 0,
+          statusBreakdown: {}
+        } : prevStats)
+        
+        setRecentLeads(prevLeads => prevLeads.length === 0 ? [] : prevLeads)
+        
+        setDashboardStats(prevDashStats => prevDashStats.totalJobs === undefined ? {
+          commissions: 0,
+          totalJobs: 0,
+          conversionRate: 0,
+          pipelineValue: 0,
+          estimatesSent: 0,
+          estimatesSentLastMonth: 0,
+          growth: { commissions: 0, jobs: 0, estimates: 0 }
+        } : prevDashStats)
         setRecentActivity([])
       } finally {
         setLoading(false)
@@ -378,6 +375,11 @@ export function DashboardContent() {
             </div>
           </div>
         </Card>
+      </div>
+
+      {/* Estimate Value Card */}
+      <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
+        <EstimateCard title="Total Estimate Value" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

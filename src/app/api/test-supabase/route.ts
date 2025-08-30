@@ -7,7 +7,7 @@ export async function GET() {
     
     // Test basic connection
     const { data: testData, error: testError } = await supabase
-      .from('profiles')
+      .from('users')
       .select('count')
       .limit(1)
     
@@ -28,7 +28,7 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       connection: 'Connected to Supabase successfully',
-      database: 'Profiles table accessible',
+      database: 'Users table accessible',
       auth: user ? 'User authenticated' : 'No authenticated user',
       url: process.env.NEXT_PUBLIC_SUPABASE_URL,
       hasAnonKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY

@@ -21,25 +21,18 @@ import {
   Settings,
   UserCheck,
   DollarSign,
-  BadgeIcon
+  BadgeIcon,
+  CheckCircle2
 } from "lucide-react"
 
 // Define navigation items by role
 const getNavigationItems = (role: string) => {
-  const baseItems = [
-    {
-      title: "Dashboard",
-      href: "/dashboard",
-      icon: Home,
-      exact: true,
-      roles: ['manager', 'salesperson', 'lead_hunter']
-    }
-  ]
-
   const roleSpecificItems = {
     manager: [
+      { title: "Dashboard", href: "/dashboard", icon: Home, exact: true },
       { title: "Leads", href: "/dashboard/leads", icon: Users, exact: false },
       { title: "Jobs", href: "/dashboard/jobs", icon: Briefcase, exact: false },
+      { title: "Estimate Approvals", href: "/dashboard/estimate-approvals", icon: CheckCircle2, exact: false },
       { title: "Lead Hunter", href: "/dashboard/lead-hunter", icon: Target, exact: false },
       { title: "Analytics", href: "/dashboard/analytics", icon: BarChart3, exact: false },
       { title: "Pricing", href: "/dashboard/pricing", icon: DollarSign, exact: false },
@@ -47,23 +40,34 @@ const getNavigationItems = (role: string) => {
       { title: "Settings", href: "/dashboard/settings", icon: Settings, exact: false }
     ],
     salesperson: [
-      { title: "Leads", href: "/dashboard/leads", icon: Users, exact: false },
       { title: "Jobs", href: "/dashboard/jobs", icon: Briefcase, exact: false },
+      { title: "Leads", href: "/dashboard/leads", icon: Users, exact: false },
+      { title: "Estimate Approvals", href: "/dashboard/estimate-approvals", icon: CheckCircle2, exact: false },
       { title: "Analytics", href: "/dashboard/analytics", icon: BarChart3, exact: false },
-      { title: "Profile", href: "/dashboard/profile", icon: User2, exact: false }
+      { title: "Team", href: "/dashboard/team", icon: UserCheck, exact: false },
+      { title: "Settings", href: "/dashboard/settings", icon: Settings, exact: false }
     ],
     lead_hunter: [
-      { title: "Lead Hunter Dashboard", href: "/dashboard/lead-hunter", icon: Target, exact: false },
-      { title: "Dialer", href: "/dashboard/dialer", icon: Phone, exact: false },
-      { title: "Upload Lists", href: "/dashboard/upload-lists", icon: Upload, exact: false },
-      { title: "My Stats", href: "/dashboard/my-stats", icon: BarChart3, exact: false }
+      { title: "Leads", href: "/dashboard/leads", icon: Users, exact: false },
+      { title: "Lead Hunter", href: "/dashboard/lead-hunter", icon: Target, exact: false },
+      { title: "Analytics", href: "/dashboard/analytics", icon: BarChart3, exact: false },
+      { title: "Team", href: "/dashboard/team", icon: UserCheck, exact: false },
+      { title: "Settings", href: "/dashboard/settings", icon: Settings, exact: false }
+    ],
+    admin: [
+      { title: "Dashboard", href: "/dashboard", icon: Home, exact: true },
+      { title: "Leads", href: "/dashboard/leads", icon: Users, exact: false },
+      { title: "Jobs", href: "/dashboard/jobs", icon: Briefcase, exact: false },
+      { title: "Estimate Approvals", href: "/dashboard/estimate-approvals", icon: CheckCircle2, exact: false },
+      { title: "Lead Hunter", href: "/dashboard/lead-hunter", icon: Target, exact: false },
+      { title: "Analytics", href: "/dashboard/analytics", icon: BarChart3, exact: false },
+      { title: "Pricing", href: "/dashboard/pricing", icon: DollarSign, exact: false },
+      { title: "Team", href: "/dashboard/team", icon: UserCheck, exact: false },
+      { title: "Settings", href: "/dashboard/settings", icon: Settings, exact: false }
     ]
   }
 
-  return [
-    ...baseItems,
-    ...(roleSpecificItems[role as keyof typeof roleSpecificItems] || roleSpecificItems.salesperson)
-  ]
+  return roleSpecificItems[role as keyof typeof roleSpecificItems] || roleSpecificItems.salesperson
 }
 
 interface SidebarProps {
@@ -124,6 +128,7 @@ export function Sidebar({ className, user }: SidebarProps) {
               width={350}
               height={85}
               className="h-20 w-auto"
+              style={{ height: 'auto', width: 'auto' }}
             />
           </div>
           

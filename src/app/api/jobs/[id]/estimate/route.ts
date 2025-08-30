@@ -18,7 +18,7 @@ export async function POST(
 
     // Get job measurements
     const { data: measurements, error: measurementsError } = await supabase
-      .from('insulation_measurements')
+      .from('measurements')
       .select('*')
       .eq('job_id', params.id)
 
