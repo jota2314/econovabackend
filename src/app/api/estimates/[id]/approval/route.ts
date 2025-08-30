@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { permissionsService } from '@/lib/services/permissions'
 
 export async function PUT(
   request: NextRequest,
@@ -22,8 +21,13 @@ export async function PUT(
     }
 
     // Check if user is a manager
-    const userRole = await permissionsService.getUserRole(user.id)
-    if (userRole !== 'manager') {
+    const { data: userData } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+    
+    if (userData?.role !== 'manager') {
       return NextResponse.json(
         { success: false, error: 'Only managers can approve/reject estimates' },
         { status: 403 }
@@ -79,10 +83,25 @@ export async function PUT(
     // Handle measurement locking based on approval/rejection
     if (action === 'approve') {
       // Lock measurements when estimate is approved
-      await permissionsService.lockMeasurements(estimate.job_id, id)
+      await supabase
+        .from('measurements')
+        .update({
+          locked_by_estimate_id: id,
+          is_locked: true,
+          locked_at: new Date().toISOString()
+        })
+        .eq('job_id', estimate.job_id)
     } else if (action === 'reject') {
-      // Unlock measurements when estimate is rejected (in case it was previously approved)
-      await permissionsService.unlockMeasurements(estimate.job_id, id)
+      // Unlock measurements when estimate is rejected
+      await supabase
+        .from('measurements')
+        .update({
+          locked_by_estimate_id: null,
+          is_locked: false,
+          locked_at: null
+        })
+        .eq('job_id', estimate.job_id)
+        .eq('locked_by_estimate_id', id)
     }
 
     return NextResponse.json({
