@@ -12,8 +12,7 @@ export async function POST(
       prepWork = false, 
       fireRetardant = false, 
       complexityMultiplier = 1.0,
-      discount = 0,
-      taxRate = 0.0625 // MA tax rate default
+      discount = 0
     } = await request.json()
 
     // Get job measurements
@@ -65,10 +64,7 @@ export async function POST(
     // Apply discount
     const discountAmount = adjustedSubtotal * (discount / 100)
     const subtotalAfterDiscount = adjustedSubtotal - discountAmount
-
-    // Calculate tax
-    const tax = subtotalAfterDiscount * taxRate
-    const total = subtotalAfterDiscount + tax
+    const total = subtotalAfterDiscount
 
     // Prepare detailed breakdown
     const breakdown = {
@@ -97,10 +93,6 @@ export async function POST(
         description: `Discount (${discount}%)`,
         amount: -discountAmount
       } : null,
-      tax: {
-        description: `Tax (${(taxRate * 100).toFixed(2)}%)`,
-        amount: tax
-      }
     }
 
     // Create estimate record
@@ -110,7 +102,6 @@ export async function POST(
         job_id: params.id,
         total_amount: total,
         subtotal: subtotalAfterDiscount,
-        tax_amount: tax,
         discount_amount: discountAmount,
         prep_work_cost: prepWorkCost,
         fire_retardant_cost: fireRetardantCost,
@@ -136,7 +127,6 @@ export async function POST(
           subtotal: adjustedSubtotal,
           discountAmount,
           subtotalAfterDiscount,
-          tax,
           total,
           requiresApproval: total > 10000
         }

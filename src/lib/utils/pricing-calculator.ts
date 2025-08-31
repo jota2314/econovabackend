@@ -127,11 +127,9 @@ export function calculateTotalEstimate(
     squareFeet: number
     insulationType: InsulationType
     rValue: number
-  }>,
-  taxRate: number = 0
+  }>
 ): {
   subtotal: number
-  tax: number
   total: number
   itemizedPrices: Array<{
     pricePerSqft: number
@@ -143,12 +141,10 @@ export function calculateTotalEstimate(
   )
   
   const subtotal = itemizedPrices.reduce((sum, item) => sum + item.totalPrice, 0)
-  const tax = subtotal * taxRate
-  const total = subtotal + tax
+  const total = subtotal
   
   return {
     subtotal,
-    tax,
     total,
     itemizedPrices
   }

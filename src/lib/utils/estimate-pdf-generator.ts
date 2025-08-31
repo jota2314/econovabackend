@@ -268,19 +268,10 @@ export async function generateEstimatePDF(data: EstimateData): Promise<void> {
   
   yPosition += 6
   
-  // Tax (optional - set to 0 for now)
-  const taxRate = 0
-  const tax = subtotal * taxRate
-  if (taxRate > 0) {
-    pdf.text(`Tax (${(taxRate * 100).toFixed(1)}%):`, pageWidth - margin - 40, yPosition)
-    pdf.text(formatCurrency(tax), pageWidth - margin - 5, yPosition, { align: 'right' })
-    yPosition += 6
-  }
-
   // Total
   pdf.setFont('helvetica', 'bold')
   pdf.setFontSize(12)
-  const total = subtotal + tax
+  const total = subtotal
   pdf.text('TOTAL:', pageWidth - margin - 40, yPosition)
   pdf.text(formatCurrency(total), pageWidth - margin - 5, yPosition, { align: 'right' })
 

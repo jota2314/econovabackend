@@ -1754,10 +1754,8 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                       }))
                     )
                     
-                    const TAX_RATE = 0.0625 // 6.25% MA tax rate
                     const subtotal = estimate.subtotal
-                    const tax = subtotal * TAX_RATE
-                    const total = subtotal + tax
+                    const total = subtotal
                     const requiresApproval = total > 10000
                     
                     return (
@@ -1772,10 +1770,6 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                           <div className="flex justify-between">
                             <span>Subtotal:</span>
                             <span className="font-semibold">{formatCurrency(subtotal)}</span>
-                          </div>
-                          <div className="flex justify-between text-sm text-slate-600">
-                            <span>Tax (6.25%):</span>
-                            <span>{formatCurrency(tax)}</span>
                           </div>
                           <Separator />
                           <div className="flex justify-between text-xl font-bold text-slate-900">

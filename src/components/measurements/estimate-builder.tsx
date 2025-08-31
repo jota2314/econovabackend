@@ -74,7 +74,6 @@ const estimateSchema = z.object({
   fireRetardant: z.boolean(),
   complexityMultiplier: z.number().min(1.0).max(2.0),
   discount: z.number().min(0).max(50),
-  taxRate: z.number().min(0).max(0.2),
   notes: z.string().optional()
 })
 
@@ -91,7 +90,6 @@ export function EstimateBuilder({ job, measurements, onClose, onEstimateCreated 
       fireRetardant: false,
       complexityMultiplier: 1.0,
       discount: 0,
-      taxRate: 0.0625, // MA tax rate
       notes: ""
     }
   })
@@ -134,10 +132,7 @@ export function EstimateBuilder({ job, measurements, onClose, onEstimateCreated 
     // Apply discount
     const discountAmount = adjustedSubtotal * (formValues.discount / 100)
     const subtotalAfterDiscount = adjustedSubtotal - discountAmount
-
-    // Calculate tax
-    const tax = subtotalAfterDiscount * formValues.taxRate
-    const total = subtotalAfterDiscount + tax
+    const total = subtotalAfterDiscount
 
     return {
       baseSubtotal: baseEstimate.subtotal,
@@ -147,7 +142,6 @@ export function EstimateBuilder({ job, measurements, onClose, onEstimateCreated 
       adjustedSubtotal,
       discountAmount,
       subtotalAfterDiscount,
-      tax,
       total,
       totalSquareFeet,
       requiresApproval: total > 10000
@@ -171,7 +165,6 @@ export function EstimateBuilder({ job, measurements, onClose, onEstimateCreated 
           fireRetardant: data.fireRetardant,
           complexityMultiplier: data.complexityMultiplier,
           discount: data.discount,
-          taxRate: data.taxRate,
           notes: data.notes
         })
       })
@@ -357,27 +350,6 @@ export function EstimateBuilder({ job, measurements, onClose, onEstimateCreated 
                         )}
                       />
 
-                      <FormField
-                        control={form.control}
-                        name="taxRate"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Tax Rate</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                step="0.001"
-                                min="0"
-                                max="0.2"
-                                placeholder="0.0625"
-                                {...field}
-                                onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
                     </div>
                   </div>
 
@@ -449,10 +421,6 @@ export function EstimateBuilder({ job, measurements, onClose, onEstimateCreated 
                           </div>
                         )}
                         
-                        <div className="flex justify-between text-slate-600">
-                          <span>Tax ({(formValues.taxRate * 100).toFixed(2)}%):</span>
-                          <span>+{formatCurrency(previewEstimate.tax)}</span>
-                        </div>
                         
                         <Separator />
                         

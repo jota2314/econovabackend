@@ -885,7 +885,7 @@ export default function JobsPage() {
                                 ? job.estimates[job.estimates.length - 1] 
                                 : null;
                               if (latestEstimate?.subtotal) {
-                                return `$${(() => { const total = latestEstimate.subtotal * 1.0625; return total.toLocaleString(); })()}`;
+                                return `$${latestEstimate.subtotal.toLocaleString()}`;
                               } else if (job.quote_amount) {
                                 return `$${job.quote_amount.toLocaleString()}`;
                               }

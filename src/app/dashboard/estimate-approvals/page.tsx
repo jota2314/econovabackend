@@ -24,21 +24,12 @@ import {
   AlertCircle,
   TrendingUp,
   FileText,
-  Timer
+  Timer,
+  Calculator
 } from "lucide-react"
 import { toast } from "sonner"
 import { createClient } from "@/lib/supabase/client"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Separator } from "@/components/ui/separator"
-import { Label } from "@/components/ui/label"
+// Dialog components removed - using full-page view instead
 
 interface Estimate {
   id: string
@@ -78,9 +69,7 @@ export default function EstimateApprovalsPage() {
   const [statusFilter, setStatusFilter] = useState("pending_approval")
   const [serviceFilter, setServiceFilter] = useState("all")
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards')
-  const [selectedEstimate, setSelectedEstimate] = useState<any>(null)
-  const [showEstimateDialog, setShowEstimateDialog] = useState(false)
-  const [editingEstimate, setEditingEstimate] = useState(false)
+  // Removed dialog state since we're using full-page view
 
   const router = useRouter()
   const supabase = createClient()
@@ -236,60 +225,12 @@ export default function EstimateApprovalsPage() {
   // Check if user is manager for functionality
   const isManager = user?.role === 'manager'
 
-  const viewEstimate = async (estimateId: string) => {
-    try {
-      // Get the session to include in the request
-      const { data: { session } } = await supabase.auth.getSession()
-      
-      const response = await fetch(`/api/estimates/${estimateId}`, {
-        headers: {
-          'Authorization': `Bearer ${session?.access_token}`,
-          'Content-Type': 'application/json'
-        }
-      })
-      const result = await response.json()
-      
-      if (result.success) {
-        setSelectedEstimate(result.data)
-        setShowEstimateDialog(true)
-      } else {
-        toast.error('Failed to load estimate details')
-      }
-    } catch (error) {
-      console.error('Error loading estimate:', error)
-      toast.error('Failed to load estimate details')
-    }
+  const viewEstimate = (estimateId: string) => {
+    // Navigate to the full-page estimate detail view
+    router.push(`/dashboard/estimate-approvals/${estimateId}`)
   }
 
-  const updateEstimate = async (estimateId: string, updates: any) => {
-    try {
-      // Get the session to include in the request
-      const { data: { session } } = await supabase.auth.getSession()
-      
-      const response = await fetch(`/api/estimates/${estimateId}`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${session?.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(updates)
-      })
-      
-      const result = await response.json()
-      
-      if (result.success) {
-        toast.success('Estimate updated successfully')
-        setEditingEstimate(false)
-        loadEstimates() // Refresh the list
-        setShowEstimateDialog(false)
-      } else {
-        toast.error(result.error || 'Failed to update estimate')
-      }
-    } catch (error) {
-      console.error('Error updating estimate:', error)
-      toast.error('Failed to update estimate')
-    }
-  }
+  // Update function removed - editing happens in the detail page
 
   // Calculate dashboard metrics
   const calculateMetrics = () => {
@@ -681,174 +622,6 @@ export default function EstimateApprovalsPage() {
           </div>
         </div>
       )}
-
-      {/* Estimate Details Dialog */}
-      <Dialog open={showEstimateDialog} onOpenChange={setShowEstimateDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center justify-between">
-              <span>Estimate Details</span>
-              {selectedEstimate && (
-                <div className="flex items-center gap-2">
-                  <Badge variant={
-                    selectedEstimate.status === 'approved' ? 'default' :
-                    selectedEstimate.status === 'rejected' ? 'destructive' :
-                    selectedEstimate.status === 'pending_approval' ? 'secondary' : 'outline'
-                  }>
-                    {selectedEstimate.status.replace('_', ' ').toUpperCase()}
-                  </Badge>
-                  {!editingEstimate && isManager && (
-                    <Button size="sm" variant="outline" onClick={() => setEditingEstimate(true)}>
-                      <Edit className="h-4 w-4 mr-1" />
-                      Edit
-                    </Button>
-                  )}
-                </div>
-              )}
-            </DialogTitle>
-            <DialogDescription>
-              {selectedEstimate?.estimate_number} - {selectedEstimate?.jobs?.job_name}
-            </DialogDescription>
-          </DialogHeader>
-
-          {selectedEstimate && (
-            <ScrollArea className="max-h-[60vh]">
-              <div className="space-y-6 p-1">
-                {/* Job Information */}
-                <div>
-                  <h4 className="font-semibold mb-3">Job Information</h4>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <Label className="text-slate-600">Customer</Label>
-                      <p className="font-medium">{selectedEstimate.jobs?.lead?.name || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <Label className="text-slate-600">Service Type</Label>
-                      <p className="font-medium capitalize">{selectedEstimate.jobs?.service_type}</p>
-                    </div>
-                    <div>
-                      <Label className="text-slate-600">Created By</Label>
-                      <p className="font-medium">{selectedEstimate.created_by_user?.full_name}</p>
-                    </div>
-                    <div>
-                      <Label className="text-slate-600">Created Date</Label>
-                      <p className="font-medium">{new Date(selectedEstimate.created_at).toLocaleDateString()}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <Separator />
-
-                {/* Pricing Information */}
-                <div>
-                  <h4 className="font-semibold mb-3">Pricing Details</h4>
-                  <div className="space-y-3">
-                    {editingEstimate ? (
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <Label>Subtotal</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            defaultValue={selectedEstimate.subtotal}
-                            id="edit-subtotal"
-                          />
-                        </div>
-                        <div>
-                          <Label>Markup %</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            defaultValue={selectedEstimate.markup_percentage || 6.25}
-                            id="edit-markup"
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-3 gap-4 text-sm">
-                        <div>
-                          <Label className="text-slate-600">Subtotal</Label>
-                          <p className="font-medium text-lg">${selectedEstimate.subtotal?.toLocaleString() || 'N/A'}</p>
-                        </div>
-                        <div>
-                          <Label className="text-slate-600">Markup</Label>
-                          <p className="font-medium">{selectedEstimate.markup_percentage || 6.25}%</p>
-                        </div>
-                        <div>
-                          <Label className="text-slate-600">Total Amount</Label>
-                          <p className="font-medium text-lg text-green-600">${selectedEstimate.total_amount?.toLocaleString()}</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Line Items */}
-                {selectedEstimate.estimate_line_items && selectedEstimate.estimate_line_items.length > 0 && (
-                  <>
-                    <Separator />
-                    <div>
-                      <h4 className="font-semibold mb-3">Line Items</h4>
-                      <div className="border rounded-lg overflow-hidden">
-                        <table className="w-full text-sm">
-                          <thead className="bg-slate-50">
-                            <tr>
-                              <th className="text-left p-3 font-medium">Description</th>
-                              <th className="text-right p-3 font-medium">Qty</th>
-                              <th className="text-right p-3 font-medium">Unit Price</th>
-                              <th className="text-right p-3 font-medium">Total</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {selectedEstimate.estimate_line_items.map((item: any, index: number) => (
-                              <tr key={item.id || index} className="border-t">
-                                <td className="p-3">{item.description}</td>
-                                <td className="p-3 text-right">{item.quantity}</td>
-                                <td className="p-3 text-right">${item.unit_price?.toFixed(2)}</td>
-                                <td className="p-3 text-right font-medium">${item.line_total?.toFixed(2)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            </ScrollArea>
-          )}
-
-          <DialogFooter>
-            {editingEstimate ? (
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={() => setEditingEstimate(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={() => {
-                  const subtotalEl = document.getElementById('edit-subtotal') as HTMLInputElement
-                  const markupEl = document.getElementById('edit-markup') as HTMLInputElement
-                  
-                  const subtotal = parseFloat(subtotalEl.value)
-                  const markup = parseFloat(markupEl.value)
-                  const total = subtotal * (1 + markup / 100)
-                  
-                  updateEstimate(selectedEstimate.id, {
-                    subtotal,
-                    markup_percentage: markup,
-                    total_amount: total
-                  })
-                }}>
-                  Save Changes
-                </Button>
-              </div>
-            ) : (
-              <Button variant="outline" onClick={() => setShowEstimateDialog(false)}>
-                Close
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
