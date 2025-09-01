@@ -58,8 +58,9 @@ interface EnhancedJobCardsProps {
 }
 
 export function EnhancedJobCards({ serviceType, workflowMetrics }: EnhancedJobCardsProps) {
+  console.log('🎯 EnhancedJobCards mounting with serviceType:', serviceType)
   const [loading, setLoading] = useState(true)
-  const [periodFilter, setPeriodFilter] = useState('month')
+  const [periodFilter, setPeriodFilter] = useState('year')
   const [estimateToggle, setEstimateToggle] = useState<'count' | 'revenue'>('count')
   const supabase = createClient()
   const [jobStats, setJobStats] = useState<JobStats>({
@@ -89,30 +90,25 @@ export function EnhancedJobCards({ serviceType, workflowMetrics }: EnhancedJobCa
   const fetchJobStats = async () => {
     try {
       setLoading(true)
+      console.log('🎯 fetchJobStats called with serviceType:', serviceType, 'period:', periodFilter)
       
       const params = new URLSearchParams()
       if (serviceType !== 'all') params.append('service_type', serviceType)
       params.append('period', periodFilter)
 
-      // Get the session to include in the request
-      const { data: { session } } = await supabase.auth.getSession()
-      
-      if (!session) {
-        console.warn('No session found, skipping stats fetch')
-        return
-      }
-
+      console.log('🎯 Making stats API call to:', `/api/jobs/stats?${params.toString()}`)
       const response = await fetch(`/api/jobs/stats?${params.toString()}`, {
         headers: {
-          'Authorization': `Bearer ${session.access_token}`,
           'Content-Type': 'application/json'
         }
       })
       
+      console.log('🎯 Stats API response status:', response.status)
       const result = await response.json()
       console.log('🔍 Stats API response:', result)
 
       if (result.success) {
+        console.log('📊 Setting job stats:', result.data)
         setJobStats(result.data)
       } else {
         console.error('Stats API error:', result.error)
@@ -125,6 +121,7 @@ export function EnhancedJobCards({ serviceType, workflowMetrics }: EnhancedJobCa
   }
 
   useEffect(() => {
+    console.log('🎯 useEffect triggered with serviceType:', serviceType, 'periodFilter:', periodFilter)
     fetchJobStats()
   }, [serviceType, periodFilter])
 

@@ -1,6 +1,6 @@
 # Spray Foam CRM
 
-A comprehensive CRM system for spray foam insulation businesses with advanced measurement tools, pricing calculations, and communication integration.
+A comprehensive, production-ready CRM system for spray foam insulation contractors serving Massachusetts and New Hampshire. Features advanced measurement tools, automated pricing calculations, and integrated communication workflows.
 
 ## Features
 
@@ -123,9 +123,15 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 ## Available Scripts
 
 - `npm run dev` - Start development server with Turbopack
-- `npm run build` - Build the application for production
+- `npm run build` - Build the application for production  
 - `npm run start` - Start production server
-- `npm run lint` - Run ESLint for code quality
+- `npm run lint` - Run ESLint with auto-fix
+- `npm run lint:check` - Run ESLint without fixing
+- `npm run typecheck` - Run TypeScript type checking
+- `npm run format` - Format code with Prettier
+- `npm run test` - Run Jest tests
+- `npm run test:coverage` - Generate test coverage report
+- `npm run clean` - Clean build artifacts
 
 ## Database Schema
 
@@ -155,24 +161,39 @@ The application requires the following Supabase tables:
 - `POST /api/twilio/call` - Initiate calls
 - `POST /api/twilio/sms` - Send SMS messages
 
-## Project Structure
+## Project Structure (Reorganized)
 
 ```
 src/
-├── app/                    # Next.js app router pages
-│   ├── api/               # API endpoints
-│   ├── dashboard/         # Dashboard pages
-│   └── layout.tsx         # Root layout
-├── components/            # React components
-│   ├── dashboard/         # Dashboard components
-│   ├── measurements/      # Measurement system
-│   ├── leads/            # Lead management
-│   └── ui/               # Reusable UI components
-├── lib/                   # Utilities and configurations
-│   ├── services/         # API service layers
-│   ├── utils/            # Helper functions
-│   └── supabase/         # Database client
-└── types/                # TypeScript type definitions
+├── app/                          # Next.js App Router
+│   ├── api/                      # API routes
+│   └── dashboard/                # Dashboard pages
+├── components/                   # React components
+│   ├── analytics/                # Analytics components
+│   ├── common/                   # Shared components (ErrorBoundary, LoadingSkeleton)
+│   ├── dashboard/                # Dashboard components
+│   └── ui/                       # Base UI components
+├── hooks/                        # Custom React hooks
+│   └── business/                 # Business logic hooks (useLeads, useJobs)
+├── lib/                          # Core library code
+│   ├── business/                 # Business rules and workflows
+│   │   ├── rules/                # Business validation rules
+│   │   └── workflows/            # State transition logic
+│   ├── constants/                # Business constants and pricing
+│   ├── config/                   # Configuration files (env validation)
+│   ├── errors/                   # Custom error classes
+│   ├── services/                 # Service layer
+│   │   ├── analytics/            # Analytics services
+│   │   └── business/             # Business domain services
+│   └── utils/                    # Utility functions
+│       ├── calculations/         # Business calculations
+│       ├── formatting/           # Data formatting
+│       └── validation/           # Input validation (Zod schemas)
+├── providers/                    # React context providers
+└── types/                        # TypeScript type definitions
+    ├── api/                      # API response types
+    ├── business/                 # Business domain types
+    └── ui/                       # UI component types
 ```
 
 ## Measurement System

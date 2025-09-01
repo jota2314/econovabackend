@@ -102,10 +102,7 @@ async function updateEstimateHandler(
   // Update the estimate
   const { data: updatedEstimate, error: updateError } = await supabase
     .from('estimates')
-    .update({
-      ...body,
-      updated_at: new Date().toISOString()
-    })
+    .update(body)
     .eq('id', id)
     .select()
     .single()

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { twilioService } from '@/lib/services/twilio'
 import { communicationsService } from '@/lib/services/communications'
 
 export async function POST(request: NextRequest) {
@@ -16,7 +15,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Validate environment variables
+    // Validate environment variables first
     if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_PHONE_NUMBER) {
       console.error('Missing Twilio credentials:', {
         hasAccountSid: !!process.env.TWILIO_ACCOUNT_SID,
@@ -46,6 +45,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Dynamically import Twilio service only when credentials are available
+    const { twilioService } = await import('@/lib/services/twilio')
+    
     // Format and validate phone number
     const formattedPhone = twilioService.formatPhoneNumber(phoneNumber)
     console.log('Formatted phone:', formattedPhone)

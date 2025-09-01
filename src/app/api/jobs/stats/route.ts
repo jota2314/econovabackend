@@ -23,12 +23,14 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('start_date')
     const endDate = searchParams.get('end_date')
 
-    // Get user's role to determine data access
+    // Get user's role and commission rate
     const { data: userProfile } = await supabase
       .from('users')
-      .select('role')
+      .select('role, commission_rate')
       .eq('id', user.id)
       .single()
+    
+    console.log(`🔍 [Stats API] User profile:`, userProfile)
 
     // Build base query
     let jobsQuery = supabase
@@ -51,6 +53,7 @@ export async function GET(request: NextRequest) {
           id,
           status,
           subtotal,
+          total_amount,
           created_at
         )
       `)
@@ -112,7 +115,34 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    console.log(`🔍 [Stats API] Query parameters: service_type=${serviceType}, period=${period}`)
+    console.log(`🔍 [Stats API] Date range: ${dateStart?.toISOString()} - ${dateEnd?.toISOString()}`)
     console.log(`🔍 [Stats API] Found ${jobs?.length || 0} jobs for user ${user.id} (role: ${userProfile?.role})`)
+    console.log(`🔍 [Stats API] Jobs data:`, jobs?.map(j => ({ 
+      id: j.id, 
+      job_name: j.job_name, 
+      created_by: j.created_by, 
+      created_at: j.created_at,
+      estimates: j.estimates?.map(e => ({ status: e.status, subtotal: e.subtotal, total_amount: e.total_amount }))
+    })))
+
+    // Get actual commissions from commissions table
+    let commissionsQuery = supabase
+      .from('commissions')
+      .select('amount, job_id')
+    
+    // Apply same role-based filtering for commissions
+    if (userProfile?.role === 'salesperson' || userProfile?.role === 'lead_hunter') {
+      commissionsQuery = commissionsQuery.eq('user_id', user.id)
+    }
+
+    const { data: commissions, error: commissionsError } = await commissionsQuery
+    
+    if (commissionsError) {
+      console.error('Error fetching commissions:', commissionsError)
+    } else {
+      console.log(`🔍 [Stats API] Found ${commissions?.length || 0} commissions:`, commissions)
+    }
 
     // Calculate statistics
     const stats = {
@@ -148,35 +178,7 @@ export async function GET(request: NextRequest) {
         jobSquareFeet = job.measurements.reduce((sum, m) => sum + (m.square_feet || 0), 0)
       }
       
-      // Get square feet from insulation measurements (skip since square_feet column doesn't exist)
-      // if (job.insulation_measurements && job.insulation_measurements.length > 0) {
-      //   jobSquareFeet += job.insulation_measurements.reduce((sum, m) => sum + (m.square_feet || 0), 0)
-      // }
-      
-      // Get square feet from plaster measurements (skip since column names don't match)
-      // if (job.plaster_measurements && job.plaster_measurements.length > 0) {
-      //   jobSquareFeet += job.plaster_measurements.reduce((sum, m) => 
-      //     sum + (m.wall_square_feet || 0) + (m.ceiling_square_feet || 0), 0)
-      // }
-      
       stats.total_square_feet += jobSquareFeet
-
-      // Job status counts
-      switch (job.job_status) {
-        case 'won':
-          stats.won_jobs++
-          stats.won_quote_amount += job.quote_amount || 0
-          stats.total_commissions += (job.quote_amount || 0) * 0.05 // 5% commission
-          break
-        case 'lost':
-          stats.lost_jobs++
-          break
-        case 'in_progress':
-          stats.in_progress_jobs++
-          break
-        default:
-          stats.pending_jobs++
-      }
 
       // Total quote amount
       stats.total_quote_amount += job.quote_amount || 0
@@ -186,9 +188,10 @@ export async function GET(request: NextRequest) {
         console.log(`📊 [Stats API] Job ${job.job_name} has ${job.estimates.length} estimates:`, job.estimates.map(e => ({ status: e.status, subtotal: e.subtotal })))
         job.estimates.forEach(estimate => {
           stats.total_estimates++
-          const estimateValue = estimate.subtotal || 0
+          // Use total_amount if available, fallback to subtotal
+          const estimateValue = estimate.total_amount || estimate.subtotal || 0
           stats.total_estimate_value += estimateValue
-          console.log(`💰 [Stats API] Adding estimate value: $${estimateValue} (subtotal: ${estimate.subtotal})`)
+          console.log(`💰 [Stats API] Adding estimate value: $${estimateValue} (total_amount: ${estimate.total_amount}, subtotal: ${estimate.subtotal})`)
 
           switch (estimate.status) {
             case 'pending_approval':
@@ -198,15 +201,30 @@ export async function GET(request: NextRequest) {
             case 'approved':
               stats.approved_estimates++
               stats.approved_estimate_value += estimateValue
+              // Calculate commission using user's commission rate on approved estimates
+              if (estimateValue > 0) {
+                const commissionRate = userProfile?.commission_rate || 0.05
+                const commission = estimateValue * commissionRate
+                stats.total_commissions += commission
+                stats.won_jobs++
+                stats.won_quote_amount += estimateValue
+                console.log(`💰 [Stats API] Added ${(commissionRate * 100)}% commission: $${commission.toFixed(2)} for approved estimate worth $${estimateValue}`)
+              }
               break
             case 'rejected':
               stats.rejected_estimates++
+              stats.lost_jobs++
               break
             case 'draft':
               stats.draft_estimates++
               break
+            default:
+              stats.pending_jobs++
           }
         })
+      } else {
+        // Jobs without estimates are considered pending
+        stats.pending_jobs++
       }
 
       // Service-specific counts
@@ -224,6 +242,13 @@ export async function GET(request: NextRequest) {
           (job.plaster_measurements?.length || 0)
       }
     })
+
+    // Add actual commissions from database
+    const actualCommissionsTotal = commissions?.reduce((sum, commission) => sum + (commission.amount || 0), 0) || 0
+    console.log(`🔍 [Stats API] Calculated commissions: $${stats.total_commissions}, Actual commissions: $${actualCommissionsTotal}`)
+    
+    // Use actual commissions if available, otherwise use calculated
+    stats.total_commissions = actualCommissionsTotal > 0 ? actualCommissionsTotal : stats.total_commissions
 
     // Calculate win rate
     const totalCompletedJobs = stats.won_jobs + stats.lost_jobs

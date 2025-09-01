@@ -60,17 +60,19 @@ export async function PATCH(
       .update({
         status: 'approved',
         approved_by: user.id,
-        approved_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        approved_at: new Date().toISOString()
       })
       .eq('id', id)
       .select(`
         *,
         jobs!inner (
           id,
-          customer_name,
+          job_name,
           service_type,
-          address
+          lead:leads!lead_id (
+            name,
+            address
+          )
         ),
         approved_by_user:users!estimates_approved_by_fkey (
           id,
@@ -139,8 +141,7 @@ export async function DELETE(
     const { data: rejectedEstimate, error: rejectError } = await supabase
       .from('estimates')
       .update({
-        status: 'rejected',
-        updated_at: new Date().toISOString()
+        status: 'rejected'
       })
       .eq('id', id)
       .select()

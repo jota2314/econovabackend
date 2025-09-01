@@ -1,15 +1,20 @@
 import twilio from 'twilio'
 
-const accountSid = process.env.TWILIO_ACCOUNT_SID!
-const authToken = process.env.TWILIO_AUTH_TOKEN!
-const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER!
+const accountSid = process.env.TWILIO_ACCOUNT_SID
+const authToken = process.env.TWILIO_AUTH_TOKEN
+const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER
 
-const client = twilio(accountSid, authToken)
+// Only initialize client if credentials are available
+const client = accountSid && authToken ? twilio(accountSid, authToken) : null
 
 export class TwilioService {
   // Direct call method for connecting user directly to lead
   async makeDirectCall(to: string, leadName: string, leadId: string, from?: string) {
     try {
+      if (!client) {
+        throw new Error('Twilio not configured')
+      }
+      
       console.log(`Initiating direct call to ${to} (${leadName})`)
       
       const call = await client.calls.create({

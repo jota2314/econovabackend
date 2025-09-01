@@ -116,7 +116,6 @@ export type Database = {
           scope_of_work: string | null
           quote_amount: number | null
           quote_sent_at: string | null
-          job_status: 'pending' | 'in_progress' | 'won' | 'lost'
           created_by: string
           created_at: string
           updated_at: string
@@ -135,7 +134,6 @@ export type Database = {
           scope_of_work?: string | null
           quote_amount?: number | null
           quote_sent_at?: string | null
-          job_status?: 'pending' | 'in_progress' | 'won' | 'lost'
           created_by: string
           created_at?: string
           updated_at?: string
@@ -154,7 +152,6 @@ export type Database = {
           scope_of_work?: string | null
           quote_amount?: number | null
           quote_sent_at?: string | null
-          job_status?: 'pending' | 'in_progress' | 'won' | 'lost'
           created_by?: string
           created_at?: string
           updated_at?: string

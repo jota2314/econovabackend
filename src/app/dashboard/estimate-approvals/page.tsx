@@ -129,13 +129,9 @@ export default function EstimateApprovalsPage() {
     }
 
     try {
-      const response = await fetch(`/api/estimates/${estimateId}`, {
+      const response = await fetch(`/api/estimates/${estimateId}/approve`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          status: 'approved',
-          approved_at: new Date().toISOString()
-        })
+        headers: { 'Content-Type': 'application/json' }
       })
 
       const result = await response.json()
@@ -158,12 +154,9 @@ export default function EstimateApprovalsPage() {
     }
 
     try {
-      const response = await fetch(`/api/estimates/${estimateId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          status: 'rejected'
-        })
+      const response = await fetch(`/api/estimates/${estimateId}/approve`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
       })
 
       const result = await response.json()

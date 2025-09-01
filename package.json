@@ -6,7 +6,18 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint . --ext .ts,.tsx --fix",
+    "lint:check": "eslint . --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx}\"",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "db:migrate": "supabase db diff --schema public --file migrations/$(date +%Y%m%d%H%M%S)_migration.sql",
+    "db:reset": "supabase db reset",
+    "analyze": "ANALYZE=true next build",
+    "clean": "rm -rf .next && rm -rf out && rm -rf node_modules/.cache"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",
