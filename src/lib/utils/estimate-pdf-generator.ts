@@ -2,6 +2,42 @@ import jsPDF from 'jspdf'
 import { formatCurrency, calculateMeasurementPrice, type InsulationType } from './pricing-calculator'
 import { calculateHybridRValue, calculateHybridPricing, formatHybridSystemDescription } from './hybrid-calculator'
 
+/**
+ * Approximate R-values to common insulation standards
+ */
+function approximateRValue(rValue: number): number {
+  // Common R-value targets for approximation
+  const commonRValues = [
+    13, 15, 19, 21, 25, 30, 38, 49, 60, 70, 80, 90, 100
+  ]
+  
+  // Find the closest common R-value
+  let closest = commonRValues[0]
+  let minDifference = Math.abs(rValue - closest)
+  
+  for (const commonR of commonRValues) {
+    const difference = Math.abs(rValue - commonR)
+    if (difference < minDifference) {
+      minDifference = difference
+      closest = commonR
+    }
+  }
+  
+  return closest
+}
+
+/**
+ * Format currency without decimal places (rounded to whole dollars)
+ */
+function formatCurrencyWhole(amount: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).format(Math.round(amount))
+}
+
 interface EstimateData {
   jobName: string
   customerName: string
@@ -121,11 +157,9 @@ export async function generateEstimatePDF(data: EstimateData): Promise<void> {
   pdf.rect(margin, yPosition - 5, pageWidth - (margin * 2), 8, 'F')
   
   pdf.text('Description', margin + 2, yPosition)
-  pdf.text('Sq Ft', margin + 70, yPosition)
-  pdf.text('Insulation', margin + 90, yPosition)
-  pdf.text('R-Value', margin + 115, yPosition)
-  pdf.text('$/Sq Ft', margin + 135, yPosition)
-  pdf.text('Total', margin + 155, yPosition)
+  pdf.text('Insulation Type', margin + 80, yPosition)
+  pdf.text('R-Value', margin + 130, yPosition)
+  pdf.text('Total', margin + 160, yPosition)
   
   yPosition += 8
   pdf.setFont('helvetica', 'normal')
@@ -148,11 +182,9 @@ export async function generateEstimatePDF(data: EstimateData): Promise<void> {
       pdf.rect(margin, yPosition - 5, pageWidth - (margin * 2), 8, 'F')
       
       pdf.text('Description', margin + 2, yPosition)
-      pdf.text('Sq Ft', margin + 70, yPosition)
-      pdf.text('Insulation', margin + 90, yPosition)
-      pdf.text('R-Value', margin + 115, yPosition)
-      pdf.text('$/Sq Ft', margin + 135, yPosition)
-      pdf.text('Total', margin + 155, yPosition)
+      pdf.text('Insulation Type', margin + 80, yPosition)
+      pdf.text('R-Value', margin + 130, yPosition)
+      pdf.text('Total', margin + 160, yPosition)
       
       yPosition += 8
       pdf.setFont('helvetica', 'normal')
@@ -173,8 +205,8 @@ export async function generateEstimatePDF(data: EstimateData): Promise<void> {
       const hybridPricing = calculateHybridPricing(hybridCalc)
       totalPrice = measurement.square_feet * hybridPricing.totalPricePerSqft
       
-      insulationDisplay = `Hybrid ${hybridCalc.closedCellInches}"CC+${hybridCalc.openCellInches}"OC`
-      pricePerSqftDisplay = formatCurrency(hybridPricing.totalPricePerSqft)
+      insulationDisplay = `Hybrid System`
+      pricePerSqftDisplay = formatCurrencyWhole(hybridPricing.totalPricePerSqft)
     } else {
       // Regular system pricing
       pricing = calculateMeasurementPrice(
@@ -184,11 +216,45 @@ export async function generateEstimatePDF(data: EstimateData): Promise<void> {
       )
       totalPrice = pricing?.totalPrice || 0
       
-      insulationDisplay = measurement.insulation_type 
-        ? measurement.insulation_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()).substring(0, 12)
-        : 'N/A'
+      // Format insulation display to match UI
+      const framingToInches: Record<string, number> = {
+        '2x4': 4, '2x6': 6, '2x8': 8, '2x10': 10, '2x12': 12
+      }
       
-      pricePerSqftDisplay = pricing?.pricePerSqft ? formatCurrency(pricing.pricePerSqft) : 'N/A'
+      let insulationName = ''
+      let inchesDisplay = ''
+      
+      switch (measurement.insulation_type) {
+        case 'closed_cell':
+          insulationName = 'Closed Cell'
+          const ccInches = measurement.closed_cell_inches || 0
+          if (ccInches > 0) {
+            inchesDisplay = ` - ${ccInches}"`
+          }
+          break
+        case 'open_cell':
+          insulationName = 'Open Cell'
+          const ocInches = measurement.open_cell_inches || 0
+          if (ocInches > 0) {
+            inchesDisplay = ` - ${ocInches}"`
+          }
+          break
+        case 'batt':
+          insulationName = 'Fiberglass Batt'
+          const battInches = framingToInches[measurement.framing_size] || 0
+          if (battInches > 0) {
+            inchesDisplay = ` - ${battInches}"`
+          }
+          break
+        case 'blown_in':
+          insulationName = 'Fiberglass Blown-in'
+          break
+        default:
+          insulationName = measurement.insulation_type || 'N/A'
+      }
+      
+      insulationDisplay = insulationName + inchesDisplay
+      pricePerSqftDisplay = pricing?.pricePerSqft ? formatCurrencyWhole(pricing.pricePerSqft) : 'N/A'
     }
 
     // Alternate row coloring
@@ -211,11 +277,16 @@ export async function generateEstimatePDF(data: EstimateData): Promise<void> {
     }
     
     pdf.text(description, margin + 2, yPosition)
-    pdf.text(measurement.square_feet.toFixed(1), margin + 70, yPosition)
-    pdf.text(insulationDisplay, margin + 90, yPosition)
+    pdf.text(insulationDisplay, margin + 80, yPosition)
     
-    // R-Value display
-    pdf.text(measurement.r_value ? `R-${measurement.r_value}` : 'N/A', margin + 115, yPosition)
+    // R-Value display with approximation
+    let rValueDisplay = 'N/A'
+    if (measurement.r_value) {
+      const rValue = typeof measurement.r_value === 'string' ? parseFloat(measurement.r_value) : measurement.r_value
+      const approximatedRValue = approximateRValue(rValue)
+      rValueDisplay = `R-${approximatedRValue}`
+    }
+    pdf.text(rValueDisplay, margin + 130, yPosition)
     
     // Hybrid system breakdown (on second line for hybrid)
     if (measurement.is_hybrid_system && measurement.insulation_type === 'hybrid' && 
@@ -226,21 +297,27 @@ export async function generateEstimatePDF(data: EstimateData): Promise<void> {
         measurement.closed_cell_inches || 0, 
         measurement.open_cell_inches || 0
       )
-      const hybridPricing = calculateHybridPricing(hybridCalc)
       
-      // Show pricing breakdown
-      pdf.text(`${hybridCalc.closedCellInches}" Closed ($${hybridPricing.closedCellPrice.toFixed(2)}) + ${hybridCalc.openCellInches}" Open ($${hybridPricing.openCellPrice.toFixed(2)}) = $${hybridPricing.totalPricePerSqft.toFixed(2)}/sqft`, margin + 2, yPosition + 4)
+      // Show hybrid breakdown with bullets to match UI
+      let breakdownText = ''
+      if (hybridCalc.closedCellInches > 0) {
+        breakdownText += `• ${hybridCalc.closedCellInches}" Closed Cell (R-${approximateRValue(hybridCalc.closedCellRValue)})`
+      }
+      if (hybridCalc.openCellInches > 0) {
+        if (breakdownText) breakdownText += ' '
+        breakdownText += `• ${hybridCalc.openCellInches}" Open Cell (R-${approximateRValue(hybridCalc.openCellRValue)})`
+      }
+      
+      pdf.text(breakdownText, margin + 2, yPosition + 4)
       pdf.setTextColor(0, 0, 0)
       pdf.setFontSize(8)
     }
     
     if (totalPrice > 0) {
-      pdf.text(pricePerSqftDisplay, margin + 135, yPosition)
-      pdf.text(formatCurrency(totalPrice), margin + 155, yPosition)
+      pdf.text(formatCurrencyWhole(totalPrice), margin + 160, yPosition)
       subtotal += totalPrice
     } else {
-      pdf.text('TBD', margin + 135, yPosition)
-      pdf.text('TBD', margin + 155, yPosition)
+      pdf.text('TBD', margin + 160, yPosition)
     }
 
     // Adjust spacing for hybrid systems
@@ -264,7 +341,7 @@ export async function generateEstimatePDF(data: EstimateData): Promise<void> {
   pdf.setFontSize(10)
   pdf.setFont('helvetica', 'normal')
   pdf.text('Subtotal:', pageWidth - margin - 40, yPosition)
-  pdf.text(formatCurrency(subtotal), pageWidth - margin - 5, yPosition, { align: 'right' })
+  pdf.text(formatCurrencyWhole(subtotal), pageWidth - margin - 5, yPosition, { align: 'right' })
   
   yPosition += 6
   
@@ -273,7 +350,7 @@ export async function generateEstimatePDF(data: EstimateData): Promise<void> {
   pdf.setFontSize(12)
   const total = subtotal
   pdf.text('TOTAL:', pageWidth - margin - 40, yPosition)
-  pdf.text(formatCurrency(total), pageWidth - margin - 5, yPosition, { align: 'right' })
+  pdf.text(formatCurrencyWhole(total), pageWidth - margin - 5, yPosition, { align: 'right' })
 
   yPosition += 15
 

@@ -1,7 +1,7 @@
 // Pricing calculator for spray foam insulation
 // Prices include material + labor
 
-export type InsulationType = 'open_cell' | 'closed_cell' | 'fiberglass_batt' | 'fiberglass_blown' | 'hybrid' | null
+export type InsulationType = 'open_cell' | 'closed_cell' | 'batt' | 'blown_in' | 'hybrid' | null
 
 interface PricingRule {
   minRValue: number
@@ -78,10 +78,10 @@ export function getPricePerSqft(insulationType: InsulationType, rValue: number):
     case 'closed_cell':
       pricingTable = CLOSED_CELL_PRICING
       break
-    case 'fiberglass_batt':
+    case 'batt':
       pricingTable = FIBERGLASS_BATT_PRICING
       break
-    case 'fiberglass_blown':
+    case 'blown_in':
       pricingTable = FIBERGLASS_BLOWN_PRICING
       break
     case 'hybrid':
@@ -97,6 +97,32 @@ export function getPricePerSqft(insulationType: InsulationType, rValue: number):
   )
 
   return rule ? rule.pricePerSqft : 0
+}
+
+/**
+ * Calculate pricing directly from inches (for spray foam only)
+ */
+export function calculatePriceByInches(
+  squareFeet: number,
+  insulationType: 'closed_cell' | 'open_cell',
+  inches: number
+): {
+  pricePerSqft: number
+  totalPrice: number
+  rValue: number
+} {
+  // Calculate R-value from inches
+  const rValue = insulationType === 'closed_cell' ? inches * 7.0 : inches * 3.8
+  
+  // Get price per sqft based on R-value
+  const pricePerSqft = getPricePerSqft(insulationType, rValue)
+  const totalPrice = squareFeet * pricePerSqft
+  
+  return {
+    pricePerSqft,
+    totalPrice,
+    rValue
+  }
 }
 
 /**
@@ -151,13 +177,37 @@ export function calculateTotalEstimate(
 }
 
 /**
- * Format currency for display
+ * Approximate R-values to common insulation standards
+ */
+export function approximateRValue(rValue: number): number {
+  // Common R-value targets for approximation
+  const commonRValues = [
+    13, 15, 19, 21, 25, 30, 38, 49, 60, 70, 80, 90, 100
+  ]
+  
+  // Find the closest common R-value
+  let closest = commonRValues[0]
+  let minDifference = Math.abs(rValue - closest)
+  
+  for (const commonR of commonRValues) {
+    const difference = Math.abs(rValue - commonR)
+    if (difference < minDifference) {
+      minDifference = difference
+      closest = commonR
+    }
+  }
+  
+  return closest
+}
+
+/**
+ * Format currency for display (whole dollars only)
  */
 export function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(amount)
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).format(Math.round(amount))
 }

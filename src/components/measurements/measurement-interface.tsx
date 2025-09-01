@@ -55,12 +55,14 @@ import {
 } from "@/lib/utils/r-value-calculator"
 import { 
   calculateMeasurementPrice, 
+  calculatePriceByInches,
   formatCurrency, 
-  calculateTotalEstimate, 
+  calculateTotalEstimate,
+  approximateRValue,
   type InsulationType 
 } from "@/lib/utils/pricing-calculator"
 import { generateQuickEstimatePDF } from "@/lib/utils/estimate-pdf-generator"
-import { Job as DatabaseJob, InsulationMeasurement, PricingCatalog } from "@/lib/types/database"
+import { Job as DatabaseJob, PricingCatalog, Database } from "@/lib/types/database"
 import { EstimateBuilder } from "./estimate-builder"
 import { 
   calculateHybridRValue, 
@@ -71,6 +73,40 @@ import {
   calculateHybridPricing,
   type HybridSystemCalculation 
 } from "@/lib/utils/hybrid-calculator"
+
+// Helper function to get Massachusetts R-value requirements
+function getMassachusettsRValueRequirement(projectType: string | null, areaType: string): number | null {
+  if (!projectType || !areaType) return null
+  
+  if (projectType === 'new_construction') {
+    switch (areaType) {
+      case 'roof':
+        return 60
+      case 'exterior_walls':
+        return 30
+      case 'basement_walls':
+        return 15
+      default:
+        return null
+    }
+  } else if (projectType === 'remodel') {
+    switch (areaType) {
+      case 'roof':
+        return 49
+      case 'exterior_walls':
+        return 21
+      case 'basement_walls':
+        return 15
+      default:
+        return null
+    }
+  }
+  
+  return null
+}
+
+// Type definitions
+type InsulationMeasurement = Database['public']['Tables']['measurements']['Row']
 
 // Extended Job interface with lead information
 interface Job extends DatabaseJob {
@@ -101,7 +137,7 @@ const insulationMeasurementSchema = z.object({
   surface_type: z.enum(["wall", "ceiling"]),
   framing_size: z.enum(["2x4", "2x6", "2x8", "2x10", "2x12"]),
   wall_dimensions: z.array(wallDimensionSchema).min(1, "At least one wall section is required"),
-  insulation_type: z.enum(["closed_cell", "open_cell", "fiberglass_batt", "fiberglass_blown", "hybrid"]).optional(),
+  insulation_type: z.enum(["closed_cell", "open_cell", "batt", "blown_in", "hybrid"]).optional(),
   closed_cell_inches: z.number().min(0).optional(),
   open_cell_inches: z.number().min(0).optional(),
   target_r_value: z.number().min(0).optional(),
@@ -266,20 +302,132 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
     }
 
     try {
-      // Calculate total from all measurements
-      const total = measurements.reduce((sum, measurement) => {
-        const price = calculateMeasurementPrice(
-          measurement.square_feet,
-          measurement.insulation_type as InsulationType,
-          Number(measurement.r_value) || 0
-        )
-        return sum + price.totalPrice
+      let total = 0
+      let lineItems: any[] = []
+
+      // For now, only handle insulation measurements
+      if (job.service_type !== 'insulation') {
+        toast.error('Estimate creation is currently only supported for insulation jobs')
+        return
+      }
+
+      // Create grouped line items for insulation (same logic as display)
+      const groupedMeasurements = measurements.reduce((groups, measurement) => {
+        // Extract base room name by removing "- Wall X" suffix
+        const baseRoomName = measurement.room_name.replace(/ - Wall \d+$/, '')
+        const key = `${baseRoomName}-${measurement.area_type}`
+        if (!groups[key]) {
+          groups[key] = {
+            room_name: baseRoomName,
+            area_type: measurement.area_type,
+            measurements: [],
+            total_square_feet: 0,
+            insulation_type: measurement.insulation_type,
+            r_value: measurement.r_value,
+            framing_size: measurement.framing_size,
+            is_hybrid_system: measurement.is_hybrid_system,
+            closed_cell_inches: measurement.closed_cell_inches,
+            open_cell_inches: measurement.open_cell_inches,
+            wall_count: 0
+          }
+        }
+        groups[key].measurements.push(measurement)
+        groups[key].total_square_feet += measurement.square_feet
+        groups[key].wall_count += 1
+        return groups
+      }, {} as Record<string, {
+        room_name: string
+        area_type: string
+        measurements: Measurement[]
+        total_square_feet: number
+        insulation_type: string | null
+        r_value: string | null
+        framing_size: string | null
+        is_hybrid_system: boolean | null
+        closed_cell_inches: number | null
+        open_cell_inches: number | null
+        wall_count: number
+      }>)
+
+      // Calculate total using the SAME logic as the display
+      total = Object.values(groupedMeasurements).reduce((sum, group) => {
+        if (group.is_hybrid_system && group.insulation_type === 'hybrid') {
+          // Calculate hybrid pricing
+          const hybridCalc = calculateHybridRValue(
+            group.closed_cell_inches || 0, 
+            group.open_cell_inches || 0
+          )
+          const hybridPricing = calculateHybridPricing(hybridCalc)
+          return sum + (group.total_square_feet * hybridPricing.totalPricePerSqft)
+        } else {
+          // Regular system pricing - use inches if available
+          if ((group.insulation_type === 'closed_cell' || group.insulation_type === 'open_cell') && 
+              (group.closed_cell_inches || group.open_cell_inches)) {
+            const inches = group.insulation_type === 'closed_cell' ? (group.closed_cell_inches || 0) : (group.open_cell_inches || 0)
+            if (inches > 0) {
+              const pricing = calculatePriceByInches(group.total_square_feet, group.insulation_type, inches)
+              return sum + pricing.totalPrice
+            }
+          }
+          
+          // Fallback to R-value pricing
+          const pricePerSqft = calculateMeasurementPrice(
+            group.total_square_feet, 
+            group.insulation_type as InsulationType, 
+            Number(group.r_value) || 0
+          )?.pricePerSqft || 0
+          return sum + (group.total_square_feet * pricePerSqft)
+        }
       }, 0)
+
+      lineItems = Object.values(groupedMeasurements).map(group => {
+        const areaDisplayName = group.area_type ? getAreaDisplayName(group.area_type) : 'Unknown Area'
+        let unitPrice = 0
+        
+        if (group.is_hybrid_system && group.insulation_type === 'hybrid') {
+          // Hybrid pricing
+          const hybridCalc = calculateHybridRValue(
+            group.closed_cell_inches || 0, 
+            group.open_cell_inches || 0
+          )
+          const hybridPricing = calculateHybridPricing(hybridCalc)
+          unitPrice = hybridPricing.totalPricePerSqft
+        } else {
+          // Regular pricing - use inches if available
+          if ((group.insulation_type === 'closed_cell' || group.insulation_type === 'open_cell') && 
+              (group.closed_cell_inches || group.open_cell_inches)) {
+            const inches = group.insulation_type === 'closed_cell' ? (group.closed_cell_inches || 0) : (group.open_cell_inches || 0)
+            if (inches > 0) {
+              const pricing = calculatePriceByInches(group.total_square_feet, group.insulation_type, inches)
+              unitPrice = pricing.pricePerSqft
+            }
+          } else {
+            // Fallback to R-value pricing
+            const price = calculateMeasurementPrice(
+              group.total_square_feet,
+              group.insulation_type as InsulationType,
+              Number(group.r_value) || 0
+            )
+            unitPrice = price.pricePerSqft
+          }
+        }
+        
+        return {
+          description: `${group.room_name} - ${areaDisplayName} (${group.total_square_feet} sq ft, ${group.wall_count} wall${group.wall_count !== 1 ? 's' : ''})`,
+          quantity: group.total_square_feet,
+          unit_price: unitPrice,
+          unit: 'sq ft',
+          service_type: 'insulation'
+        }
+      })
 
       if (total === 0) {
         toast.error('Cannot create estimate with $0 total')
         return
       }
+
+      console.log('💰 About to save estimate with total:', formatCurrency(total))
+      console.log('📋 Line items:', lineItems)
 
       // Create estimate record
       const response = await fetch('/api/estimates', {
@@ -290,30 +438,22 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         body: JSON.stringify({
           job_id: job.id,
           total_amount: total,
+          subtotal: total,
           status: 'pending_approval',
           service_type: job.service_type,
-          line_items: measurements.map(measurement => {
-            const price = calculateMeasurementPrice(
-              measurement.square_feet,
-              measurement.insulation_type as InsulationType,
-              Number(measurement.r_value) || 0
-            )
-            return {
-              description: `${measurement.room_name} - ${measurement.insulation_type} (${measurement.square_feet} sq ft)`,
-              quantity: measurement.square_feet,
-              unit_price: price.pricePerSqft,
-              total: price.totalPrice
-            }
-          })
+          line_items: lineItems
         })
       })
 
       const result = await response.json()
+      console.log('💾 Estimate save result:', result)
       
       if (result.success) {
-        toast.success('Estimate saved and sent for approval!')
+        toast.success(`Estimate saved! Total: ${formatCurrency(total)}`)
+        console.log('✅ Estimate saved with ID:', result.data?.id)
         // Optionally update job status or refresh data
       } else {
+        console.error('❌ Estimate save failed:', result.error)
         toast.error(`Failed to save estimate: ${result.error}`)
       }
     } catch (error) {
@@ -325,7 +465,22 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
   const loadMeasurements = useCallback(async () => {
     try {
       setLoading(true)
-      const response = await fetch(`/api/jobs/${job.id}/measurements`)
+      console.log(`🔄 Loading measurements for job ${job.id} (${job.service_type})`)
+      const response = await fetch(`/api/jobs/${job.id}/measurements`, {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+      
+      console.log(`📡 Measurements API response: ${response.status} ${response.statusText}`)
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error(`❌ Measurements API error: ${response.status} - ${errorText}`)
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
       const result = await response.json()
 
       if (result.success) {
@@ -424,6 +579,16 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             const hybridCalc = calculateHybridRValue(closedCellInches, openCellInches)
             finalRValue = hybridCalc.totalRValue.toString()
           }
+        } else if (insulationData.insulation_type === 'closed_cell') {
+          closedCellInches = insulationData.closed_cell_inches || 0
+          if (closedCellInches > 0) {
+            finalRValue = (closedCellInches * 7.0).toString()
+          }
+        } else if (insulationData.insulation_type === 'open_cell') {
+          openCellInches = insulationData.open_cell_inches || 0
+          if (openCellInches > 0) {
+            finalRValue = (openCellInches * 3.8).toString()
+          }
         }
 
         const newMeasurement: Measurement = {
@@ -459,6 +624,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         try {
           const response = await fetch(`/api/jobs/${job.id}/measurements`, {
             method: 'POST',
+            credentials: 'include',
             headers: {
               'Content-Type': 'application/json',
             },
@@ -520,19 +686,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
       }
 
         if (savedMeasurements.length > 0) {
-          form.reset({
-            room_name: "", // Clear for next measurement
-            floor_level: insulationData.floor_level, // Keep floor level
-            area_type: insulationData.area_type, // Keep area type
-            surface_type: "wall", // Reset to default
-            framing_size: insulationData.framing_size, // Keep framing size
-            wall_dimensions: [{ height: 0, width: 0 }], // Reset to single wall
-            insulation_type: insulationData.insulation_type, // Keep insulation type
-            closed_cell_inches: insulationData.closed_cell_inches || 0, // Keep hybrid values
-            open_cell_inches: insulationData.open_cell_inches || 0,
-            target_r_value: insulationData.target_r_value || 0,
-            notes: ""
-          })
+          form.reset(formConfig.defaultValues)
         }
       } else if (serviceType === 'hvac') {
         // Handle HVAC measurements
@@ -828,7 +982,45 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                 <Ruler className="h-4 w-4" />
                 Insulation Type
               </FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select 
+                onValueChange={(value) => {
+                  field.onChange(value)
+                  
+                  // Auto-suggest thickness if framing size is already selected
+                  const framingSize = form.getValues('framing_size')
+                  if (framingSize) {
+                    const framingToInches: Record<string, number> = {
+                      '2x4': 4,
+                      '2x6': 6,
+                      '2x8': 8,
+                      '2x10': 10,
+                      '2x12': 12
+                    }
+                    
+                    const suggestedInches = framingToInches[framingSize] || 0
+                    
+                    // Set the suggested thickness based on the new insulation type
+                    if (value === 'closed_cell') {
+                      form.setValue('closed_cell_inches', suggestedInches)
+                      form.setValue('open_cell_inches', 0)
+                    } else if (value === 'open_cell') {
+                      form.setValue('open_cell_inches', suggestedInches)
+                      form.setValue('closed_cell_inches', 0)
+                    } else if (value === 'hybrid') {
+                      // For hybrid, suggest 2" closed cell and remainder as open cell
+                      const closedCellInches = Math.min(2, suggestedInches)
+                      const openCellInches = Math.max(0, suggestedInches - 2)
+                      form.setValue('closed_cell_inches', closedCellInches)
+                      form.setValue('open_cell_inches', openCellInches)
+                    } else {
+                      // Clear thickness for non-spray foam types (batt and blown_in don't need thickness)
+                      form.setValue('closed_cell_inches', 0)
+                      form.setValue('open_cell_inches', 0)
+                    }
+                  }
+                }} 
+                defaultValue={field.value}
+              >
                 <FormControl>
                   <SelectTrigger>
                     <SelectValue placeholder="Select insulation type" />
@@ -837,8 +1029,8 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                 <SelectContent>
                   <SelectItem value="closed_cell">Closed Cell Spray Foam</SelectItem>
                   <SelectItem value="open_cell">Open Cell Spray Foam</SelectItem>
-                  <SelectItem value="fiberglass_batt">Fiberglass Batt</SelectItem>
-                  <SelectItem value="fiberglass_blown">Fiberglass Blown-in</SelectItem>
+                  <SelectItem value="batt">Fiberglass Batt</SelectItem>
+                  <SelectItem value="blown_in">Fiberglass Blown-in</SelectItem>
                   <SelectItem value="hybrid">Hybrid (Open + Closed Cell)</SelectItem>
                 </SelectContent>
               </Select>
@@ -847,66 +1039,82 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
           )}
         />
 
-        {/* Hybrid System Inputs - Show only when hybrid is selected */}
-        {form.watch('insulation_type') === 'hybrid' && (
+        {/* Insulation Thickness Inputs - Show for closed cell, open cell, and hybrid */}
+        {(form.watch('insulation_type') === 'closed_cell' || 
+          form.watch('insulation_type') === 'open_cell' || 
+          form.watch('insulation_type') === 'hybrid') && (
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-4">
             <div className="flex items-center gap-2 mb-3">
               <div className="h-2 w-2 bg-blue-600 rounded-full"></div>
-              <h3 className="font-semibold text-blue-900">Hybrid System Configuration</h3>
+              <h3 className="font-semibold text-blue-900">
+                {form.watch('insulation_type') === 'hybrid' 
+                  ? 'Hybrid System Configuration' 
+                  : 'Insulation Thickness'}
+              </h3>
+              {form.watch('framing_size') && (
+                <span className="text-xs text-blue-700 ml-auto">
+                  Auto-suggested based on {form.watch('framing_size')} framing
+                </span>
+              )}
             </div>
             
             <div className="grid grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="closed_cell_inches"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm font-medium">Closed Cell Inches</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        step="0.5"
-                        min="0"
-                        max="12"
-                        placeholder="3.0"
-                        {...field}
-                        onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) || 0 : 0)}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {(form.watch('insulation_type') === 'closed_cell' || form.watch('insulation_type') === 'hybrid') && (
+                <FormField
+                  control={form.control}
+                  name="closed_cell_inches"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm font-medium">Closed Cell Inches</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          step="0.5"
+                          min="0"
+                          max="12"
+                          placeholder="3.0"
+                          {...field}
+                          onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) || 0 : 0)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
               
-              <FormField
-                control={form.control}
-                name="open_cell_inches"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm font-medium">Open Cell Inches</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        step="0.5"
-                        min="0"
-                        max="12"
-                        placeholder="6.0"
-                        {...field}
-                        onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) || 0 : 0)}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {(form.watch('insulation_type') === 'open_cell' || form.watch('insulation_type') === 'hybrid') && (
+                <FormField
+                  control={form.control}
+                  name="open_cell_inches"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm font-medium">Open Cell Inches</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          step="0.5"
+                          min="0"
+                          max="12"
+                          placeholder="6.0"
+                          {...field}
+                          onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) || 0 : 0)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
             </div>
 
-            {/* Real-time R-value calculation for hybrid */}
+            {/* Real-time R-value calculation */}
             {(() => {
+              const insulationType = form.watch('insulation_type')
               const closedInches = form.watch('closed_cell_inches') || 0
               const openInches = form.watch('open_cell_inches') || 0
               
-              if (closedInches > 0 || openInches > 0) {
+              if (insulationType === 'hybrid' && (closedInches > 0 || openInches > 0)) {
                 const calculation = calculateHybridRValue(closedInches, openInches)
                 return (
                   <div className="bg-white border border-blue-300 rounded-lg p-3">
@@ -923,7 +1131,31 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                         </div>
                       )}
                       <div className="font-semibold text-blue-900 border-t border-blue-200 pt-2">
-                        Total R-value = R-{calculation.totalRValue.toFixed(0)}
+                        Total R-value = R-{approximateRValue(calculation.totalRValue)}
+                      </div>
+                    </div>
+                  </div>
+                )
+              } else if (insulationType === 'closed_cell' && closedInches > 0) {
+                const rValue = closedInches * 7.0
+                return (
+                  <div className="bg-white border border-blue-300 rounded-lg p-3">
+                    <h4 className="font-semibold text-blue-900 text-sm mb-2">R-Value Calculation:</h4>
+                    <div className="text-sm">
+                      <div className="text-slate-700">
+                        {closedInches}" Closed Cell = R-{approximateRValue(rValue)} ({closedInches} × 7.0)
+                      </div>
+                    </div>
+                  </div>
+                )
+              } else if (insulationType === 'open_cell' && openInches > 0) {
+                const rValue = openInches * 3.8
+                return (
+                  <div className="bg-white border border-blue-300 rounded-lg p-3">
+                    <h4 className="font-semibold text-blue-900 text-sm mb-2">R-Value Calculation:</h4>
+                    <div className="text-sm">
+                      <div className="text-slate-700">
+                        {openInches}" Open Cell = R-{approximateRValue(rValue)} ({openInches} × 3.8)
                       </div>
                     </div>
                   </div>
@@ -957,6 +1189,20 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                   </SelectContent>
                 </Select>
                 <FormMessage />
+                {/* Show Massachusetts R-value requirement for selected area */}
+                {(() => {
+                  const selectedAreaType = form.watch('area_type')
+                  const requiredRValue = getMassachusettsRValueRequirement(job.project_type, selectedAreaType)
+                  
+                  if (requiredRValue) {
+                    return (
+                      <div className="text-xs text-blue-600 mt-1 p-2 bg-blue-50 border border-blue-200 rounded">
+                        📋 MA Code Requirement: R-{requiredRValue} minimum
+                      </div>
+                    )
+                  }
+                  return null
+                })()}
               </FormItem>
             )}
           />
@@ -967,21 +1213,62 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Framing Size</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <Select 
+                  onValueChange={(value) => {
+                    field.onChange(value)
+                    
+                    // Auto-suggest insulation thickness based on framing size
+                    const framingToInches: Record<string, number> = {
+                      '2x4': 4,
+                      '2x6': 6,
+                      '2x8': 8,
+                      '2x10': 10,
+                      '2x12': 12
+                    }
+                    
+                    const suggestedInches = framingToInches[value] || 0
+                    const insulationType = form.getValues('insulation_type')
+                    
+                    // Set the suggested thickness based on insulation type
+                    if (insulationType === 'closed_cell') {
+                      form.setValue('closed_cell_inches', suggestedInches)
+                    } else if (insulationType === 'open_cell') {
+                      form.setValue('open_cell_inches', suggestedInches)
+                    } else if (insulationType === 'hybrid') {
+                      // For hybrid, suggest 2" closed cell and remainder as open cell
+                      const closedCellInches = Math.min(2, suggestedInches)
+                      const openCellInches = Math.max(0, suggestedInches - 2)
+                      form.setValue('closed_cell_inches', closedCellInches)
+                      form.setValue('open_cell_inches', openCellInches)
+                    }
+                  }} 
+                  defaultValue={field.value}
+                >
                   <FormControl>
                     <SelectTrigger>
                       <SelectValue placeholder="Framing" />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    <SelectItem value="2x4">2x4</SelectItem>
-                    <SelectItem value="2x6">2x6</SelectItem>
-                    <SelectItem value="2x8">2x8</SelectItem>
-                    <SelectItem value="2x10">2x10</SelectItem>
-                    <SelectItem value="2x12">2x12</SelectItem>
+                    <SelectItem value="2x4">2x4 (4" depth)</SelectItem>
+                    <SelectItem value="2x6">2x6 (6" depth)</SelectItem>
+                    <SelectItem value="2x8">2x8 (8" depth)</SelectItem>
+                    <SelectItem value="2x10">2x10 (10" depth)</SelectItem>
+                    <SelectItem value="2x12">2x12 (12" depth)</SelectItem>
                   </SelectContent>
                 </Select>
                 <FormMessage />
+                {field.value && (
+                  <div className="text-xs text-blue-600 mt-1 p-2 bg-blue-50 border border-blue-200 rounded">
+                    💡 Framing depth: {
+                      field.value === '2x4' ? '4"' :
+                      field.value === '2x6' ? '6"' :
+                      field.value === '2x8' ? '8"' :
+                      field.value === '2x10' ? '10"' :
+                      field.value === '2x12' ? '12"' : ''
+                    } - Auto-filled insulation thickness
+                  </div>
+                )}
               </FormItem>
             )}
           />
@@ -1114,7 +1401,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
 
         <Button type="submit" className="w-full" disabled={saving || totalSqFt === 0}>
           {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-          Save Measurement {totalSqFt > 0 && `($${realtimePrice ? realtimePrice.totalPrice.toFixed(2) : '0.00'})`}
+          Save Measurement {totalSqFt > 0 && `($${realtimePrice ? Math.round(realtimePrice.totalPrice) : '0'})`}
         </Button>
       </form>
     </Form>
@@ -1523,7 +1810,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                           {area.floor_level} - {getAreaDisplayName(area.area_type)}
                         </span>
                         <div className="text-xs text-slate-500">
-                          R-{area.r_value} • {area.insulation_type || 'Not specified'}
+                          R-{approximateRValue(Number(area.r_value))} • {area.insulation_type || 'Not specified'}
                         </div>
                       </div>
                       <span className="text-sm font-bold text-orange-600">
@@ -1602,17 +1889,6 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                     Quick PDF
                   </Button>
                 )}
-                {measurements.length > 0 && (
-                  <Button
-                    variant="default"
-                    size="sm"
-                    className="bg-green-600 hover:bg-green-700"
-                    onClick={saveEstimateForApproval}
-                  >
-                    <FileText className="h-4 w-4 mr-2" />
-                    Save & Send for Approval
-                  </Button>
-                )}
               </div>
             </div>
           </CardHeader>
@@ -1635,128 +1911,237 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                     <h3 className="font-semibold text-slate-900 uppercase tracking-wide text-sm">Line Items</h3>
                   </div>
 
-                  {/* Individual Line Items */}
-                  {measurements.map((measurement, index) => {
-                    // Calculate pricing for hybrid and regular systems
-                    let priceBreakdown
-                    let totalPrice = 0
-                    
-                    if (measurement.is_hybrid_system && measurement.insulation_type === 'hybrid') {
-                      // Calculate hybrid pricing
-                      const hybridCalc = calculateHybridRValue(
-                        measurement.closed_cell_inches || 0, 
-                        measurement.open_cell_inches || 0
-                      )
-                      const hybridPricing = calculateHybridPricing(hybridCalc)
-                      totalPrice = measurement.square_feet * hybridPricing.totalPricePerSqft
+                  {/* Grouped Line Items */}
+                  {(() => {
+                    // Group measurements by base room_name (without "- Wall X") + area_type
+                    const groupedMeasurements = measurements.reduce((groups, measurement) => {
+                      // Extract base room name by removing "- Wall X" suffix
+                      const baseRoomName = measurement.room_name.replace(/ - Wall \d+$/, '')
+                      const key = `${baseRoomName}-${measurement.area_type}`
+                      if (!groups[key]) {
+                        groups[key] = {
+                          room_name: baseRoomName,
+                          area_type: measurement.area_type,
+                          measurements: [],
+                          total_square_feet: 0,
+                          insulation_type: measurement.insulation_type,
+                          r_value: measurement.r_value,
+                          framing_size: measurement.framing_size,
+                          is_hybrid_system: measurement.is_hybrid_system,
+                          closed_cell_inches: measurement.closed_cell_inches,
+                          open_cell_inches: measurement.open_cell_inches
+                        }
+                      }
+                      groups[key].measurements.push(measurement)
+                      groups[key].total_square_feet += measurement.square_feet
+                      return groups
+                    }, {} as Record<string, {
+                      room_name: string
+                      area_type: string
+                      measurements: Measurement[]
+                      total_square_feet: number
+                      insulation_type: string | null
+                      r_value: string | null
+                      framing_size: string | null
+                      is_hybrid_system: boolean | null
+                      closed_cell_inches: number | null
+                      open_cell_inches: number | null
+                    }>)
+
+                    return Object.values(groupedMeasurements).map((group, index) => {
+                      // Calculate pricing for hybrid and regular systems
+                      let priceBreakdown
+                      let totalPrice = 0
+                      const wallCount = group.measurements.length
                       
-                      priceBreakdown = (
-                        <div className="space-y-2">
+                      if (group.is_hybrid_system && group.insulation_type === 'hybrid') {
+                        // Calculate hybrid pricing
+                        const hybridCalc = calculateHybridRValue(
+                          group.closed_cell_inches || 0, 
+                          group.open_cell_inches || 0
+                        )
+                        const hybridPricing = calculateHybridPricing(hybridCalc)
+                        totalPrice = group.total_square_feet * hybridPricing.totalPricePerSqft
+                        
+                        priceBreakdown = (
                           <div className="text-sm font-medium text-slate-700 bg-blue-50 rounded p-2">
-                            <div className="font-semibold text-blue-900 mb-1">Hybrid System - R-{hybridCalc.totalRValue.toFixed(0)}</div>
+                            <div className="font-semibold text-blue-900 mb-1">Hybrid System - R-{approximateRValue(hybridCalc.totalRValue)}</div>
                             {hybridCalc.closedCellInches > 0 && (
-                              <div>• {hybridCalc.closedCellInches}" Closed Cell (R-{hybridCalc.closedCellRValue.toFixed(0)})</div>
+                              <div>• {hybridCalc.closedCellInches}" Closed Cell (R-{approximateRValue(hybridCalc.closedCellRValue)})</div>
                             )}
                             {hybridCalc.openCellInches > 0 && (
-                              <div>• {hybridCalc.openCellInches}" Open Cell (R-{hybridCalc.openCellRValue.toFixed(0)})</div>
+                              <div>• {hybridCalc.openCellInches}" Open Cell (R-{approximateRValue(hybridCalc.openCellRValue)})</div>
                             )}
                             <div className="text-xs text-slate-600 mt-2">
-                              {measurement.framing_size} Framing
+                              {group.framing_size} Framing • {wallCount} wall{wallCount !== 1 ? 's' : ''}
                             </div>
                           </div>
-                          <div className="text-sm space-y-1">
-                            <div className="font-medium">Hybrid System Pricing:</div>
-                            {hybridCalc.closedCellInches > 0 && (
-                              <div className="pl-2">
-                                {hybridCalc.closedCellInches}" Closed Cell: ${hybridPricing.closedCellPrice.toFixed(2)}/sqft
-                              </div>
-                            )}
-                            {hybridCalc.openCellInches > 0 && (
-                              <div className="pl-2">
-                                {hybridCalc.openCellInches}" Open Cell: ${hybridPricing.openCellPrice.toFixed(2)}/sqft
-                              </div>
-                            )}
-                            <div className="pl-2 font-medium text-blue-700">
-                              Combined Price: ${hybridPricing.totalPricePerSqft.toFixed(2)}/sqft
+                        )
+                      } else {
+                        // Regular system pricing - use inches if available
+                        let pricePerSqft = 0
+                        if ((group.insulation_type === 'closed_cell' || group.insulation_type === 'open_cell') && 
+                            (group.closed_cell_inches || group.open_cell_inches)) {
+                          const inches = group.insulation_type === 'closed_cell' ? (group.closed_cell_inches || 0) : (group.open_cell_inches || 0)
+                          if (inches > 0) {
+                            const pricing = calculatePriceByInches(group.total_square_feet, group.insulation_type, inches)
+                            pricePerSqft = pricing.pricePerSqft
+                            totalPrice = pricing.totalPrice
+                          }
+                        } else {
+                          // Fallback to R-value pricing
+                          pricePerSqft = calculateMeasurementPrice(
+                            group.total_square_feet, 
+                            group.insulation_type as InsulationType, 
+                            Number(group.r_value) || 0
+                          )?.pricePerSqft || 0
+                          totalPrice = group.total_square_feet * pricePerSqft
+                        }
+                        
+                        // Check if we have inches data for this group
+                        const hasInches = (group.insulation_type === 'closed_cell' && group.closed_cell_inches) || 
+                                         (group.insulation_type === 'open_cell' && group.open_cell_inches)
+                        const inches = group.insulation_type === 'closed_cell' ? 
+                                      (group.closed_cell_inches || 0) : (group.open_cell_inches || 0)
+                        
+                        // For batt insulation, get inches from framing size
+                        const framingToInches: Record<string, number> = {
+                          '2x4': 4, '2x6': 6, '2x8': 8, '2x10': 10, '2x12': 12
+                        }
+                        const battInches = group.insulation_type === 'batt' ? framingToInches[group.framing_size] || 0 : 0
+                        
+                        priceBreakdown = (
+                          <div className="text-sm font-medium text-slate-700 bg-blue-50 rounded p-2">
+                            <div className="font-semibold text-blue-900 mb-1">
+                              {group.insulation_type === 'closed_cell' ? 'Closed Cell' : 
+                               group.insulation_type === 'open_cell' ? 'Open Cell' : 
+                               group.insulation_type === 'batt' ? 'Fiberglass Batt' :
+                               group.insulation_type === 'blown_in' ? 'Fiberglass Blown-in' :
+                               group.insulation_type}{
+                               (hasInches && inches > 0) ? 
+                                ` - ${inches}" (R-${group.insulation_type === 'closed_cell' ? approximateRValue(inches * 7.0) : approximateRValue(inches * 3.8)})` : 
+                               (group.insulation_type === 'batt' && battInches > 0) ?
+                                ` - ${battInches}" (R-${approximateRValue(Number(group.r_value))})` :
+                                ` - R-${approximateRValue(Number(group.r_value))}`}
                             </div>
-                            <div className="text-sm border-t border-slate-200 pt-1 mt-1">
-                              Total: {measurement.square_feet} sqft × ${hybridPricing.totalPricePerSqft.toFixed(2)} = ${totalPrice.toFixed(2)}
+                            <div className="text-xs text-slate-600">
+                              {group.framing_size} Framing • {wallCount} wall{wallCount !== 1 ? 's' : ''}
                             </div>
                           </div>
-                        </div>
-                      )
-                    } else {
-                      // Regular system pricing
-                      const pricePerSqft = calculateMeasurementPrice(
-                        measurement.square_feet, 
-                        measurement.insulation_type as InsulationType, 
-                        Number(measurement.r_value) || 0
-                      )?.pricePerSqft || 0
-                      totalPrice = measurement.square_feet * pricePerSqft
+                        )
+                      }
                       
-                      priceBreakdown = (
-                        <div className="space-y-1">
-                          <div className="text-sm text-slate-600">
-                            {measurement.insulation_type === 'closed_cell' ? 'Closed Cell' : 
-                             measurement.insulation_type === 'open_cell' ? 'Open Cell' : 
-                             measurement.insulation_type} R-{measurement.r_value} ({Math.ceil((Number(measurement.r_value) || 0) / 3.5)}")" | {measurement.framing_size} Framing
-                          </div>
-                          <div className="text-lg font-semibold text-slate-900">
-                            {measurement.square_feet} sqft @ ${pricePerSqft.toFixed(2)}/sqft = <span className="text-green-600">${totalPrice.toFixed(2)}</span>
+                      return (
+                        <div key={`${group.room_name}-${group.area_type}`} className="border rounded-lg p-4 bg-white">
+                          <div className="flex justify-between items-start mb-2">
+                            <div className="flex-1">
+                              <div className="font-semibold text-slate-900 mb-2">
+{group.room_name} - {getAreaDisplayName(group.area_type)}
+                              </div>
+                              {priceBreakdown}
+                            </div>
+                            <div className="flex gap-2 ml-4 flex-shrink-0">
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={() => {
+                                  toast.info('Edit functionality coming soon')
+                                }}
+                              >
+                                <Edit className="h-3 w-3 mr-1" />
+                                Edit
+                              </Button>
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => {
+                                  // Delete all measurements in this group
+                                  if (confirm(`Are you sure you want to delete all ${wallCount} wall${wallCount !== 1 ? 's' : ''} in ${group.room_name} - ${getAreaDisplayName(group.area_type)}?`)) {
+                                    group.measurements.forEach(m => deleteMeasurement(m.id))
+                                  }
+                                }}
+                              >
+                                <Trash2 className="h-3 w-3 mr-1" />
+                                Delete ({wallCount})
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       )
-                    }
-                    
-                    return (
-                      <div key={measurement.id} className="border rounded-lg p-4 bg-white">
-                        <div className="flex justify-between items-start mb-2">
-                          <div className="flex-1">
-                            <div className="font-semibold text-slate-900 mb-2">
-                              Item {index + 1}: {measurement.floor_level} - {getAreaDisplayName(measurement.area_type)}
-                            </div>
-                            {priceBreakdown}
-                          </div>
-                          <div className="flex gap-2 ml-4 flex-shrink-0">
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => {
-                                // TODO: Implement edit functionality
-                                toast.info('Edit functionality coming soon')
-                              }}
-                            >
-                              <Edit className="h-3 w-3 mr-1" />
-                              Edit
-                            </Button>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              onClick={() => deleteMeasurement(measurement.id)}
-                            >
-                              <Trash2 className="h-3 w-3 mr-1" />
-                              Delete
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
+                    })
+                  })()}
                   
                   {/* ESTIMATE TOTALS */}
                   {measurements.length > 0 && (() => {
-                    const estimate = calculateTotalEstimate(
-                      measurements.map(m => ({
-                        squareFeet: m.square_feet,
-                        insulationType: m.insulation_type as InsulationType,
-                        rValue: m.r_value ? Number(m.r_value) : 0
-                      }))
-                    )
+                    // Use the same grouped calculation as line items
+                    const groupedMeasurements = measurements.reduce((groups, measurement) => {
+                      // Extract base room name by removing "- Wall X" suffix
+                      const baseRoomName = measurement.room_name.replace(/ - Wall \d+$/, '')
+                      const key = `${baseRoomName}-${measurement.area_type}`
+                      if (!groups[key]) {
+                        groups[key] = {
+                          room_name: baseRoomName,
+                          area_type: measurement.area_type,
+                          measurements: [],
+                          total_square_feet: 0,
+                          insulation_type: measurement.insulation_type,
+                          r_value: measurement.r_value,
+                          framing_size: measurement.framing_size,
+                          is_hybrid_system: measurement.is_hybrid_system,
+                          closed_cell_inches: measurement.closed_cell_inches,
+                          open_cell_inches: measurement.open_cell_inches
+                        }
+                      }
+                      groups[key].measurements.push(measurement)
+                      groups[key].total_square_feet += measurement.square_feet
+                      return groups
+                    }, {} as Record<string, {
+                      room_name: string
+                      area_type: string
+                      measurements: Measurement[]
+                      total_square_feet: number
+                      insulation_type: string | null
+                      r_value: string | null
+                      framing_size: string | null
+                      is_hybrid_system: boolean | null
+                      closed_cell_inches: number | null
+                      open_cell_inches: number | null
+                    }>)
+
+                    // Calculate total using grouped measurements
+                    const subtotal = Object.values(groupedMeasurements).reduce((sum, group) => {
+                      if (group.is_hybrid_system && group.insulation_type === 'hybrid') {
+                        // Calculate hybrid pricing
+                        const hybridCalc = calculateHybridRValue(
+                          group.closed_cell_inches || 0, 
+                          group.open_cell_inches || 0
+                        )
+                        const hybridPricing = calculateHybridPricing(hybridCalc)
+                        return sum + (group.total_square_feet * hybridPricing.totalPricePerSqft)
+                      } else {
+                        // Regular system pricing - use inches if available
+                        if ((group.insulation_type === 'closed_cell' || group.insulation_type === 'open_cell') && 
+                            (group.closed_cell_inches || group.open_cell_inches)) {
+                          const inches = group.insulation_type === 'closed_cell' ? (group.closed_cell_inches || 0) : (group.open_cell_inches || 0)
+                          if (inches > 0) {
+                            const pricing = calculatePriceByInches(group.total_square_feet, group.insulation_type, inches)
+                            return sum + pricing.totalPrice
+                          }
+                        }
+                        
+                        // Fallback to R-value pricing
+                        const pricePerSqft = calculateMeasurementPrice(
+                          group.total_square_feet, 
+                          group.insulation_type as InsulationType, 
+                          Number(group.r_value) || 0
+                        )?.pricePerSqft || 0
+                        return sum + (group.total_square_feet * pricePerSqft)
+                      }
+                    }, 0)
                     
-                    const subtotal = estimate.subtotal
                     const total = subtotal
-                    const requiresApproval = total > 10000
+                    const requiresApproval = true  // All estimates require approval
                     
                     return (
                       <div className="mt-6 space-y-4">
@@ -1781,79 +2166,13 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                         {/* Action Buttons */}
                         <div className="flex gap-2 pt-4">
                           <Button
-                            className="flex-1 bg-blue-600 hover:bg-blue-700"
-                            onClick={async () => {
-                              if (measurements.length === 0) {
-                                toast.error('Please add at least one line item to generate an estimate')
-                                return
-                              }
-                              
-                              try {
-                                // First, save estimate to database
-                                const response = await fetch(`/api/jobs/${job.id}/estimate/generate`, {
-                                  method: 'POST',
-                                  headers: {
-                                    'Content-Type': 'application/json'
-                                  }
-                                })
-                                
-                                if (!response.ok) {
-                                  const errorData = await response.json()
-                                  throw new Error(errorData.error || 'Failed to create estimate')
-                                }
-                                
-                                const { data } = await response.json()
-                                
-                                // Prepare data for PDF generation
-                                const estimateData = measurements.map(m => ({
-                                  room_name: m.room_name,
-                                  floor_level: m.floor_level,
-                                  area_type: m.area_type,
-                                  surface_type: m.surface_type,
-                                  square_feet: m.square_feet,
-                                  height: m.height,
-                                  width: m.width,
-                                  insulation_type: m.insulation_type as InsulationType,
-                                  r_value: m.r_value,
-                                  framing_size: m.framing_size
-                                }))
-                                
-                                await generateQuickEstimatePDF(
-                                  estimateData,
-                                  job.job_name,
-                                  job.lead?.name || 'Customer'
-                                )
-                                
-                                toast.success(
-                                  <div className="space-y-2">
-                                    <p className="font-semibold">Estimate Created Successfully!</p>
-                                    <p>Estimate #{data.estimate.estimate_number}</p>
-                                    <p>PDF downloaded with {data.line_items.length} line items</p>
-                                  </div>
-                                )
-                              } catch (error) {
-                                console.error('Error generating estimate:', error)
-                                toast.error(`Failed to generate estimate: ${error instanceof Error ? error.message : 'Unknown error'}`)
-                              }
-                            }}
+                            className="flex-1 bg-green-600 hover:bg-green-700"
+                            onClick={saveEstimateForApproval}
                           >
                             <FileText className="h-4 w-4 mr-2" />
-                            Save and Send for Approval
+                            Save & Send for Approval
                           </Button>
                           
-                          {requiresApproval && (
-                            <Button
-                              variant="outline"
-                              className="flex-1 border-orange-300 text-orange-700 hover:bg-orange-50"
-                              onClick={() => {
-                                // TODO: Implement submit for approval functionality
-                                toast.info('Submit for Approval functionality coming soon')
-                              }}
-                            >
-                              <Check className="h-4 w-4 mr-2" />
-                              Submit for Approval
-                            </Button>
-                          )}
                         </div>
                         
                         {requiresApproval && (
@@ -1911,7 +2230,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                             {getAreaDisplayName(area.area_type)}: {area.total_square_feet.toFixed(0)} sq ft
                           </span>
                           <div className="text-sm text-slate-600 mt-1">
-                            → R-{area.r_value} → {area.insulation_type ? area.insulation_type.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()) : 'Not specified'}
+                            → R-{approximateRValue(Number(area.r_value))} → {area.insulation_type ? area.insulation_type.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()) : 'Not specified'}
                           </div>
                         </div>
                       </div>
@@ -1921,7 +2240,24 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
               </div>
               
               <div className="text-xs text-green-700 mt-4 p-3 bg-green-100 rounded">
-                ℹ️ Massachusetts building code compliance - R-values automatically assigned based on project type
+                <div className="font-semibold mb-2">📋 Massachusetts Building Code Requirements:</div>
+                {job.project_type === 'new_construction' ? (
+                  <div className="space-y-1">
+                    <div><strong>New Construction:</strong></div>
+                    <div>• Roof: R-60 minimum</div>
+                    <div>• Exterior Walls: R-30 minimum</div>
+                    <div>• Basement: R-15 minimum</div>
+                  </div>
+                ) : job.project_type === 'remodel' ? (
+                  <div className="space-y-1">
+                    <div><strong>Renovation/Remodel:</strong></div>
+                    <div>• Roof: R-49 minimum</div>
+                    <div>• Exterior Walls: R-21 minimum</div>
+                    <div>• Basement: R-15 minimum</div>
+                  </div>
+                ) : (
+                  <div>ℹ️ Massachusetts building code compliance - R-values automatically assigned based on project type</div>
+                )}
               </div>
             </div>
           </CardContent>
@@ -2053,7 +2389,7 @@ function MeasurementCard({ measurement, onDelete, onPhotoUpload }: MeasurementCa
         {measurement.r_value && (
           <div>
             <Label className="text-xs text-slate-500">R-Value</Label>
-            <div className="font-medium text-green-600">R-{measurement.r_value}</div>
+            <div className="font-medium text-green-600">R-{approximateRValue(Number(measurement.r_value))}</div>
           </div>
         )}
       </div>
