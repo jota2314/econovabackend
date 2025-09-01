@@ -331,11 +331,55 @@ export default function EstimateDetailPage({ params }: { params: Promise<{ id: s
             </div>
           </div>
 
-          {/* Line Items Section - Measurements */}
+          {/* Line Items Section - Line Items or Measurements */}
           <div className="p-8">
             <h3 className="text-lg font-semibold mb-4">Spray Foam Installation - Line Items</h3>
             
-            {estimate.measurements && estimate.measurements.length > 0 ? (
+            {estimate.estimate_line_items && estimate.estimate_line_items.length > 0 ? (
+              // Show actual line items if available
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b-2 border-slate-300">
+                      <th className="text-left py-3 px-2 text-sm font-semibold text-slate-700">Description</th>
+                      <th className="text-center py-3 px-2 text-sm font-semibold text-slate-700">Quantity</th>
+                      <th className="text-center py-3 px-2 text-sm font-semibold text-slate-700">Unit</th>
+                      <th className="text-right py-3 px-2 text-sm font-semibold text-slate-700">Unit Price</th>
+                      <th className="text-right py-3 px-2 text-sm font-semibold text-slate-700">Line Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {estimate.estimate_line_items.map((item: any, idx: number) => (
+                      <tr key={item.id || idx} className="border-b hover:bg-slate-50">
+                        <td className="py-3 px-2">
+                          <div>
+                            <p className="font-medium">{item.description}</p>
+                            <p className="text-xs text-slate-500">{item.service_type}</p>
+                          </div>
+                        </td>
+                        <td className="py-3 px-2 text-center">
+                          <span className="text-sm font-medium">{item.quantity.toFixed(1)}</span>
+                        </td>
+                        <td className="py-3 px-2 text-center">
+                          <span className="text-sm">{item.unit || 'each'}</span>
+                        </td>
+                        <td className="py-3 px-2 text-right">
+                          <span className="text-sm">{formatCurrency(item.unit_price)}</span>
+                        </td>
+                        <td className="py-3 px-2 text-right font-medium">
+                          {formatCurrency(item.line_total || (item.quantity * item.unit_price))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : estimate.measurements && estimate.measurements.length > 0 ? (
+              // Fallback to showing measurements if no line items
+              <>
+                <div className="mb-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                  <p className="text-sm text-yellow-700">⚠️ Showing individual measurements - line items not found for this estimate</p>
+                </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
@@ -413,9 +457,10 @@ export default function EstimateDetailPage({ params }: { params: Promise<{ id: s
                   </tbody>
                 </table>
               </div>
+              </>
             ) : (
               <div className="text-center py-8 text-slate-500">
-                No measurements found for this estimate
+                No measurements or line items found for this estimate
               </div>
             )}
             

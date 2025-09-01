@@ -117,8 +117,14 @@ export async function POST(request: NextRequest) {
       building_type,
       measurement_type,
       job_complexity,
-      // Insulation fields
+      // Project address fields
+      project_address,
+      project_city,
+      project_state,
+      project_zip_code,
+      // Project type field
       project_type, 
+      // Legacy fields (for backward compatibility)
       structural_framing, 
       roof_rafters,
       // HVAC fields
@@ -201,6 +207,11 @@ export async function POST(request: NextRequest) {
         service_type,
         building_type: building_type,
         measurement_type,
+        project_type,
+        project_address,
+        project_city,
+        project_state,
+        project_zip_code,
         structural_framing: service_type === 'insulation' ? structural_framing : null,
         roof_rafters: service_type === 'insulation' ? roof_rafters : null,
         scope_of_work: JSON.stringify(serviceSpecificData),

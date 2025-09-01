@@ -1,5 +1,7 @@
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
 import { getCurrentProfile } from "@/lib/auth"
+import { ErrorBoundary } from "@/components/common/error-boundary"
+import { redirect } from "next/navigation"
 
 export default async function DashboardLayoutPage({
   children,
@@ -8,22 +10,24 @@ export default async function DashboardLayoutPage({
 }) {
   const profile = await getCurrentProfile()
 
-  // Provide default user data to prevent hydration mismatch
-  const user = profile ? {
+  // Redirect unauthenticated users to login
+  if (!profile) {
+    redirect('/login')
+  }
+
+  // Provide user data
+  const user = {
     name: profile.full_name || 'User',
     email: profile.email,
-    avatar: undefined, // Remove avatar_url as it doesn't exist in the User type
-    role: profile.role
-  } : {
-    name: 'Guest User',
-    email: 'guest@sprayfoam.com',
     avatar: undefined,
-    role: 'salesperson'
+    role: profile.role
   }
 
   return (
-    <DashboardLayout user={user}>
-      {children}
-    </DashboardLayout>
+    <ErrorBoundary>
+      <DashboardLayout user={user}>
+        {children}
+      </DashboardLayout>
+    </ErrorBoundary>
   )
 }

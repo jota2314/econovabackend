@@ -166,7 +166,8 @@ export async function POST(
           closed_cell_inches,
           open_cell_inches,
           is_hybrid_system,
-          notes: insulationNotes 
+          notes: insulationNotes,
+          photo_url 
         } = body
 
         // Validate insulation fields
@@ -194,7 +195,8 @@ export async function POST(
           closed_cell_inches: closed_cell_inches ? parseFloat(closed_cell_inches) : 0,
           open_cell_inches: open_cell_inches ? parseFloat(open_cell_inches) : 0,
           is_hybrid_system: is_hybrid_system || false,
-          notes: insulationNotes || null
+          notes: insulationNotes || null,
+          photo_url: photo_url || null
         }
         
         tableName = 'measurements'

@@ -60,6 +60,7 @@ interface EnhancedJobCardsProps {
 export function EnhancedJobCards({ serviceType, workflowMetrics }: EnhancedJobCardsProps) {
   console.log('🎯 EnhancedJobCards mounting with serviceType:', serviceType)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [periodFilter, setPeriodFilter] = useState('year')
   const [estimateToggle, setEstimateToggle] = useState<'count' | 'revenue'>('count')
   const supabase = createClient()
@@ -90,6 +91,7 @@ export function EnhancedJobCards({ serviceType, workflowMetrics }: EnhancedJobCa
   const fetchJobStats = async () => {
     try {
       setLoading(true)
+      setError(null)
       console.log('🎯 fetchJobStats called with serviceType:', serviceType, 'period:', periodFilter)
       
       const params = new URLSearchParams()
@@ -97,13 +99,24 @@ export function EnhancedJobCards({ serviceType, workflowMetrics }: EnhancedJobCa
       params.append('period', periodFilter)
 
       console.log('🎯 Making stats API call to:', `/api/jobs/stats?${params.toString()}`)
+      
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+      
       const response = await fetch(`/api/jobs/stats?${params.toString()}`, {
         headers: {
           'Content-Type': 'application/json'
-        }
+        },
+        signal: controller.signal
       })
       
+      clearTimeout(timeoutId)
       console.log('🎯 Stats API response status:', response.status)
+      
+      if (!response.ok) {
+        throw new Error(`API responded with status ${response.status}`)
+      }
+      
       const result = await response.json()
       console.log('🔍 Stats API response:', result)
 
@@ -112,9 +125,19 @@ export function EnhancedJobCards({ serviceType, workflowMetrics }: EnhancedJobCa
         setJobStats(result.data)
       } else {
         console.error('Stats API error:', result.error)
+        setError(result.error || 'Failed to load job statistics')
       }
     } catch (error) {
       console.error('Error fetching job stats:', error)
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          setError('Request timed out. Please try again.')
+        } else {
+          setError(error.message)
+        }
+      } else {
+        setError('Failed to load job statistics')
+      }
     } finally {
       setLoading(false)
     }
@@ -158,6 +181,50 @@ export function EnhancedJobCards({ serviceType, workflowMetrics }: EnhancedJobCa
       default:
         return 'Total Projects'
     }
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <div className="text-red-600 bg-red-50 p-4 rounded-lg border border-red-200">
+            <p className="font-medium">Error loading job statistics</p>
+            <p className="text-sm mt-1">{error}</p>
+            <button 
+              onClick={fetchJobStats}
+              className="mt-2 px-3 py-1 bg-red-600 text-white rounded-md text-sm hover:bg-red-700"
+            >
+              Retry
+            </button>
+          </div>
+          <Select value={periodFilter} onValueChange={setPeriodFilter}>
+            <SelectTrigger className="w-[120px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="today">Today</SelectItem>
+              <SelectItem value="week">Week</SelectItem>
+              <SelectItem value="month">Month</SelectItem>
+              <SelectItem value="year">Year</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {/* Show skeleton cards even with error */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i} className="opacity-50">
+              <CardContent className="flex items-center p-6">
+                <div className="h-8 w-8 bg-gray-300 rounded mr-4 animate-pulse" />
+                <div>
+                  <div className="h-8 w-20 bg-gray-300 rounded animate-pulse mb-2" />
+                  <div className="h-4 w-16 bg-gray-200 rounded animate-pulse" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    )
   }
 
   return (

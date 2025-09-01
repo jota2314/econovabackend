@@ -15,7 +15,7 @@ export const OPEN_CELL_PRICING: PricingRule[] = [
   { minRValue: 0, maxRValue: 15, pricePerSqft: 1.65, thickness: '3.5"' },
   { minRValue: 16, maxRValue: 21, pricePerSqft: 1.90, thickness: '5.5"' },
   { minRValue: 22, maxRValue: 28, pricePerSqft: 2.20, thickness: '7"' },
-  { minRValue: 29, maxRValue: 30, pricePerSqft: 2.40, thickness: '8"' },
+  { minRValue: 29, maxRValue: 30.9, pricePerSqft: 2.40, thickness: '8"' }, // Extended to cover 30.4
   { minRValue: 31, maxRValue: 34, pricePerSqft: 2.60, thickness: '9"' },
   { minRValue: 35, maxRValue: 38, pricePerSqft: 2.90, thickness: '10"' },
   { minRValue: 39, maxRValue: 45, pricePerSqft: 3.30, thickness: '12"' },
@@ -27,12 +27,12 @@ export const OPEN_CELL_PRICING: PricingRule[] = [
 export const CLOSED_CELL_PRICING: PricingRule[] = [
   { minRValue: 0, maxRValue: 7, pricePerSqft: 1.80, thickness: '1"' },
   { minRValue: 8, maxRValue: 13, pricePerSqft: 2.30, thickness: '1.5"' },
-  { minRValue: 14, maxRValue: 15, pricePerSqft: 2.80, thickness: '2"' },
+  { minRValue: 14, maxRValue: 15.9, pricePerSqft: 2.80, thickness: '2"' }, // Extended to avoid gaps
   { minRValue: 16, maxRValue: 19, pricePerSqft: 3.60, thickness: '2.5"' },
-  { minRValue: 20, maxRValue: 21, pricePerSqft: 3.90, thickness: '3"' },
-  { minRValue: 22, maxRValue: 30, pricePerSqft: 5.70, thickness: '4"' },
-  { minRValue: 31, maxRValue: 38, pricePerSqft: 6.80, thickness: '5"' },
-  { minRValue: 39, maxRValue: 49, pricePerSqft: 8.70, thickness: '7"' },
+  { minRValue: 20, maxRValue: 21.9, pricePerSqft: 3.90, thickness: '3"' }, // Extended to avoid gaps
+  { minRValue: 22, maxRValue: 30.9, pricePerSqft: 5.70, thickness: '4"' }, // Extended to avoid gaps
+  { minRValue: 31, maxRValue: 38.9, pricePerSqft: 6.80, thickness: '5"' }, // Extended to avoid gaps
+  { minRValue: 39, maxRValue: 49.9, pricePerSqft: 8.70, thickness: '7"' }, // Extended to avoid gaps
   { minRValue: 50, maxRValue: 999, pricePerSqft: 8.70, thickness: '7+"' }, // Default for higher R-values
 ]
 

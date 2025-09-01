@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
     const period = searchParams.get('period') // today, week, month, year
     const startDate = searchParams.get('start_date')
     const endDate = searchParams.get('end_date')
+    const jobId = searchParams.get('job_id') // Filter by specific job
 
     // Get user's role to determine data access
     const { data: userProfile } = await supabase
@@ -72,6 +73,11 @@ export async function GET(request: NextRequest) {
     // Apply service type filter (filter on jobs.service_type)
     if (serviceType && serviceType !== 'all') {
       query = query.eq('jobs.service_type', serviceType)
+    }
+
+    // Apply job ID filter
+    if (jobId) {
+      query = query.eq('job_id', jobId)
     }
 
     // Apply date filters

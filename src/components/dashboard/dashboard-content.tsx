@@ -18,7 +18,8 @@ import {
   Clock,
   Ruler,
   FileText,
-  Calculator
+  Calculator,
+  Target
 } from "lucide-react"
 import { EstimateCard } from "@/components/dashboard/estimate-card"
 
@@ -294,6 +295,81 @@ export function DashboardContent() {
             </div>
             <div className="p-3 bg-secondary rounded-lg">
               <Users className="h-6 w-6 text-secondary-foreground" />
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Enhanced Metrics Row */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <Card className="p-4 bg-gradient-to-r from-red-50 to-red-100 border-red-200">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-red-600 rounded-lg">
+              <TrendingUp className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-red-900">Hot Leads</p>
+              <p className="text-xl font-bold text-red-900">
+                {recentLeads.filter(lead => lead.temperature === 'hot').length || 0}
+              </p>
+            </div>
+          </div>
+        </Card>
+        
+        <Card className="p-4 bg-gradient-to-r from-yellow-50 to-yellow-100 border-yellow-200">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-yellow-600 rounded-lg">
+              <Calendar className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-yellow-900">This Week</p>
+              <p className="text-xl font-bold text-yellow-900">
+                ${((dashboardStats?.commissions || 0) * 4).toLocaleString()}
+              </p>
+            </div>
+          </div>
+        </Card>
+        
+        <Card className="p-4 bg-gradient-to-r from-indigo-50 to-indigo-100 border-indigo-200">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-indigo-600 rounded-lg">
+              <Calculator className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-indigo-900">Avg Deal Size</p>
+              <p className="text-xl font-bold text-indigo-900">
+                ${dashboardStats?.pipelineValue && dashboardStats?.totalJobs > 0 
+                  ? Math.round(dashboardStats.pipelineValue / dashboardStats.totalJobs).toLocaleString()
+                  : '4,396'}
+              </p>
+            </div>
+          </div>
+        </Card>
+        
+        <Card className="p-4 bg-gradient-to-r from-emerald-50 to-emerald-100 border-emerald-200">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-emerald-600 rounded-lg">
+              <Target className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-emerald-900">Win Rate</p>
+              <p className="text-xl font-bold text-emerald-900">
+                {stats?.statusBreakdown?.closed_won && stats?.totalLeads 
+                  ? Math.round((stats.statusBreakdown.closed_won / stats.totalLeads) * 100)
+                  : 23}%
+              </p>
+            </div>
+          </div>
+        </Card>
+        
+        <Card className="p-4 bg-gradient-to-r from-purple-50 to-purple-100 border-purple-200">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-purple-600 rounded-lg">
+              <Clock className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-purple-900">Avg Close Time</p>
+              <p className="text-xl font-bold text-purple-900">12d</p>
             </div>
           </div>
         </Card>

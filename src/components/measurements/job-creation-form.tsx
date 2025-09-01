@@ -27,7 +27,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import React from "react"
 import { Lead } from "@/lib/types/database"
 import { toast } from "sonner"
-import { Loader2, Briefcase, User, Home, FileText, Wind, Thermometer, Hammer, Building } from "lucide-react"
+import { Loader2, Briefcase, User, Home, FileText, Wind, Thermometer, Hammer, Building, MapPin } from "lucide-react"
 
 const jobSchema = z.object({
   job_name: z.string().min(1, "Job name is required"),
@@ -35,16 +35,22 @@ const jobSchema = z.object({
   service_type: z.enum(["insulation", "hvac", "plaster"], {
     required_error: "Service type is required"
   }),
-  building_type: z.enum(["residential", "commercial", "industrial"], {
+  building_type: z.enum(["residential", "commercial"], {
     required_error: "Building type is required"
   }),
   measurement_type: z.enum(["field", "drawings"], {
     required_error: "Measurement type is required"
   }),
-  // Insulation fields
-  project_type: z.enum(["new_construction", "retrofit"]).optional(),
-  structural_framing: z.enum(["2x4", "2x6", "2x8", "2x10", "2x12"]).optional(),
-  roof_rafters: z.enum(["2x4", "2x6", "2x8", "2x10", "2x12"]).optional(),
+  // Project address fields (required)
+  project_address: z.string().min(1, "Project address is required"),
+  project_city: z.string().min(1, "City is required"),
+  project_state: z.string().min(1, "State is required"),
+  project_zip_code: z.string().min(5, "ZIP code is required").max(10, "ZIP code too long"),
+  // Project type fields (required)
+  project_type: z.enum(["new_construction", "remodel"], {
+    required_error: "Project type is required"
+  }),
+  // Service-specific optional fields
   // HVAC fields
   system_type: z.enum(["central_air", "heat_pump", "furnace"]).optional(),
   install_type: z.enum(["new_install", "replacement"]).optional(),
@@ -83,9 +89,11 @@ export function JobCreationForm({
       service_type: "insulation",
       building_type: "residential",
       measurement_type: "field",
+      project_address: "",
+      project_city: "",
+      project_state: "MA",
+      project_zip_code: "",
       project_type: "new_construction",
-      structural_framing: "2x6",
-      roof_rafters: "2x6",
       system_type: "central_air",
       install_type: "new_install",
       tonnage_estimate: "",
@@ -106,11 +114,6 @@ export function JobCreationForm({
         ...data,
         job_complexity: 'standard', // Default complexity
         // Clean up optional fields based on service type
-        ...(data.service_type === 'insulation' && {
-          project_type: data.project_type,
-          structural_framing: data.structural_framing,
-          roof_rafters: data.roof_rafters,
-        }),
         ...(data.service_type === 'hvac' && {
           system_type: data.system_type,
           install_type: data.install_type,
@@ -266,6 +269,84 @@ export function JobCreationForm({
               </div>
             )}
 
+            {/* Project Address Section */}
+            <div className="space-y-4 border-l-4 border-orange-500 pl-4">
+              <h3 className="font-semibold text-orange-900 flex items-center gap-2">
+                <MapPin className="h-4 w-4" />
+                Project Address
+              </h3>
+              
+              {/* Street Address */}
+              <FormField
+                control={form.control}
+                name="project_address"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Street Address *</FormLabel>
+                    <FormControl>
+                      <Input placeholder="123 Main Street" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* City, State, ZIP Row */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <FormField
+                  control={form.control}
+                  name="project_city"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>City *</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Boston" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="project_state"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>State *</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="MA">Massachusetts</SelectItem>
+                          <SelectItem value="NH">New Hampshire</SelectItem>
+                          <SelectItem value="CT">Connecticut</SelectItem>
+                          <SelectItem value="RI">Rhode Island</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="project_zip_code"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>ZIP Code *</FormLabel>
+                      <FormControl>
+                        <Input placeholder="02101" maxLength={10} {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </div>
+
             {/* Service Type */}
             <FormField
               control={form.control}
@@ -327,7 +408,6 @@ export function JobCreationForm({
                     <SelectContent>
                       <SelectItem value="residential">Residential</SelectItem>
                       <SelectItem value="commercial">Commercial</SelectItem>
-                      <SelectItem value="industrial">Industrial</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -376,91 +456,35 @@ export function JobCreationForm({
               )}
             />
 
-            {/* Service-Specific Fields */}
-            {serviceType === 'insulation' && (
-              <div className="space-y-4 border-l-4 border-blue-500 pl-4">
-                <h3 className="font-semibold text-blue-900 flex items-center gap-2">
-                  <Wind className="h-4 w-4" />
-                  Insulation Details
-                </h3>
-                
-                {/* Project Type for Insulation */}
-                <FormField
-                  control={form.control}
-                  name="project_type"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Project Type</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="new_construction">New Construction</SelectItem>
-                          <SelectItem value="retrofit">Retrofit</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {/* Structural Details */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="structural_framing"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Structural Framing</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="2x4">2x4</SelectItem>
-                            <SelectItem value="2x6">2x6</SelectItem>
-                            <SelectItem value="2x8">2x8</SelectItem>
-                            <SelectItem value="2x10">2x10</SelectItem>
-                            <SelectItem value="2x12">2x12</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="roof_rafters"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Roof Rafters</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="2x4">2x4</SelectItem>
-                            <SelectItem value="2x6">2x6</SelectItem>
-                            <SelectItem value="2x8">2x8</SelectItem>
-                            <SelectItem value="2x10">2x10</SelectItem>
-                            <SelectItem value="2x12">2x12</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              </div>
+            {/* Project Type Section - For all building types */}
+            {buildingType === 'residential' && (
+              <FormField
+                control={form.control}
+                name="project_type"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center gap-2">
+                      <Building className="h-4 w-4" />
+                      Construction Type *
+                    </FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select construction type" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="new_construction">New Construction</SelectItem>
+                        <SelectItem value="remodel">Remodeling</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             )}
+
+            {/* Service-Specific Fields */}
 
             {serviceType === 'hvac' && (
               <div className="space-y-4 border-l-4 border-green-500 pl-4">

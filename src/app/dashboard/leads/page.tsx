@@ -37,6 +37,7 @@ import { CsvImportDialog } from "@/components/leads/csv-import-dialog"
 import { LeadPipeline } from "@/components/leads/lead-pipeline"
 import { LeadCommunicationView } from "@/components/leads/lead-communication-view"
 import { LeadMapView } from "@/components/leads/lead-map-view"
+import { EnhancedLeadsTable } from "@/components/leads/enhanced-leads-table"
 import { SMSModal } from "@/components/communications/sms-modal"
 import { CommunicationHistorySidebar } from "@/components/communications/communication-history-sidebar"
 import { Lead, TablesInsert } from "@/lib/types/database"
@@ -44,7 +45,7 @@ import { leadsService } from "@/lib/services/leads"
 import { useAuthContext } from "@/providers/auth-provider"
 import { toast } from "sonner"
 
-type ViewMode = 'list' | 'communication' | 'pipeline' | 'map'
+type ViewMode = 'list' | 'communication' | 'pipeline' | 'map' | 'enhanced'
 type QuickFilter = 'all' | 'hot' | 'follow-up-today' | 'no-contact-7days' | 'my-leads' | 'team-leads' | 'unassigned'
 
 export default function LeadsPage() {
@@ -539,6 +540,15 @@ export default function LeadsPage() {
             <MapPin className="h-4 w-4 mr-2" />
             Map View
           </Button>
+          <Button
+            variant={viewMode === 'enhanced' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setViewMode('enhanced')}
+            className="transition-all"
+          >
+            <TrendingUp className="h-4 w-4 mr-2" />
+            Enhanced View
+          </Button>
         </div>
         
         <div className="flex items-center gap-2 text-sm text-slate-600">
@@ -685,6 +695,10 @@ export default function LeadsPage() {
               setShowAddDialog(true)
             }}
           />
+        )}
+
+        {viewMode === 'enhanced' && (
+          <EnhancedLeadsTable />
         )}
       </div>
 

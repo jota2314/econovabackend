@@ -20,6 +20,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { ImageGallery, ImageThumbnailGrid } from '@/components/ui/image-gallery'
 import { toast } from "sonner"
 import { 
   Plus, 
@@ -61,6 +62,10 @@ import {
   approximateRValue,
   type InsulationType 
 } from "@/lib/utils/pricing-calculator"
+import { 
+  calculateDatabaseMeasurementPrice,
+  clearPricingCache 
+} from "@/lib/utils/database-pricing-calculator"
 import { generateQuickEstimatePDF } from "@/lib/utils/estimate-pdf-generator"
 import { Job as DatabaseJob, PricingCatalog, Database } from "@/lib/types/database"
 import { EstimateBuilder } from "./estimate-builder"
@@ -188,6 +193,11 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
   const [pricing, setPricing] = useState<PricingCatalog[]>([])
   const [loadingPricing, setLoadingPricing] = useState(false)
   const [showEstimateBuilder, setShowEstimateBuilder] = useState(false)
+  const [jobPhotos, setJobPhotos] = useState<string[]>([])
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [galleryOpen, setGalleryOpen] = useState(false)
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0)
+  const [realtimePricing, setRealtimePricing] = useState<{ pricePerSqft: number; totalPrice: number } | null>(null)
 
   // Dynamic form based on service type
   const getFormConfig = (serviceType: string) => {
@@ -296,11 +306,15 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
   // Load existing measurements
   // Save estimate and send for approval
   const saveEstimateForApproval = async () => {
+    console.log('🔄 saveEstimateForApproval called with measurements:', measurements.length)
+    
     if (measurements.length === 0) {
       toast.error('No measurements to save')
+      console.log('❌ No measurements found, aborting estimate save')
       return
     }
 
+    console.log('📋 Starting estimate save process...')
     try {
       let total = 0
       let lineItems: any[] = []
@@ -312,10 +326,26 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
       }
 
       // Create grouped line items for insulation (same logic as display)
-      const groupedMeasurements = measurements.reduce((groups, measurement) => {
+      // Filter out photo measurements (those with room_name starting with "Photo:")
+      // Photos are now handled separately in the jobPhotos state and PDF photos section
+      const realMeasurements = measurements.filter(m => !m.room_name.startsWith('Photo:'))
+      const groupedMeasurements = realMeasurements.reduce((groups, measurement) => {
         // Extract base room name by removing "- Wall X" suffix
         const baseRoomName = measurement.room_name.replace(/ - Wall \d+$/, '')
-        const key = `${baseRoomName}-${measurement.area_type}`
+        
+        // Create unique key that includes insulation specifications
+        let insulationKey = measurement.insulation_type || 'unknown'
+        if (measurement.is_hybrid_system) {
+          insulationKey = `hybrid-${measurement.closed_cell_inches}cc-${measurement.open_cell_inches}oc`
+        } else if (measurement.closed_cell_inches > 0) {
+          insulationKey = `${measurement.insulation_type}-${measurement.closed_cell_inches}in`
+        } else if (measurement.open_cell_inches > 0) {
+          insulationKey = `${measurement.insulation_type}-${measurement.open_cell_inches}in`
+        } else if (measurement.r_value) {
+          insulationKey = `${measurement.insulation_type}-R${measurement.r_value}`
+        }
+        
+        const key = `${baseRoomName}-${measurement.area_type}-${insulationKey}`
         if (!groups[key]) {
           groups[key] = {
             room_name: baseRoomName,
@@ -429,28 +459,68 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
       console.log('💰 About to save estimate with total:', formatCurrency(total))
       console.log('📋 Line items:', lineItems)
 
-      // Create estimate record
-      const response = await fetch('/api/estimates', {
-        method: 'POST',
+      // First check if an estimate already exists for this job
+      console.log('🔍 Checking for existing estimates for job:', job.id)
+      const existingEstimatesResponse = await fetch(`/api/estimates?job_id=${job.id}`, {
         headers: {
           'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          job_id: job.id,
-          total_amount: total,
-          subtotal: total,
-          status: 'pending_approval',
-          service_type: job.service_type,
-          line_items: lineItems
-        })
+        }
       })
+      
+      const existingEstimatesResult = await existingEstimatesResponse.json()
+      console.log('📊 Existing estimates result:', existingEstimatesResult)
+      
+      let response
+      let existingEstimate = null
+      
+      // Look for pending estimates for this job
+      if (existingEstimatesResult.success && existingEstimatesResult.data?.estimates?.length > 0) {
+        existingEstimate = existingEstimatesResult.data.estimates.find((est: any) => 
+          est.jobs?.id === job.id && est.status === 'pending_approval'
+        )
+      }
+      
+      if (existingEstimate) {
+        // Update existing estimate
+        console.log('🔄 Updating existing estimate:', existingEstimate.id)
+        response = await fetch(`/api/estimates/${existingEstimate.id}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            total_amount: total,
+            subtotal: total,
+            line_items: lineItems // This will replace the line items
+          })
+        })
+      } else {
+        // Create new estimate
+        console.log('➕ Creating new estimate for job:', job.id)
+        response = await fetch('/api/estimates', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            job_id: job.id,
+            total_amount: total,
+            subtotal: total,
+            status: 'pending_approval',
+            service_type: job.service_type,
+            line_items: lineItems
+          })
+        })
+      }
 
       const result = await response.json()
       console.log('💾 Estimate save result:', result)
       
       if (result.success) {
-        toast.success(`Estimate saved! Total: ${formatCurrency(total)}`)
-        console.log('✅ Estimate saved with ID:', result.data?.id)
+        const action = existingEstimate ? 'updated' : 'created'
+        toast.success(`Estimate ${action}! Total: ${formatCurrency(total)} (${lineItems.length} line items)`)
+        console.log(`✅ Estimate ${action} with ID:`, result.data?.id || existingEstimate?.id)
+        console.log('🎯 Total line items included:', lineItems.length)
         // Optionally update job status or refresh data
       } else {
         console.error('❌ Estimate save failed:', result.error)
@@ -485,6 +555,12 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
 
       if (result.success) {
         setMeasurements(result.data || [])
+        // Extract photo URLs from measurements
+        const photos = result.data
+          ?.map((m: any) => m.photo_url)
+          .filter((url: string) => url) || []
+        setJobPhotos(photos)
+        console.log('📸 Loaded job photos:', photos.length)
       } else {
         toast.error('Failed to load measurements')
       }
@@ -495,6 +571,77 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
       setLoading(false)
     }
   }, [job.id])
+
+  // Photo upload function
+  const uploadJobPhoto = async (file: File) => {
+    try {
+      setUploadingPhoto(true)
+      console.log('📤 Uploading job photo:', file.name)
+      
+      // Create a data URL for immediate display
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string
+        
+        // Add to job photos immediately for instant feedback
+        setJobPhotos(prev => [...prev, dataUrl])
+        
+        // Create a photo "measurement" record
+        // Photo is already added to jobPhotos state above
+        // No need to create a measurement record for photos
+        console.log('✅ Photo uploaded and added to job photos')
+      }
+      reader.readAsDataURL(file)
+      
+    } catch (error) {
+      console.error('Error uploading photo:', error)
+      toast.error('Failed to upload photo')
+    } finally {
+      setUploadingPhoto(false)
+    }
+  }
+
+  // Create a photo measurement record
+  const createPhotoMeasurement = async (fileName: string, photoUrl: string) => {
+    try {
+      console.log('📤 Creating photo measurement for:', fileName)
+      const payload = {
+        room_name: `Photo: ${fileName}`,
+        surface_type: 'wall', // Required field
+        height: 0, // Required field  
+        width: 0, // Required field
+        photo_url: photoUrl,
+        notes: `Job photo uploaded: ${fileName}`,
+        area_type: 'exterior_walls',
+        framing_size: '2x4'
+      }
+      console.log('📋 Photo measurement payload:', payload)
+      
+      const response = await fetch(`/api/jobs/${job.id}/measurements`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+      })
+
+      const result = await response.json()
+      console.log('📸 Photo measurement API response:', result)
+      
+      if (result.success) {
+        console.log('✅ Photo measurement created successfully:', result.data?.id)
+        toast.success(`Photo "${fileName}" uploaded successfully`)
+        // Refresh measurements to get the saved photo
+        await loadMeasurements()
+      } else {
+        console.error('❌ Failed to create photo measurement:', result.error)
+        toast.error('Failed to save photo')
+      }
+    } catch (error) {
+      console.error('💥 Error creating photo measurement:', error)
+      toast.error('Failed to save photo')
+    }
+  }
 
   useEffect(() => {
     loadMeasurements()
@@ -909,43 +1056,82 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
     }, 0)
   }
 
-  // Calculate real-time pricing
-  const calculateRealtimePrice = () => {
+  // Calculate real-time pricing using database
+  const calculateRealtimePriceAsync = async () => {
     const insulationType = form.watch('insulation_type')
     const totalSqFt = calculateTotalSquareFeet()
     
-    if (!insulationType || totalSqFt === 0) return null
-    
-    // Handle hybrid systems
-    if (insulationType === 'hybrid') {
-      const closedCellInches = form.watch('closed_cell_inches') || 0
-      const openCellInches = form.watch('open_cell_inches') || 0
-      
-      if (closedCellInches === 0 && openCellInches === 0) {
-        return { pricePerSqft: 0, totalPrice: 0 }
-      }
-      
-      const hybridCalc = calculateHybridRValue(closedCellInches, openCellInches)
-      const hybridPricing = calculateHybridPricing(hybridCalc)
-      
-      return {
-        pricePerSqft: hybridPricing.totalPricePerSqft,
-        totalPrice: totalSqFt * hybridPricing.totalPricePerSqft
-      }
+    if (!insulationType || totalSqFt === 0) {
+      setRealtimePricing(null)
+      return
     }
     
-    // Regular system pricing
-    const projectType = (job.project_type as ProjectType) || 'new_construction'
-    const areaType = form.watch('area_type')
-    const rValueResult = areaType ? calculateRValue(projectType, areaType) : { rValue: 0 }
-    const rValue = rValueResult?.rValue || 0
-    
-    return calculateMeasurementPrice(totalSqFt, insulationType as InsulationType, rValue)
+    try {
+      // Handle hybrid systems
+      if (insulationType === 'hybrid') {
+        const closedCellInches = form.watch('closed_cell_inches') || 0
+        const openCellInches = form.watch('open_cell_inches') || 0
+        
+        if (closedCellInches === 0 && openCellInches === 0) {
+          setRealtimePricing({ pricePerSqft: 0, totalPrice: 0 })
+          return
+        }
+        
+        const hybridCalc = calculateHybridRValue(closedCellInches, openCellInches)
+        const hybridPricing = calculateHybridPricing(hybridCalc)
+        
+        setRealtimePricing({
+          pricePerSqft: hybridPricing.totalPricePerSqft,
+          totalPrice: totalSqFt * hybridPricing.totalPricePerSqft
+        })
+        return
+      }
+      
+      // Regular system pricing using database
+      const projectType = (job.project_type as ProjectType) || 'new_construction'
+      const areaType = form.watch('area_type')
+      const rValueResult = areaType ? calculateRValue(projectType, areaType) : { rValue: 0 }
+      const rValue = rValueResult?.rValue || 0
+      
+      // Use database pricing
+      const databasePricing = await calculateDatabaseMeasurementPrice(
+        totalSqFt, 
+        insulationType as 'open_cell' | 'closed_cell' | 'hybrid', 
+        rValue
+      )
+      
+      setRealtimePricing(databasePricing)
+    } catch (error) {
+      console.error('Error calculating realtime pricing:', error)
+      // Fallback to hardcoded pricing if database fails
+      const projectType = (job.project_type as ProjectType) || 'new_construction'
+      const areaType = form.watch('area_type')
+      const rValueResult = areaType ? calculateRValue(projectType, areaType) : { rValue: 0 }
+      const rValue = rValueResult?.rValue || 0
+      
+      const fallbackPricing = calculateMeasurementPrice(totalSqFt, insulationType as InsulationType, rValue)
+      setRealtimePricing(fallbackPricing)
+    }
   }
 
   // Watch form changes to update real-time calculations
-  const realtimePrice = calculateRealtimePrice()
   const totalSqFt = calculateTotalSquareFeet()
+  
+  // Effect to recalculate pricing when form values change
+  useEffect(() => {
+    const debounceTimer = setTimeout(() => {
+      calculateRealtimePriceAsync()
+    }, 300) // Debounce to avoid too many database calls
+
+    return () => clearTimeout(debounceTimer)
+  }, [
+    form.watch('insulation_type'),
+    form.watch('area_type'),
+    form.watch('wall_dimensions'),
+    form.watch('closed_cell_inches'),
+    form.watch('open_cell_inches'),
+    totalSqFt
+  ])
 
   // Render different forms based on service type
   const renderInsulationForm = () => (
@@ -1365,15 +1551,15 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
               <span className="text-lg font-bold text-blue-600">{totalSqFt.toFixed(1)} sq ft</span>
             </div>
             
-            {realtimePrice && realtimePrice.pricePerSqft > 0 && (
+            {realtimePricing && realtimePricing.pricePerSqft > 0 && (
               <>
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-slate-600">Price per sq ft:</span>
-                  <span className="font-medium text-green-600">{formatCurrency(realtimePrice.pricePerSqft)}</span>
+                  <span className="font-medium text-green-600">{formatCurrency(realtimePricing.pricePerSqft)}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-sm font-medium text-slate-700">Estimated Total:</span>
-                  <span className="text-xl font-bold text-green-700">{formatCurrency(realtimePrice.totalPrice)}</span>
+                  <span className="text-xl font-bold text-green-700">{formatCurrency(realtimePricing.totalPrice)}</span>
                 </div>
               </>
             )}
@@ -1401,7 +1587,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
 
         <Button type="submit" className="w-full" disabled={saving || totalSqFt === 0}>
           {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-          Save Measurement {totalSqFt > 0 && `($${realtimePrice ? Math.round(realtimePrice.totalPrice) : '0'})`}
+          Save Measurement {totalSqFt > 0 && `($${realtimePricing ? Math.round(realtimePricing.totalPrice) : '0'})`}
         </Button>
       </form>
     </Form>
@@ -1772,56 +1958,128 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
       </div>
 
 
-      {/* Project Summary */}
-      <Card className="border-orange-200 bg-orange-50">
+      {/* Job Photos Upload */}
+      <Card className="border-blue-200 bg-blue-50">
         <CardContent className="pt-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <Calculator className="h-5 w-5 text-orange-600" />
-              <span className="text-lg font-semibold text-orange-900">
-                Total Square Feet: {totalSquareFeet.toFixed(1)} sq ft
+              <Camera className="h-5 w-5 text-blue-600" />
+              <span className="text-lg font-semibold text-blue-900">
+                Job Photos
               </span>
             </div>
-            <div className="text-sm text-orange-700">
-              {measurements.length} measurement{measurements.length !== 1 ? 's' : ''}
+            <div className="text-sm text-blue-700">
+              Document your work
             </div>
           </div>
           
-          {/* Project Type Display */}
-          {job.project_type && (
-            <div className="flex items-center gap-2 mb-4">
-              <Building className="h-4 w-4 text-orange-600" />
-              <span className="text-sm font-medium text-orange-900">
-                Project Type: {job.project_type === 'new_construction' ? 'New Construction' : 'Remodel'}
-              </span>
+          {/* Photo Upload Area */}
+          <div className="space-y-4">
+            {/* Upload Dropzone */}
+            <div className="border-2 border-dashed border-blue-300 rounded-lg p-6 text-center bg-white/30 hover:bg-white/50 transition-colors cursor-pointer">
+              <input
+                type="file"
+                multiple
+                accept="image/*"
+                className="hidden"
+                id="photo-upload"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || [])
+                  if (files.length > 0) {
+                    // Upload each file
+                    files.forEach(uploadJobPhoto)
+                  }
+                }}
+              />
+              <label htmlFor="photo-upload" className="cursor-pointer">
+                {uploadingPhoto ? (
+                  <>
+                    <Loader2 className="h-8 w-8 text-blue-500 mx-auto mb-2 animate-spin" />
+                    <p className="text-sm font-medium text-blue-900 mb-1">
+                      Uploading photo...
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-8 w-8 text-blue-500 mx-auto mb-2" />
+                    <p className="text-sm font-medium text-blue-900 mb-1">
+                      Click to upload photos
+                    </p>
+                    <p className="text-xs text-blue-600">
+                      or drag and drop images here
+                    </p>
+                    <p className="text-xs text-blue-500 mt-2">
+                      JPG, PNG, HEIC up to 10MB each
+                    </p>
+                  </>
+                )}
+              </label>
             </div>
-          )}
-          
-          {/* Area Totals Summary */}
-          {Object.keys(aggregatedMeasurements).length > 0 && (
-            <div className="space-y-2">
-              <h4 className="text-sm font-semibold text-orange-900 mb-2">Area Totals:</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {Object.values(aggregatedMeasurements).map((area) => (
-                  <div key={`${area.floor_level}-${area.area_type}`} className="bg-white rounded p-3 border border-orange-100">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <span className="text-sm font-medium text-slate-900">
-                          {area.floor_level} - {getAreaDisplayName(area.area_type)}
-                        </span>
-                        <div className="text-xs text-slate-500">
-                          R-{approximateRValue(Number(area.r_value))} • {area.insulation_type || 'Not specified'}
-                        </div>
-                      </div>
-                      <span className="text-sm font-bold text-orange-600">
-                        {area.total_square_feet.toFixed(1)} sq ft
-                      </span>
+
+            {/* Photo Preview Grid */}
+            {jobPhotos.length > 0 && (
+              <div className="bg-white/50 rounded p-3 border border-blue-200">
+                <p className="text-xs font-medium text-blue-800 mb-2">Recent Photos:</p>
+                <div className="grid grid-cols-4 gap-2">
+                  {jobPhotos.slice(-4).map((photo, index) => (
+                    <div 
+                      key={index} 
+                      className="aspect-square rounded overflow-hidden bg-slate-200 cursor-pointer hover:opacity-75 transition-opacity"
+                      onClick={() => {
+                        // Calculate correct index for the clicked photo
+                        const photoIndex = Math.max(0, jobPhotos.length - 4) + index
+                        setSelectedImageIndex(photoIndex)
+                        setGalleryOpen(true)
+                      }}
+                    >
+                      <img 
+                        src={photo} 
+                        alt={`Job photo ${index + 1}`}
+                        className="w-full h-full object-cover"
+                      />
                     </div>
-                  </div>
-                ))}
+                  ))}
+                  {jobPhotos.length > 4 && (
+                    <div 
+                      className="aspect-square rounded bg-blue-100 border-2 border-dashed border-blue-300 flex items-center justify-center cursor-pointer hover:bg-blue-200 transition-colors"
+                      onClick={() => setShowPhotoGallery(true)}
+                    >
+                      <span className="text-xs font-medium text-blue-600">+{jobPhotos.length - 4}</span>
+                    </div>
+                  )}
+                </div>
               </div>
+            )}
+
+            {/* Quick Actions */}
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="flex-1 border-blue-300 text-blue-700 hover:bg-blue-100"
+                onClick={() => {
+                  document.getElementById('photo-upload')?.click()
+                }}
+                disabled={uploadingPhoto}
+              >
+                <Camera className="h-4 w-4 mr-2" />
+                Add Photos
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="border-blue-300 text-blue-700 hover:bg-blue-100"
+                onClick={() => {
+                  setSelectedImageIndex(0)
+                  setGalleryOpen(true)
+                }}
+                disabled={jobPhotos.length === 0}
+              >
+                <Eye className="h-4 w-4 mr-2" />
+                View All ({jobPhotos.length})
+              </Button>
             </div>
-          )}
+          </div>
         </CardContent>
       </Card>
 
@@ -1857,10 +2115,29 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                     onClick={async () => {
                       // Generate quick PDF estimate without saving to database
                       try {
+                        // Get current user info for salesperson details
+                        const currentUser = 'Manager' // This should come from auth context
+                        
                         await generateQuickEstimatePDF(
                           measurements as any,
                           job.job_name || 'Spray Foam Estimate',
-                          job.lead?.name || 'Customer'
+                          job.lead?.name || 'Customer',
+                          jobPhotos,
+                          {
+                            customerEmail: job.lead?.email,
+                            customerPhone: job.lead?.phone,
+                            customerAddress: job.lead?.address,
+                            projectAddress: (job as any).project_address,
+                            projectCity: (job as any).project_city,
+                            projectState: (job as any).project_state,
+                            projectZipCode: (job as any).project_zip_code,
+                            buildingType: (job as any).building_type,
+                            projectType: (job as any).project_type,
+                            salespersonName: currentUser,
+                            salespersonEmail: 'jorge@EconovaEnergySavings.com',
+                            salespersonPhone: '617-596-2476',
+                            companyWebsite: 'EconovaEnergySavings.com'
+                          }
                         )
                         
                         // Also show the total in a toast
@@ -1913,11 +2190,26 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
 
                   {/* Grouped Line Items */}
                   {(() => {
-                    // Group measurements by base room_name (without "- Wall X") + area_type
-                    const groupedMeasurements = measurements.reduce((groups, measurement) => {
+                    // Group measurements by base room_name + area_type + insulation specs
+                    // Filter out photo measurements (those with room_name starting with "Photo:")
+                    const realMeasurements = measurements.filter(m => !m.room_name.startsWith('Photo:'))
+                    const groupedMeasurements = realMeasurements.reduce((groups, measurement) => {
                       // Extract base room name by removing "- Wall X" suffix
                       const baseRoomName = measurement.room_name.replace(/ - Wall \d+$/, '')
-                      const key = `${baseRoomName}-${measurement.area_type}`
+                      
+                      // Create unique key that includes insulation specifications
+                      let insulationKey = measurement.insulation_type || 'unknown'
+                      if (measurement.is_hybrid_system) {
+                        insulationKey = `hybrid-${measurement.closed_cell_inches}cc-${measurement.open_cell_inches}oc`
+                      } else if (measurement.closed_cell_inches > 0) {
+                        insulationKey = `${measurement.insulation_type}-${measurement.closed_cell_inches}in`
+                      } else if (measurement.open_cell_inches > 0) {
+                        insulationKey = `${measurement.insulation_type}-${measurement.open_cell_inches}in`
+                      } else if (measurement.r_value) {
+                        insulationKey = `${measurement.insulation_type}-R${measurement.r_value}`
+                      }
+                      
+                      const key = `${baseRoomName}-${measurement.area_type}-${insulationKey}`
                       if (!groups[key]) {
                         groups[key] = {
                           room_name: baseRoomName,
@@ -1980,23 +2272,45 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                       } else {
                         // Regular system pricing - use inches if available
                         let pricePerSqft = 0
+                        console.log('🔍 Calculating price for group:', {
+                          insulation_type: group.insulation_type,
+                          closed_cell_inches: group.closed_cell_inches,
+                          open_cell_inches: group.open_cell_inches,
+                          r_value: group.r_value,
+                          total_square_feet: group.total_square_feet
+                        })
+                        
                         if ((group.insulation_type === 'closed_cell' || group.insulation_type === 'open_cell') && 
                             (group.closed_cell_inches || group.open_cell_inches)) {
                           const inches = group.insulation_type === 'closed_cell' ? (group.closed_cell_inches || 0) : (group.open_cell_inches || 0)
+                          console.log('💡 Using inches-based pricing:', inches, 'inches')
                           if (inches > 0) {
                             const pricing = calculatePriceByInches(group.total_square_feet, group.insulation_type, inches)
                             pricePerSqft = pricing.pricePerSqft
                             totalPrice = pricing.totalPrice
+                            console.log('💰 Inches-based pricing result:', { pricePerSqft, totalPrice })
                           }
                         } else {
                           // Fallback to R-value pricing
-                          pricePerSqft = calculateMeasurementPrice(
+                          console.log('💡 Using R-value based pricing')
+                          const measurementPrice = calculateMeasurementPrice(
                             group.total_square_feet, 
                             group.insulation_type as InsulationType, 
                             Number(group.r_value) || 0
-                          )?.pricePerSqft || 0
+                          )
+                          pricePerSqft = measurementPrice?.pricePerSqft || 0
+                          console.log('💰 R-value pricing result:', { measurementPrice, pricePerSqft })
                           totalPrice = group.total_square_feet * pricePerSqft
                         }
+                        
+                        console.log('📊 Final group calculation:', {
+                          room: group.room_name,
+                          area_type: group.area_type,
+                          insulation_type: group.insulation_type,
+                          total_square_feet: group.total_square_feet,
+                          pricePerSqft,
+                          totalPrice
+                        })
                         
                         // Check if we have inches data for this group
                         const hasInches = (group.insulation_type === 'closed_cell' && group.closed_cell_inches) || 
@@ -2032,13 +2346,26 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                       }
                       
                       return (
-                        <div key={`${group.room_name}-${group.area_type}`} className="border rounded-lg p-4 bg-white">
+                        <div key={index} className="border rounded-lg p-4 bg-white">
                           <div className="flex justify-between items-start mb-2">
                             <div className="flex-1">
                               <div className="font-semibold text-slate-900 mb-2">
 {group.room_name} - {getAreaDisplayName(group.area_type)}
                               </div>
                               {priceBreakdown}
+                              
+                              {/* Pricing and Square Footage Summary */}
+                              <div className="mt-3 p-3 bg-slate-50 rounded border-l-4 border-blue-400">
+                                <div className="flex justify-between items-center text-sm">
+                                  <div className="font-medium text-slate-700">
+                                    {group.total_square_feet.toFixed(1)} sq ft
+                                  </div>
+                                  <div className="font-bold text-green-600">
+                                    {formatCurrency(totalPrice)}
+                                  </div>
+                                </div>
+
+                              </div>
                             </div>
                             <div className="flex gap-2 ml-4 flex-shrink-0">
                               <Button 
@@ -2073,12 +2400,27 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                   })()}
                   
                   {/* ESTIMATE TOTALS */}
-                  {measurements.length > 0 && (() => {
+                  {measurements.filter(m => !m.room_name.startsWith('Photo:')).length > 0 && (() => {
                     // Use the same grouped calculation as line items
-                    const groupedMeasurements = measurements.reduce((groups, measurement) => {
+                    // Filter out photo measurements (those with room_name starting with "Photo:")
+                    const realMeasurements = measurements.filter(m => !m.room_name.startsWith('Photo:'))
+                    const groupedMeasurements = realMeasurements.reduce((groups, measurement) => {
                       // Extract base room name by removing "- Wall X" suffix
                       const baseRoomName = measurement.room_name.replace(/ - Wall \d+$/, '')
-                      const key = `${baseRoomName}-${measurement.area_type}`
+                      
+                      // Create unique key that includes insulation specifications (same as line items)
+                      let insulationKey = measurement.insulation_type || 'unknown'
+                      if (measurement.is_hybrid_system) {
+                        insulationKey = `hybrid-${measurement.closed_cell_inches}cc-${measurement.open_cell_inches}oc`
+                      } else if (measurement.closed_cell_inches > 0) {
+                        insulationKey = `${measurement.insulation_type}-${measurement.closed_cell_inches}in`
+                      } else if (measurement.open_cell_inches > 0) {
+                        insulationKey = `${measurement.insulation_type}-${measurement.open_cell_inches}in`
+                      } else if (measurement.r_value) {
+                        insulationKey = `${measurement.insulation_type}-R${measurement.r_value}`
+                      }
+                      
+                      const key = `${baseRoomName}-${measurement.area_type}-${insulationKey}`
                       if (!groups[key]) {
                         groups[key] = {
                           room_name: baseRoomName,
@@ -2276,6 +2618,21 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
           }}
         />
       )}
+      
+
+
+      {/* Image Gallery Modal */}
+      <ImageGallery
+        images={jobPhotos.map((photo, index) => ({
+          id: `photo-${index}`,
+          url: photo,
+          alt: `Job photo ${index + 1}`,
+          caption: `${job.job_name} - Photo ${index + 1}`
+        }))}
+        isOpen={galleryOpen}
+        onClose={() => setGalleryOpen(false)}
+        initialIndex={selectedImageIndex}
+      />
     </div>
   )
 }
