@@ -27,6 +27,17 @@ export async function GET(
       )
     }
 
+    // Load current user's role for permission checks
+    let currentUserRole: 'manager' | 'salesperson' | null = null
+    if (user) {
+      const { data: profile } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+      currentUserRole = (profile?.role as any) ?? null
+    }
+
     // First get the job to determine the service type
     const { data: job, error: jobError } = await supabase
       .from('jobs')
@@ -97,10 +108,10 @@ export async function POST(
     // Get the authenticated user
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     
-    console.log(`[POST /api/jobs/${id}/measurements] Auth result:`, { 
+        console.log(`[POST /api/jobs/${id}/measurements] Auth result:`, { 
       hasUser: !!user, 
       userId: user?.id, 
-      authError: authError?.message 
+      authError: authError?.message
     })
     
     if (authError || !user) {
@@ -108,6 +119,17 @@ export async function POST(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
       )
+    }
+
+    // Load current user's role for permission checks
+    let currentUserRole: 'manager' | 'salesperson' | null = null
+    if (user) {
+      const { data: profile } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+      currentUserRole = (profile?.role as any) ?? null
     }
 
     // Check if measurements are locked by an approved estimate
@@ -167,7 +189,10 @@ export async function POST(
           open_cell_inches,
           is_hybrid_system,
           notes: insulationNotes,
-          photo_url 
+          photo_url,
+          // Manager-only overrides
+          override_closed_cell_price_per_sqft,
+          override_open_cell_price_per_sqft 
         } = body
 
         // Validate insulation fields
@@ -197,6 +222,20 @@ export async function POST(
           is_hybrid_system: is_hybrid_system || false,
           notes: insulationNotes || null,
           photo_url: photo_url || null
+        }
+
+        // Apply manager-only overrides if present
+        if (currentUserRole === 'manager') {
+          if (override_closed_cell_price_per_sqft !== undefined && override_closed_cell_price_per_sqft !== null && override_closed_cell_price_per_sqft !== '') {
+            (insertData as any).override_closed_cell_price_per_sqft = parseFloat(override_closed_cell_price_per_sqft)
+            ;(insertData as any).override_set_by = user!.id
+            ;(insertData as any).override_set_at = new Date().toISOString()
+          }
+          if (override_open_cell_price_per_sqft !== undefined && override_open_cell_price_per_sqft !== null && override_open_cell_price_per_sqft !== '') {
+            (insertData as any).override_open_cell_price_per_sqft = parseFloat(override_open_cell_price_per_sqft)
+            ;(insertData as any).override_set_by = user!.id
+            ;(insertData as any).override_set_at = new Date().toISOString()
+          }
         }
         
         tableName = 'measurements'

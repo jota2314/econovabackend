@@ -134,7 +134,18 @@ export function JobCreationForm({
         body: JSON.stringify(jobData)
       })
 
-      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const responseText = await response.text()
+      console.log('💾 Raw job creation response:', responseText)
+      
+      if (!responseText) {
+        throw new Error('Empty response from server')
+      }
+
+      const result = JSON.parse(responseText)
 
       if (result.success) {
         const jobId = result.data.id

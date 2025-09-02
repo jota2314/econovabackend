@@ -206,10 +206,6 @@ export async function generateEstimatePDF(data: EstimateData): Promise<void> {
   leftColumnY += 5
   pdf.setFont('helvetica', 'normal')
   
-  // Project name
-  pdf.text(data.jobName, leftColumnX, leftColumnY)
-  leftColumnY += 5
-
   // Project address (if available)
   if (data.projectAddress) {
     pdf.text(data.projectAddress, leftColumnX, leftColumnY)
@@ -311,229 +307,460 @@ export async function generateEstimatePDF(data: EstimateData): Promise<void> {
   // Table Headers - Enhanced with Inches column
   pdf.setFontSize(9)
   pdf.setFont('helvetica', 'bold')
-  pdf.setFillColor(240, 240, 240)
+  // Solid green header without stripes
+  pdf.setFillColor(34, 139, 34) // Dark green
+  pdf.setGState(pdf.GState({opacity: 0.25})) // Transparent
   pdf.rect(margin, yPosition - 5, pageWidth - (margin * 2), 8, 'F')
+  pdf.setGState(pdf.GState({opacity: 1})) // Reset opacity
   
   pdf.text('Description', margin + 2, yPosition)
   pdf.text('Insulation Type', margin + 70, yPosition)
   pdf.text('Inches', margin + 115, yPosition)
   pdf.text('R-Value', margin + 140, yPosition)
-  pdf.text('Total', margin + 165, yPosition)
+  pdf.text('Total', margin + 155, yPosition) // Moved left to give more space
   
   yPosition += 8
   pdf.setFont('helvetica', 'normal')
 
-  // Measurement Items - Filter out photo measurements
+  // Measurement Items - Use grouped measurements with overrides if available
   let subtotal = 0
   const itemsPerPage = 20
   let itemCount = 0
 
-  // Filter out photo measurements (those with room_name starting with "Photo:")
-  const realMeasurements = data.measurements.filter(measurement => 
-    !measurement.room_name.startsWith('Photo:') && 
-    !measurement.room_name.toLowerCase().includes('screenshot')
-  )
-
-  realMeasurements.forEach((measurement, index) => {
-    // Check if we need a new page (enhanced rows need more space for multi-line descriptions)
-    const rowHeight = measurement.is_hybrid_system && measurement.insulation_type === 'hybrid' ? 14 : 10
-    if (yPosition > pageHeight - 50 || (itemCount > 0 && itemCount % itemsPerPage === 0)) {
-      pdf.addPage()
-      yPosition = margin
-      
-      // Redraw headers on new page
-      pdf.setFont('helvetica', 'bold')
-      pdf.setFillColor(240, 240, 240)
-      pdf.rect(margin, yPosition - 5, pageWidth - (margin * 2), 8, 'F')
-      
-      pdf.text('Description', margin + 2, yPosition)
-      pdf.text('Insulation Type', margin + 70, yPosition)
-      pdf.text('Inches', margin + 115, yPosition)
-      pdf.text('R-Value', margin + 140, yPosition)
-      pdf.text('Total', margin + 165, yPosition)
-      
-      yPosition += 8
-      pdf.setFont('helvetica', 'normal')
-    }
-
-    // Calculate pricing for hybrid and regular systems
-    let pricing
-    let totalPrice = 0
-    let insulationDisplay = 'N/A'
-    let pricePerSqftDisplay = 'N/A'
-
-    if (measurement.is_hybrid_system && measurement.insulation_type === 'hybrid') {
-      // Calculate hybrid pricing
-      const hybridCalc = calculateHybridRValue(
-        measurement.closed_cell_inches || 0, 
-        measurement.open_cell_inches || 0
-      )
-      const hybridPricing = calculateHybridPricing(hybridCalc)
-      totalPrice = measurement.square_feet * hybridPricing.totalPricePerSqft
-      
-      insulationDisplay = `Hybrid System`
-      pricePerSqftDisplay = formatCurrencyWhole(hybridPricing.totalPricePerSqft)
-    } else {
-      // Regular system pricing
-      pricing = calculateMeasurementPrice(
-        measurement.square_feet,
-        measurement.insulation_type as InsulationType,
-        measurement.r_value ? Number(measurement.r_value) : 0
-      )
-      totalPrice = pricing?.totalPrice || 0
-      
-      // Format insulation display to match UI
-      const framingToInches: Record<string, number> = {
-        '2x4': 4, '2x6': 6, '2x8': 8, '2x10': 10, '2x12': 12
+  // Check if we have grouped measurements with overrides from the UI
+  if (data.groupedMeasurements && data.groupOverrides) {
+    // Use grouped measurements with override pricing
+    Object.entries(data.groupedMeasurements).forEach(([groupKey, group]: [string, any], index) => {
+      // Check if we need a new page
+      const rowHeight = group.is_hybrid_system && group.insulation_type === 'hybrid' ? 22 : 10
+      if (yPosition > pageHeight - 50 || (itemCount > 0 && itemCount % itemsPerPage === 0)) {
+        pdf.addPage()
+        yPosition = margin
+        
+        // Redraw headers on new page
+        pdf.setFont('helvetica', 'bold')
+        // Solid green header without stripes
+        pdf.setFillColor(34, 139, 34) // Dark green
+        pdf.setGState(pdf.GState({opacity: 0.25})) // Transparent
+        pdf.rect(margin, yPosition - 5, pageWidth - (margin * 2), 8, 'F')
+        pdf.setGState(pdf.GState({opacity: 1})) // Reset opacity
+        
+        pdf.text('Description', margin + 2, yPosition)
+        pdf.text('Insulation Type', margin + 70, yPosition)
+        pdf.text('Inches', margin + 115, yPosition)
+        pdf.text('R-Value', margin + 140, yPosition)
+        pdf.text('Total', margin + 155, yPosition) // Moved left to give more space
+        
+        yPosition += 8
+        pdf.setFont('helvetica', 'normal')
       }
-      
-      let insulationName = ''
-      let inchesDisplay = ''
-      
-      switch (measurement.insulation_type) {
-        case 'closed_cell':
-          insulationName = 'Closed Cell'
-          const ccInches = measurement.closed_cell_inches || 0
-          if (ccInches > 0) {
-            inchesDisplay = ` - ${ccInches}"`
-          }
-          break
-        case 'open_cell':
-          insulationName = 'Open Cell'
-          const ocInches = measurement.open_cell_inches || 0
-          if (ocInches > 0) {
-            inchesDisplay = ` - ${ocInches}"`
-          }
-          break
-        case 'batt':
-          insulationName = 'Fiberglass Batt'
-          const battInches = framingToInches[measurement.framing_size] || 0
-          if (battInches > 0) {
-            inchesDisplay = ` - ${battInches}"`
-          }
-          break
-        case 'blown_in':
-          insulationName = 'Fiberglass Blown-in'
-          break
-        default:
-          insulationName = measurement.insulation_type || 'N/A'
-      }
-      
-      insulationDisplay = insulationName + inchesDisplay
-      pricePerSqftDisplay = pricing?.pricePerSqft ? formatCurrencyWhole(pricing.pricePerSqft) : 'N/A'
-    }
 
-    // Alternate row coloring
-    if (index % 2 === 0) {
-      pdf.setFillColor(250, 250, 250)
+      // Get override prices from UI or database
+      const uiOverride = data.groupOverrides[groupKey] || {}
+      const persistedUnit = (group.measurements[0] as any)?.override_unit_price as number | undefined
+      const persistedSqft = (group.measurements[0] as any)?.override_group_sqft as number | undefined
+
+      // Calculate effective square feet and unit price
+      const effectiveSqft = typeof uiOverride.sqft === 'number'
+        ? uiOverride.sqft
+        : (typeof persistedSqft === 'number' ? persistedSqft : group.total_square_feet)
+
+      let unitPrice = 0
+      let totalPrice = 0
+
+      if (typeof uiOverride.unitPrice === 'number') {
+        unitPrice = uiOverride.unitPrice
+      } else if (typeof persistedUnit === 'number') {
+        unitPrice = persistedUnit
+      } else {
+        // Calculate standard price
+        if (group.is_hybrid_system && group.insulation_type === 'hybrid') {
+          const hybridCalc = calculateHybridRValue(
+            group.closed_cell_inches || 0,
+            group.open_cell_inches || 0
+          )
+          const hybridPricing = calculateHybridPricing(hybridCalc)
+          unitPrice = hybridPricing.totalPricePerSqft
+        } else {
+          const pricing = calculateMeasurementPrice(
+            effectiveSqft,
+            group.insulation_type as InsulationType,
+            Number(group.r_value) || 0
+          )
+          unitPrice = pricing?.pricePerSqft || 0
+        }
+      }
+
+      totalPrice = effectiveSqft * unitPrice
+
+      // Format insulation display
+      let insulationDisplay = 'N/A'
+      if (group.is_hybrid_system && group.insulation_type === 'hybrid') {
+        insulationDisplay = 'Hybrid System'
+      } else {
+        const framingToInches: Record<string, number> = {
+          '2x4': 4, '2x6': 6, '2x8': 8, '2x10': 10, '2x12': 12
+        }
+        
+        let insulationName = ''
+        let inchesDisplay = ''
+        
+        switch (group.insulation_type) {
+          case 'closed_cell':
+            insulationName = 'Closed Cell'
+            const ccInches = group.closed_cell_inches || 0
+            if (ccInches > 0) {
+              inchesDisplay = ` - ${ccInches}"`
+            }
+            break
+          case 'open_cell':
+            insulationName = 'Open Cell'
+            const ocInches = group.open_cell_inches || 0
+            if (ocInches > 0) {
+              inchesDisplay = ` - ${ocInches}"`
+            }
+            break
+          case 'batt':
+            insulationName = 'Fiberglass Batt'
+            const battInches = framingToInches[group.framing_size] || 0
+            if (battInches > 0) {
+              inchesDisplay = ` - ${battInches}"`
+            }
+            break
+          case 'blown_in':
+            insulationName = 'Fiberglass Blown-in'
+            break
+          default:
+            insulationName = group.insulation_type || 'N/A'
+        }
+        
+        insulationDisplay = insulationName + inchesDisplay
+      }
+
+      // Light green background for all rows
+      pdf.setFillColor(144, 238, 144) // Light green
+      pdf.setGState(pdf.GState({opacity: 0.1})) // Much more transparent
       pdf.rect(margin, yPosition - 4, pageWidth - (margin * 2), rowHeight, 'F')
-    }
+      pdf.setGState(pdf.GState({opacity: 1})) // Reset opacity
 
-    pdf.setFontSize(8)
-    
-    // Enhanced multi-line description
-    let primaryDescription = measurement.room_name
-    
-    // Add area type if available
-    if (measurement.area_type) {
-      primaryDescription += ` - ${measurement.area_type}`
-    }
-    
-    // Add floor level if available
-    if (measurement.floor_level) {
-      primaryDescription += ` (${measurement.floor_level})`
-    }
-    
-    // Create second line with technical details
-    let secondLineDetails = ''
-    if (measurement.framing_size) {
-      secondLineDetails += `${measurement.framing_size} Framing`
-    }
-    
-    if (measurement.square_feet) {
-      if (secondLineDetails) secondLineDetails += ' • '
-      secondLineDetails += `${measurement.square_feet} sq ft`
-    }
-    
-    // Display primary description
-    pdf.text(primaryDescription, margin + 2, yPosition)
-    
-    // Display insulation type
-    pdf.text(insulationDisplay, margin + 70, yPosition)
-    
-    // Create inches display for dedicated column
-    let inchesDisplay = ''
-    if (measurement.is_hybrid_system && measurement.insulation_type === 'hybrid') {
-      const closedInches = measurement.closed_cell_inches || 0
-      const openInches = measurement.open_cell_inches || 0
-      if (closedInches > 0 && openInches > 0) {
-        inchesDisplay = `${closedInches}" CC + ${openInches}" OC`
-      }
-    } else {
-      // Regular insulation types
-      const inches = measurement.closed_cell_inches || measurement.open_cell_inches || 0
-      if (inches > 0) {
-        inchesDisplay = `${inches}"`
-      }
-    }
-    
-    // Display inches in dedicated column
-    pdf.text(inchesDisplay, margin + 115, yPosition)
-    
-    // Display second line with technical details if available
-    if (secondLineDetails) {
-      pdf.setFontSize(7)
-      pdf.setTextColor(100, 100, 100)
-      pdf.text(secondLineDetails, margin + 2, yPosition + 4)
-      pdf.setTextColor(0, 0, 0)
       pdf.setFontSize(8)
-    }
-    
-    // R-Value display with approximation
-    let rValueDisplay = 'N/A'
-    if (measurement.r_value) {
-      const rValue = typeof measurement.r_value === 'string' ? parseFloat(measurement.r_value) : measurement.r_value
-      const approximatedRValue = approximateRValue(rValue)
-      rValueDisplay = `R-${approximatedRValue}`
-    }
-    pdf.text(rValueDisplay, margin + 140, yPosition)
-    
-    // Hybrid system breakdown (on second line for hybrid)
-    if (measurement.is_hybrid_system && measurement.insulation_type === 'hybrid' && 
-        (measurement.closed_cell_inches || 0) > 0 && (measurement.open_cell_inches || 0) > 0) {
-      pdf.setFontSize(7)
-      pdf.setTextColor(100, 100, 100)
-      const hybridCalc = calculateHybridRValue(
-        measurement.closed_cell_inches || 0, 
-        measurement.open_cell_inches || 0
-      )
       
-      // Show hybrid breakdown with bullets to match UI
-      let breakdownText = ''
-      if (hybridCalc.closedCellInches > 0) {
-        breakdownText += `• ${hybridCalc.closedCellInches}" Closed Cell (R-${approximateRValue(hybridCalc.closedCellRValue)})`
-      }
-      if (hybridCalc.openCellInches > 0) {
-        if (breakdownText) breakdownText += ' '
-        breakdownText += `• ${hybridCalc.openCellInches}" Open Cell (R-${approximateRValue(hybridCalc.openCellRValue)})`
+      // Enhanced multi-line description
+      let primaryDescription = group.room_name
+      
+      // Add area type if available
+      if (group.area_type) {
+        primaryDescription += ` - ${group.area_type}`
       }
       
-      pdf.text(breakdownText, margin + 2, yPosition + 4)
-      pdf.setTextColor(0, 0, 0)
-      pdf.setFontSize(8)
-    }
-    
-    if (totalPrice > 0) {
-      pdf.text(formatCurrencyWhole(totalPrice), margin + 165, yPosition)
-      subtotal += totalPrice
-    } else {
-      pdf.text('TBD', margin + 165, yPosition)
-    }
+      // Create second line with technical details
+      let secondLineDetails = ''
+      if (group.framing_size) {
+        secondLineDetails += `${group.framing_size} Framing`
+      }
+      
+      if (effectiveSqft) {
+        if (secondLineDetails) secondLineDetails += ' • '
+        secondLineDetails += `${effectiveSqft} sq ft`
+      }
+      
+      // Display primary description
+      pdf.text(primaryDescription, margin + 2, yPosition)
+      
+      // Display insulation type
+      pdf.text(insulationDisplay, margin + 70, yPosition)
+      
+      // Create inches display for dedicated column
+      let inchesDisplay = ''
+      if (group.is_hybrid_system && group.insulation_type === 'hybrid') {
+        const closedInches = group.closed_cell_inches || 0
+        const openInches = group.open_cell_inches || 0
+        if (closedInches > 0 && openInches > 0) {
+          inchesDisplay = `${closedInches}" CC + ${openInches}" OC`
+        }
+      } else {
+        // Regular insulation types
+        const inches = group.closed_cell_inches || group.open_cell_inches || 0
+        if (inches > 0) {
+          inchesDisplay = `${inches}"`
+        }
+      }
+      
+      // Display inches in dedicated column
+      pdf.text(inchesDisplay, margin + 115, yPosition)
+      
+      // R-Value display with approximation
+      let rValueDisplay = 'N/A'
+      if (group.r_value) {
+        const rValue = typeof group.r_value === 'string' ? parseFloat(group.r_value) : group.r_value
+        const approximatedRValue = approximateRValue(rValue)
+        rValueDisplay = `R-${approximatedRValue}`
+      }
+      pdf.text(rValueDisplay, margin + 140, yPosition)
+      
+      // Calculate proper line positioning to avoid overlaps
+      let nextLineY = yPosition + 4
+      
+      // Display second line with technical details if available
+      if (secondLineDetails) {
+        pdf.setFontSize(7)
+        pdf.setTextColor(100, 100, 100)
+        pdf.text(secondLineDetails, margin + 2, nextLineY)
+        pdf.setTextColor(0, 0, 0)
+        pdf.setFontSize(8)
+        nextLineY += 4 // Move down for next line
+      }
+      
+      // Hybrid system breakdown (on separate lines with proper spacing)
+      if (group.is_hybrid_system && group.insulation_type === 'hybrid' && 
+          (group.closed_cell_inches || 0) > 0 && (group.open_cell_inches || 0) > 0) {
+        pdf.setFontSize(7)
+        pdf.setTextColor(100, 100, 100)
+        const hybridCalc = calculateHybridRValue(
+          group.closed_cell_inches || 0, 
+          group.open_cell_inches || 0
+        )
+        
+        // Show each component on separate lines with proper spacing
+        if (hybridCalc.closedCellInches > 0) {
+          const closedCellText = `• ${hybridCalc.closedCellInches}" Closed Cell (R-${approximateRValue(hybridCalc.closedCellRValue)})`
+          pdf.text(closedCellText, margin + 2, nextLineY)
+          nextLineY += 4 // More spacing between lines
+        }
+        
+        if (hybridCalc.openCellInches > 0) {
+          const openCellText = `• ${hybridCalc.openCellInches}" Open Cell (R-${approximateRValue(hybridCalc.openCellRValue)})`
+          pdf.text(openCellText, margin + 2, nextLineY)
+        }
+        
+        pdf.setTextColor(0, 0, 0)
+        pdf.setFontSize(8)
+      }
+      
+      if (totalPrice > 0) {
+        pdf.text(formatCurrencyWhole(totalPrice), margin + 155, yPosition, { align: 'left' })
+        subtotal += totalPrice
+      } else {
+        pdf.text('TBD', margin + 155, yPosition)
+      }
 
-    // Adjust spacing for hybrid systems
-    yPosition += rowHeight
-    itemCount++
-  })
+      // Adjust spacing for hybrid systems
+      yPosition += rowHeight
+      itemCount++
+    })
+  } else {
+    // Fallback: Use original individual measurements logic
+    const realMeasurements = data.measurements.filter(measurement => 
+      !measurement.room_name.startsWith('Photo:') && 
+      !measurement.room_name.toLowerCase().includes('screenshot')
+    )
+
+    realMeasurements.forEach((measurement, index) => {
+      // Check if we need a new page (enhanced rows need more space for multi-line descriptions)
+      const rowHeight = measurement.is_hybrid_system && measurement.insulation_type === 'hybrid' ? 22 : 10
+      if (yPosition > pageHeight - 50 || (itemCount > 0 && itemCount % itemsPerPage === 0)) {
+        pdf.addPage()
+        yPosition = margin
+        
+        // Redraw headers on new page
+        pdf.setFont('helvetica', 'bold')
+        // Solid green header without stripes
+        pdf.setFillColor(34, 139, 34) // Dark green
+        pdf.setGState(pdf.GState({opacity: 0.25})) // Transparent
+        pdf.rect(margin, yPosition - 5, pageWidth - (margin * 2), 8, 'F')
+        pdf.setGState(pdf.GState({opacity: 1})) // Reset opacity
+        
+        pdf.text('Description', margin + 2, yPosition)
+        pdf.text('Insulation Type', margin + 70, yPosition)
+        pdf.text('Inches', margin + 115, yPosition)
+        pdf.text('R-Value', margin + 140, yPosition)
+        pdf.text('Total', margin + 155, yPosition) // Moved left to give more space
+        
+        yPosition += 8
+        pdf.setFont('helvetica', 'normal')
+      }
+
+      // Calculate pricing for hybrid and regular systems
+      let pricing
+      let totalPrice = 0
+      let insulationDisplay = 'N/A'
+
+      if (measurement.is_hybrid_system && measurement.insulation_type === 'hybrid') {
+        // Calculate hybrid pricing
+        const hybridCalc = calculateHybridRValue(
+          measurement.closed_cell_inches || 0, 
+          measurement.open_cell_inches || 0
+        )
+        const hybridPricing = calculateHybridPricing(hybridCalc)
+        totalPrice = measurement.square_feet * hybridPricing.totalPricePerSqft
+        
+        insulationDisplay = `Hybrid System`
+      } else {
+        // Regular system pricing
+        pricing = calculateMeasurementPrice(
+          measurement.square_feet,
+          measurement.insulation_type as InsulationType,
+          measurement.r_value ? Number(measurement.r_value) : 0
+        )
+        totalPrice = pricing?.totalPrice || 0
+        
+        // Format insulation display to match UI
+        const framingToInches: Record<string, number> = {
+          '2x4': 4, '2x6': 6, '2x8': 8, '2x10': 10, '2x12': 12
+        }
+        
+        let insulationName = ''
+        let inchesDisplay = ''
+        
+        switch (measurement.insulation_type) {
+          case 'closed_cell':
+            insulationName = 'Closed Cell'
+            const ccInches = measurement.closed_cell_inches || 0
+            if (ccInches > 0) {
+              inchesDisplay = ` - ${ccInches}"`
+            }
+            break
+          case 'open_cell':
+            insulationName = 'Open Cell'
+            const ocInches = measurement.open_cell_inches || 0
+            if (ocInches > 0) {
+              inchesDisplay = ` - ${ocInches}"`
+            }
+            break
+          case 'batt':
+            insulationName = 'Fiberglass Batt'
+            const battInches = framingToInches[measurement.framing_size] || 0
+            if (battInches > 0) {
+              inchesDisplay = ` - ${battInches}"`
+            }
+            break
+          case 'blown_in':
+            insulationName = 'Fiberglass Blown-in'
+            break
+          default:
+            insulationName = measurement.insulation_type || 'N/A'
+        }
+        
+        insulationDisplay = insulationName + inchesDisplay
+      }
+
+      // Light green background for all rows
+      pdf.setFillColor(144, 238, 144) // Light green
+      pdf.setGState(pdf.GState({opacity: 0.1})) // Much more transparent
+      pdf.rect(margin, yPosition - 4, pageWidth - (margin * 2), rowHeight, 'F')
+      pdf.setGState(pdf.GState({opacity: 1})) // Reset opacity
+
+      pdf.setFontSize(8)
+      
+      // Enhanced multi-line description
+      let primaryDescription = measurement.room_name
+      
+      // Add area type if available
+      if (measurement.area_type) {
+        primaryDescription += ` - ${measurement.area_type}`
+      }
+      
+      // Add floor level if available
+      if (measurement.floor_level) {
+        primaryDescription += ` (${measurement.floor_level})`
+      }
+      
+      // Create second line with technical details
+      let secondLineDetails = ''
+      if (measurement.framing_size) {
+        secondLineDetails += `${measurement.framing_size} Framing`
+      }
+      
+      if (measurement.square_feet) {
+        if (secondLineDetails) secondLineDetails += ' • '
+        secondLineDetails += `${measurement.square_feet} sq ft`
+      }
+      
+      // Display primary description
+      pdf.text(primaryDescription, margin + 2, yPosition)
+      
+      // Display insulation type
+      pdf.text(insulationDisplay, margin + 70, yPosition)
+      
+      // Create inches display for dedicated column
+      let inchesDisplay = ''
+      if (measurement.is_hybrid_system && measurement.insulation_type === 'hybrid') {
+        const closedInches = measurement.closed_cell_inches || 0
+        const openInches = measurement.open_cell_inches || 0
+        if (closedInches > 0 && openInches > 0) {
+          inchesDisplay = `${closedInches}" CC + ${openInches}" OC`
+        }
+      } else {
+        // Regular insulation types
+        const inches = measurement.closed_cell_inches || measurement.open_cell_inches || 0
+        if (inches > 0) {
+          inchesDisplay = `${inches}"`
+        }
+      }
+      
+      // Display inches in dedicated column
+      pdf.text(inchesDisplay, margin + 115, yPosition)
+      
+      // R-Value display with approximation
+      let rValueDisplay = 'N/A'
+      if (measurement.r_value) {
+        const rValue = typeof measurement.r_value === 'string' ? parseFloat(measurement.r_value) : measurement.r_value
+        const approximatedRValue = approximateRValue(rValue)
+        rValueDisplay = `R-${approximatedRValue}`
+      }
+      pdf.text(rValueDisplay, margin + 140, yPosition)
+      
+      // Calculate proper line positioning to avoid overlaps
+      let nextLineY = yPosition + 4
+      
+      // Display second line with technical details if available
+      if (secondLineDetails) {
+        pdf.setFontSize(7)
+        pdf.setTextColor(100, 100, 100)
+        pdf.text(secondLineDetails, margin + 2, nextLineY)
+        pdf.setTextColor(0, 0, 0)
+        pdf.setFontSize(8)
+        nextLineY += 4 // Move down for next line
+      }
+      
+      // Hybrid system breakdown (on separate lines with proper spacing)
+      if (measurement.is_hybrid_system && measurement.insulation_type === 'hybrid' && 
+          (measurement.closed_cell_inches || 0) > 0 && (measurement.open_cell_inches || 0) > 0) {
+        pdf.setFontSize(7)
+        pdf.setTextColor(100, 100, 100)
+        const hybridCalc = calculateHybridRValue(
+          measurement.closed_cell_inches || 0, 
+          measurement.open_cell_inches || 0
+        )
+        
+        // Show each component on separate lines with proper spacing
+        if (hybridCalc.closedCellInches > 0) {
+          const closedCellText = `• ${hybridCalc.closedCellInches}" Closed Cell (R-${approximateRValue(hybridCalc.closedCellRValue)})`
+          pdf.text(closedCellText, margin + 2, nextLineY)
+          nextLineY += 4 // More spacing between lines
+        }
+        
+        if (hybridCalc.openCellInches > 0) {
+          const openCellText = `• ${hybridCalc.openCellInches}" Open Cell (R-${approximateRValue(hybridCalc.openCellRValue)})`
+          pdf.text(openCellText, margin + 2, nextLineY)
+        }
+        
+        pdf.setTextColor(0, 0, 0)
+        pdf.setFontSize(8)
+      }
+      
+      if (totalPrice > 0) {
+        pdf.text(formatCurrencyWhole(totalPrice), margin + 155, yPosition, { align: 'left' })
+        subtotal += totalPrice
+      } else {
+        pdf.text('TBD', margin + 155, yPosition)
+      }
+
+      // Adjust spacing for hybrid systems
+      yPosition += rowHeight
+      itemCount++
+    })
+  }
 
   // Ensure we have room for totals, or add new page
   if (yPosition > pageHeight - 50) {
@@ -551,18 +778,19 @@ export async function generateEstimatePDF(data: EstimateData): Promise<void> {
   pdf.setFontSize(10)
   pdf.setFont('helvetica', 'normal')
   pdf.text('Subtotal:', pageWidth - margin - 40, yPosition)
-  pdf.text(formatCurrencyWhole(subtotal), pageWidth - margin - 5, yPosition, { align: 'right' })
+  const displaySubtotal = data.overrideTotal !== undefined ? data.overrideTotal : subtotal
+  pdf.text(formatCurrencyWhole(displaySubtotal), pageWidth - margin - 5, yPosition, { align: 'right' })
   
   yPosition += 6
   
-  // Total
+  // Total - use override total if provided
   pdf.setFont('helvetica', 'bold')
   pdf.setFontSize(12)
-  const total = subtotal
+  const total = data.overrideTotal !== undefined ? data.overrideTotal : subtotal
   pdf.text('TOTAL:', pageWidth - margin - 40, yPosition)
   pdf.text(formatCurrencyWhole(total), pageWidth - margin - 5, yPosition, { align: 'right' })
 
-  yPosition += 15
+  yPosition += 10
 
   // Terms and Conditions (in red with box)
   const termsText = 'After 15 days of the date above, this estimate is subject to revision and also to readjustment due to manufacturers prices increases. All materials are guaranteed to be as specified. The job will be performed according to drawings and specifications provided.'
@@ -614,9 +842,9 @@ export async function generateEstimatePDF(data: EstimateData): Promise<void> {
   pdf.setDrawColor(0, 0, 0) // Reset border color
   pdf.setLineWidth(0.1) // Reset line width
   
-  yPosition += boxHeight + 15
+  yPosition += boxHeight + 10
 
-  // Add "Valid until" and "Thank you" to page 1
+  // Add "Valid until" and "Thank you" 
   pdf.setFontSize(10)
   pdf.setFont('helvetica', 'italic')
   pdf.setTextColor(100, 100, 100)
@@ -626,19 +854,24 @@ export async function generateEstimatePDF(data: EstimateData): Promise<void> {
   }
   
   pdf.text('Thank you for your business!', pageWidth / 2, yPosition, { align: 'center' })
+  yPosition += 15
   
-  // Reset text color for next page
+  // Reset text color
   pdf.setTextColor(0, 0, 0)
 
-  // Move to second page for terms and conditions
-  pdf.addPage()
-  yPosition = margin
+  // Only add new page if we don't have enough space for terms (estimate ~150px needed)
+  if (yPosition > pageHeight - 150) {
+    pdf.addPage()
+    yPosition = margin
+  } else {
+    yPosition += 5 // Add minimal spacing before terms
+  }
 
-  // Additional Terms and Conditions (Second Page) - Compact
+  // Additional Terms and Conditions - Compact
   pdf.setFontSize(11)
   pdf.setFont('helvetica', 'bold')
   pdf.text('Additional Terms and Customer Responsibility', margin, yPosition)
-  yPosition += 8
+  yPosition += 6
 
   pdf.setFontSize(8)
   pdf.setFont('helvetica', 'normal')
@@ -823,6 +1056,9 @@ export async function generateQuickEstimatePDF(
     salespersonEmail?: string
     salespersonPhone?: string
     companyWebsite?: string
+    overrideTotal?: number
+    groupOverrides?: any
+    groupedMeasurements?: any
   }
 ): Promise<void> {
   const estimateData: EstimateData = {

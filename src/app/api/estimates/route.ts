@@ -194,6 +194,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (jobError || !job) {
+      console.log('[POST /api/estimates] Job lookup failed:', { jobError, job_id: body.job_id })
       return NextResponse.json(
         { success: false, error: 'Job not found' },
         { status: 404 }
@@ -207,28 +208,32 @@ export async function POST(request: NextRequest) {
     const estimateNumber = `EST-${dateStr}-${randomNum}`
 
     // Create estimate
+    const estimateData = {
+      job_id: body.job_id,
+      estimate_number: estimateNumber,
+      subtotal: body.subtotal || body.total_amount,
+      total_amount: body.total_amount,
+      status: body.status || 'pending_approval',
+      valid_until: body.valid_until || null,
+      created_by: user.id,
+      markup_percentage: body.markup_percentage || 6.25,
+      locks_measurements: body.locks_measurements || false
+    }
+    
+    console.log('[POST /api/estimates] Creating estimate with data:', estimateData)
+    
     const { data: estimate, error } = await supabase
       .from('estimates')
-      .insert({
-        job_id: body.job_id,
-        estimate_number: estimateNumber,
-        subtotal: body.subtotal || body.total_amount,
-        total_amount: body.total_amount,
-        status: body.status || 'pending_approval',
-        valid_until: body.valid_until || null,
-        created_by: user.id,
-        markup_percentage: body.markup_percentage || 6.25,
-        locks_measurements: body.locks_measurements || false
-      })
+      .insert(estimateData)
       .select()
       .single()
     
     console.log('[POST /api/estimates] Insert result:', { success: !error, error, estimateId: estimate?.id })
 
     if (error) {
-      console.error('Error creating estimate:', error)
+      console.error('[POST /api/estimates] Database error creating estimate:', error)
       return NextResponse.json(
-        { success: false, error: 'Failed to create estimate' },
+        { success: false, error: 'Failed to create estimate', details: error.message },
         { status: 500 }
       )
     }

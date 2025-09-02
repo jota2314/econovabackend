@@ -183,19 +183,22 @@ export type Database = {
           surface_type: 'wall' | 'ceiling'
           height: number
           width: number
-          square_feet: number
+          square_feet: number | null
           insulation_type: 'closed_cell' | 'open_cell' | 'batt' | 'blown_in' | 'hybrid' | null
           r_value: string | null
-          closed_cell_inches: number
-          open_cell_inches: number
-          is_hybrid_system: boolean
+          closed_cell_inches: number | null
+          open_cell_inches: number | null
+          is_hybrid_system: boolean | null
           photo_url: string | null
           notes: string | null
           locked_by_estimate_id: string | null
-          is_locked: boolean
+          is_locked: boolean | null
           locked_at: string | null
           created_at: string
-          updated_at: string
+          override_closed_cell_price_per_sqft: number | null
+          override_open_cell_price_per_sqft: number | null
+          override_set_by: string | null
+          override_set_at: string | null
         }
         Insert: {
           id?: string
@@ -206,19 +209,22 @@ export type Database = {
           surface_type: 'wall' | 'ceiling'
           height: number
           width: number
-          square_feet: number
+          square_feet?: number | null
           insulation_type?: 'closed_cell' | 'open_cell' | 'batt' | 'blown_in' | 'hybrid' | null
           r_value?: string | null
-          closed_cell_inches?: number
-          open_cell_inches?: number
-          is_hybrid_system?: boolean
+          closed_cell_inches?: number | null
+          open_cell_inches?: number | null
+          is_hybrid_system?: boolean | null
           photo_url?: string | null
           notes?: string | null
           locked_by_estimate_id?: string | null
-          is_locked?: boolean
+          is_locked?: boolean | null
           locked_at?: string | null
           created_at?: string
-          updated_at?: string
+          override_closed_cell_price_per_sqft?: number | null
+          override_open_cell_price_per_sqft?: number | null
+          override_set_by?: string | null
+          override_set_at?: string | null
         }
         Update: {
           id?: string
@@ -229,19 +235,22 @@ export type Database = {
           surface_type?: 'wall' | 'ceiling'
           height?: number
           width?: number
-          square_feet?: number
+          square_feet?: number | null
           insulation_type?: 'closed_cell' | 'open_cell' | 'batt' | 'blown_in' | 'hybrid' | null
           r_value?: string | null
-          closed_cell_inches?: number
-          open_cell_inches?: number
-          is_hybrid_system?: boolean
+          closed_cell_inches?: number | null
+          open_cell_inches?: number | null
+          is_hybrid_system?: boolean | null
           photo_url?: string | null
           notes?: string | null
           locked_by_estimate_id?: string | null
-          is_locked?: boolean
+          is_locked?: boolean | null
           locked_at?: string | null
           created_at?: string
-          updated_at?: string
+          override_closed_cell_price_per_sqft?: number | null
+          override_open_cell_price_per_sqft?: number | null
+          override_set_by?: string | null
+          override_set_at?: string | null
         }
         Relationships: [
           {

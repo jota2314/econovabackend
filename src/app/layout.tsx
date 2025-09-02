@@ -4,6 +4,7 @@ import "./globals.css";
 import { AuthProvider } from "@/providers/auth-provider";
 import { Toaster } from "sonner";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import { RoleProvider } from "@/contexts/role-context";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -40,7 +41,9 @@ export default function RootLayout({
         suppressHydrationWarning={true}
       >
         <AuthProvider>
-          {children}
+          <RoleProvider>
+            {children}
+          </RoleProvider>
         </AuthProvider>
         <Toaster 
           position="top-right"

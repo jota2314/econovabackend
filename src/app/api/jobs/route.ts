@@ -97,12 +97,15 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('[POST /api/jobs] Starting job creation request')
     const supabase = await createClient()
     
     // Get the authenticated user
     const { data: { user }, error: authError } = await supabase.auth.getUser()
+    console.log('[POST /api/jobs] Auth result:', { hasUser: !!user, userId: user?.id, authError: authError?.message })
     
     if (authError || !user) {
+      console.log('[POST /api/jobs] Auth failed')
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
@@ -110,6 +113,8 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
+    console.log('[POST /api/jobs] Request body:', body)
+    
     const { 
       job_name, 
       lead_id, 
@@ -138,9 +143,10 @@ export async function POST(request: NextRequest) {
       scope_of_work 
     } = body
 
-    console.log('Creating multi-trade job:', body)
+    console.log('[POST /api/jobs] Parsed fields:', { job_name, lead_id, service_type, building_type, measurement_type })
 
     if (!job_name || !lead_id || !service_type || !building_type || !measurement_type) {
+      console.log('[POST /api/jobs] Missing required fields:', { job_name: !!job_name, lead_id: !!lead_id, service_type: !!service_type, building_type: !!building_type, measurement_type: !!measurement_type })
       return NextResponse.json(
         { success: false, error: 'Job name, lead ID, service type, building type, and measurement type are required' },
         { status: 400 }
@@ -148,14 +154,18 @@ export async function POST(request: NextRequest) {
     }
 
     // First, ensure the user exists in the users table
+    console.log('[POST /api/jobs] Checking if user exists:', user.id)
     const { data: existingUser } = await supabase
       .from('users')
       .select('id')
       .eq('id', user.id)
       .single()
 
+    console.log('[POST /api/jobs] User exists:', !!existingUser)
+
     // If user doesn't exist, create them
     if (!existingUser) {
+      console.log('[POST /api/jobs] Creating new user')
       const { error: userError } = await supabase
         .from('users')
         .insert({
@@ -167,8 +177,10 @@ export async function POST(request: NextRequest) {
         .single()
       
       if (userError) {
-        console.error('Error creating user:', userError)
+        console.error('[POST /api/jobs] Error creating user:', userError)
         // Continue anyway - we'll create job without created_by
+      } else {
+        console.log('[POST /api/jobs] User created successfully')
       }
     }
 
@@ -199,37 +211,42 @@ export async function POST(request: NextRequest) {
     }
     
     // Create the job with new multi-trade structure
+    const jobData = {
+      job_name,
+      lead_id,
+      service_type,
+      building_type: building_type,
+      measurement_type,
+      project_address,
+      project_city,
+      project_state,
+      project_zip_code,
+      structural_framing: service_type === 'insulation' ? structural_framing : null,
+      roof_rafters: service_type === 'insulation' ? roof_rafters : null,
+      scope_of_work: JSON.stringify(serviceSpecificData),
+      total_square_feet: 0,
+      created_by: user.id
+    }
+    
+    console.log('[POST /api/jobs] Creating job with data:', jobData)
+    
     const { data, error } = await supabase
       .from('jobs')
-      .insert({
-        job_name,
-        lead_id,
-        service_type,
-        building_type: building_type,
-        measurement_type,
-        project_type,
-        project_address,
-        project_city,
-        project_state,
-        project_zip_code,
-        structural_framing: service_type === 'insulation' ? structural_framing : null,
-        roof_rafters: service_type === 'insulation' ? roof_rafters : null,
-        scope_of_work: JSON.stringify(serviceSpecificData),
-        total_square_feet: 0,
-        created_by: user.id
-      })
+      .insert(jobData)
       .select()
       .single()
 
+    console.log('[POST /api/jobs] Job creation result:', { success: !error, error, jobId: data?.id })
+
     if (error) {
-      console.error('Error creating job:', error)
+      console.error('[POST /api/jobs] Database error creating job:', error)
       return NextResponse.json(
-        { success: false, error: error.message },
+        { success: false, error: error.message, details: error },
         { status: 500 }
       )
     }
 
-    console.log('Job created successfully:', data.id)
+    console.log('[POST /api/jobs] Job created successfully:', data.id)
 
     return NextResponse.json({
       success: true,

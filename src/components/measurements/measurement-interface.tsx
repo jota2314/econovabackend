@@ -78,6 +78,7 @@ import {
   calculateHybridPricing,
   type HybridSystemCalculation 
 } from "@/lib/utils/hybrid-calculator"
+import { useRole } from "@/contexts/role-context"
 
 // Helper function to get Massachusetts R-value requirements
 function getMassachusettsRValueRequirement(projectType: string | null, areaType: string): number | null {
@@ -147,6 +148,9 @@ const insulationMeasurementSchema = z.object({
   open_cell_inches: z.number().min(0).optional(),
   target_r_value: z.number().min(0).optional(),
   notes: z.string().optional(),
+  // Manager-only override inputs (client-side optional)
+  override_closed_cell_price_per_sqft: z.number().min(0).optional(),
+  override_open_cell_price_per_sqft: z.number().min(0).optional(),
 })
 
 // HVAC Schema
@@ -198,6 +202,9 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
   const [galleryOpen, setGalleryOpen] = useState(false)
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
   const [realtimePricing, setRealtimePricing] = useState<{ pricePerSqft: number; totalPrice: number } | null>(null)
+  const { user: roleUser } = useRole()
+  const isManager = roleUser?.role === 'manager'
+  const [groupOverrides, setGroupOverrides] = useState<Record<string, { sqft?: number; unitPrice?: number }>>({})
 
   // Dynamic form based on service type
   const getFormConfig = (serviceType: string) => {
@@ -216,7 +223,9 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             closed_cell_inches: 0,
             open_cell_inches: 0,
             target_r_value: 0,
-            notes: ""
+            notes: "",
+            override_closed_cell_price_per_sqft: undefined,
+            override_open_cell_price_per_sqft: undefined,
           }
         }
       case 'hvac':
@@ -260,7 +269,9 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             closed_cell_inches: 0,
             open_cell_inches: 0,
             target_r_value: 0,
-            notes: ""
+            notes: "",
+            override_closed_cell_price_per_sqft: undefined,
+            override_open_cell_price_per_sqft: undefined,
           }
         }
     }
@@ -379,9 +390,15 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         wall_count: number
       }>)
 
-      // Calculate total using the SAME logic as the display
+      // Calculate total using override prices if available, otherwise use standard pricing
       total = Object.values(groupedMeasurements).reduce((sum, group) => {
-        if (group.is_hybrid_system && group.insulation_type === 'hybrid') {
+        // Check for manager override price first (use first measurement in group)
+        const firstMeasurement = group.measurements[0] as any
+        if (firstMeasurement?.override_unit_price !== null && firstMeasurement?.override_unit_price !== undefined) {
+          const overridePrice = Number(firstMeasurement.override_unit_price)
+          console.log(`💰 Total calculation using override price for ${group.room_name}: ${group.total_square_feet} × $${overridePrice} = $${group.total_square_feet * overridePrice}`)
+          return sum + (group.total_square_feet * overridePrice)
+        } else if (group.is_hybrid_system && group.insulation_type === 'hybrid') {
           // Calculate hybrid pricing
           const hybridCalc = calculateHybridRValue(
             group.closed_cell_inches || 0, 
@@ -414,7 +431,12 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         const areaDisplayName = group.area_type ? getAreaDisplayName(group.area_type) : 'Unknown Area'
         let unitPrice = 0
         
-        if (group.is_hybrid_system && group.insulation_type === 'hybrid') {
+        // Check for manager override price first (use first measurement in group)
+        const firstMeasurement = group.measurements[0] as any
+        if (firstMeasurement?.override_unit_price !== null && firstMeasurement?.override_unit_price !== undefined) {
+          unitPrice = Number(firstMeasurement.override_unit_price)
+          console.log(`💰 Using override price for ${group.room_name}: $${unitPrice}/sq ft`)
+        } else if (group.is_hybrid_system && group.insulation_type === 'hybrid') {
           // Hybrid pricing
           const hybridCalc = calculateHybridRValue(
             group.closed_cell_inches || 0, 
@@ -513,7 +535,18 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         })
       }
 
-      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const responseText = await response.text()
+      console.log('💾 Raw response:', responseText)
+      
+      if (!responseText) {
+        throw new Error('Empty response from server')
+      }
+
+      const result = JSON.parse(responseText)
       console.log('💾 Estimate save result:', result)
       
       if (result.success) {
@@ -788,7 +821,10 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
               closed_cell_inches: measurement.closed_cell_inches,
               open_cell_inches: measurement.open_cell_inches,
               is_hybrid_system: measurement.is_hybrid_system,
-              notes: measurement.notes
+              notes: measurement.notes,
+              // Send override fields if manager filled them (server enforces role check)
+              override_closed_cell_price_per_sqft: isManager ? form.getValues('override_closed_cell_price_per_sqft') : undefined,
+              override_open_cell_price_per_sqft: isManager ? form.getValues('override_open_cell_price_per_sqft') : undefined
             })
           })
 
@@ -1050,7 +1086,9 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
     const wallDimensions = form.watch('wall_dimensions') || []
     return wallDimensions.reduce((total: number, wall: any) => {
       if (wall?.height && wall?.width) {
-        return total + (wall.height * wall.width)
+        const height = typeof wall.height === 'string' ? parseFloat(wall.height) || 0 : wall.height || 0
+        const width = typeof wall.width === 'string' ? parseFloat(wall.width) || 0 : wall.width || 0
+        return total + (height * width)
       }
       return total
     }, 0)
@@ -1087,7 +1125,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         return
       }
       
-      // Regular system pricing using database
+      // Regular system pricing using database; apply override precedence if present and manager
       const projectType = (job.project_type as ProjectType) || 'new_construction'
       const areaType = form.watch('area_type')
       const rValueResult = areaType ? calculateRValue(projectType, areaType) : { rValue: 0 }
@@ -1099,8 +1137,18 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         insulationType as 'open_cell' | 'closed_cell' | 'hybrid', 
         rValue
       )
-      
-      setRealtimePricing(databasePricing)
+      // Override precedence for managers
+      const overrideClosed = form.watch('override_closed_cell_price_per_sqft')
+      const overrideOpen = form.watch('override_open_cell_price_per_sqft')
+      let pricePerSqft = databasePricing.pricePerSqft
+      if (isManager) {
+        if (insulationType === 'closed_cell' && typeof overrideClosed === 'number') {
+          pricePerSqft = overrideClosed
+        } else if (insulationType === 'open_cell' && typeof overrideOpen === 'number') {
+          pricePerSqft = overrideOpen
+        }
+      }
+      setRealtimePricing({ pricePerSqft, totalPrice: pricePerSqft * totalSqFt })
     } catch (error) {
       console.error('Error calculating realtime pricing:', error)
       // Fallback to hardcoded pricing if database fails
@@ -1489,7 +1537,20 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                         step="0.1"
                         placeholder="8.0"
                         {...field}
-                        onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) || 0 : 0)}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          if (value === '') {
+                            field.onChange('')
+                          } else {
+                            const numValue = parseFloat(value)
+                            field.onChange(isNaN(numValue) ? '' : numValue)
+                          }
+                        }}
+                        onBlur={(e) => {
+                          if (e.target.value === '' || e.target.value === '0') {
+                            field.onChange(0)
+                          }
+                        }}
                       />
                     </FormControl>
                     <FormMessage />
@@ -1509,7 +1570,20 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                         step="0.1"
                         placeholder="12.0"
                         {...field}
-                        onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) || 0 : 0)}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          if (value === '') {
+                            field.onChange('')
+                          } else {
+                            const numValue = parseFloat(value)
+                            field.onChange(isNaN(numValue) ? '' : numValue)
+                          }
+                        }}
+                        onBlur={(e) => {
+                          if (e.target.value === '' || e.target.value === '0') {
+                            field.onChange(0)
+                          }
+                        }}
                       />
                     </FormControl>
                     <FormMessage />
@@ -1523,7 +1597,9 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                   {(() => {
                     const height = form.watch(`wall_dimensions.${index}.height`)
                     const width = form.watch(`wall_dimensions.${index}.width`)
-                    return height && width ? (height * width).toFixed(1) : '0'
+                    const numHeight = typeof height === 'string' ? parseFloat(height) || 0 : height || 0
+                    const numWidth = typeof width === 'string' ? parseFloat(width) || 0 : width || 0
+                    return numHeight && numWidth ? (numHeight * numWidth).toFixed(1) : '0'
                   })()}
                 </div>
               </div>
@@ -1584,6 +1660,44 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             </FormItem>
           )}
         />
+
+        {/* Manager-only price overrides */}
+        {isManager && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <FormField
+              control={form.control}
+              name="override_closed_cell_price_per_sqft"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center gap-2">
+                    <DollarSign className="h-4 w-4" />
+                    Closed Cell Override ($/sq ft)
+                  </FormLabel>
+                  <FormControl>
+                    <Input type="number" step="0.01" min="0" placeholder="e.g. 5.70" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="override_open_cell_price_per_sqft"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center gap-2">
+                    <DollarSign className="h-4 w-4" />
+                    Open Cell Override ($/sq ft)
+                  </FormLabel>
+                  <FormControl>
+                    <Input type="number" step="0.01" min="0" placeholder="e.g. 1.80" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+        )}
 
         <Button type="submit" className="w-full" disabled={saving || totalSqFt === 0}>
           {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
@@ -2083,7 +2197,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className={`grid gap-6 ${showForm ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
         {/* Measurement Form */}
         {showForm && (
           <Card>
@@ -2113,10 +2227,97 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                     variant="outline"
                     size="sm"
                     onClick={async () => {
-                      // Generate quick PDF estimate without saving to database
+                      // Generate quick PDF estimate using current pricing (including overrides)
                       try {
                         // Get current user info for salesperson details
                         const currentUser = 'Manager' // This should come from auth context
+                        
+                        // Create grouped measurements for PDF calculation (same logic as elsewhere)
+                        const realMeasurements = measurements.filter(m => !m.room_name.startsWith('Photo:'))
+                        const pdfGroupedMeasurements = realMeasurements.reduce((groups, measurement) => {
+                          const baseRoomName = measurement.room_name.replace(/ - Wall \d+$/, '')
+                          const groupKey = `${baseRoomName}-${measurement.area_type}-${measurement.insulation_type}-${measurement.r_value}-${measurement.framing_size}-${measurement.is_hybrid_system}-${measurement.closed_cell_inches}-${measurement.open_cell_inches}`
+                          
+                          if (!groups[groupKey]) {
+                            groups[groupKey] = {
+                              room_name: baseRoomName,
+                              area_type: measurement.area_type,
+                              measurements: [],
+                              total_square_feet: 0,
+                              insulation_type: measurement.insulation_type,
+                              r_value: measurement.r_value,
+                              framing_size: measurement.framing_size,
+                              is_hybrid_system: measurement.is_hybrid_system,
+                              closed_cell_inches: measurement.closed_cell_inches,
+                              open_cell_inches: measurement.open_cell_inches,
+                              wall_count: 0
+                            }
+                          }
+                          
+                          groups[groupKey].measurements.push(measurement)
+                          groups[groupKey].total_square_feet += measurement.square_feet
+                          groups[groupKey].wall_count += 1
+                          
+                          return groups
+                        }, {} as Record<string, {
+                          room_name: string
+                          area_type: string
+                          measurements: Measurement[]
+                          total_square_feet: number
+                          insulation_type: string | null
+                          r_value: string | null
+                          framing_size: string | null
+                          is_hybrid_system: boolean | null
+                          closed_cell_inches: number | null
+                          open_cell_inches: number | null
+                          wall_count: number
+                        }>)
+
+                        // Calculate total using override prices (same logic as display)
+                        const estimateTotal = Object.entries(pdfGroupedMeasurements).reduce((sum, [groupKey, group]) => {
+                          // Check for in-memory overrides from UI
+                          const uiOverride = groupOverrides[groupKey] || {}
+                          // Persisted overrides from database
+                          const persistedUnit = (group.measurements[0] as any)?.override_unit_price as number | undefined
+                          const persistedSqft = (group.measurements[0] as any)?.override_group_sqft as number | undefined
+                          
+                          const effectiveSqft = typeof uiOverride.sqft === 'number'
+                            ? uiOverride.sqft
+                            : (typeof persistedSqft === 'number' ? persistedSqft : group.total_square_feet)
+                          
+                          let unitPrice = 0
+                          if (typeof uiOverride.unitPrice === 'number') {
+                            unitPrice = uiOverride.unitPrice
+                          } else if (typeof persistedUnit === 'number') {
+                            unitPrice = persistedUnit
+                          } else {
+                            // Calculate standard price
+                            if (group.is_hybrid_system && group.insulation_type === 'hybrid') {
+                              const hybridCalc = calculateHybridRValue(
+                                group.closed_cell_inches || 0, 
+                                group.open_cell_inches || 0
+                              )
+                              const hybridPricing = calculateHybridPricing(hybridCalc)
+                              unitPrice = hybridPricing.totalPricePerSqft
+                            } else if ((group.insulation_type === 'closed_cell' || group.insulation_type === 'open_cell') && 
+                                       (group.closed_cell_inches || group.open_cell_inches)) {
+                              const inches = group.insulation_type === 'closed_cell' ? (group.closed_cell_inches || 0) : (group.open_cell_inches || 0)
+                              if (inches > 0) {
+                                const pricing = calculatePriceByInches(effectiveSqft, group.insulation_type, inches)
+                                unitPrice = pricing.pricePerSqft
+                              }
+                            } else {
+                              const fallback = calculateMeasurementPrice(
+                                effectiveSqft,
+                                group.insulation_type as InsulationType,
+                                Number(group.r_value) || 0
+                              )
+                              unitPrice = fallback?.pricePerSqft || 0
+                            }
+                          }
+                          
+                          return sum + (effectiveSqft * unitPrice)
+                        }, 0)
                         
                         await generateQuickEstimatePDF(
                           measurements as any,
@@ -2136,18 +2337,16 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                             salespersonName: currentUser,
                             salespersonEmail: 'jorge@EconovaEnergySavings.com',
                             salespersonPhone: '617-596-2476',
-                            companyWebsite: 'EconovaEnergySavings.com'
+                            companyWebsite: 'EconovaEnergySavings.com',
+                            // Pass override data for PDF generation
+                            overrideTotal: estimateTotal,
+                            groupOverrides: groupOverrides,
+                            groupedMeasurements: pdfGroupedMeasurements
                           }
                         )
                         
-                        // Also show the total in a toast
-                        const estimate = calculateTotalEstimate(
-                          measurements.map(m => ({
-                            squareFeet: m.square_feet,
-                            insulationType: m.insulation_type as InsulationType,
-                            rValue: m.r_value ? Number(m.r_value) : 0
-                          }))
-                        )
+                        // Show the total with overrides in toast
+                        const estimate = { total: estimateTotal }
                         
                         toast.success(
                           <div className="space-y-2">
@@ -2240,11 +2439,19 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                       open_cell_inches: number | null
                     }>)
 
-                    return Object.values(groupedMeasurements).map((group, index) => {
+                    return Object.entries(groupedMeasurements).map(([groupKey, group], index) => {
                       // Calculate pricing for hybrid and regular systems
                       let priceBreakdown
                       let totalPrice = 0
                       const wallCount = group.measurements.length
+                      const overrideState = groupOverrides[groupKey] || {}
+                      const persistedUnit = (group.measurements[0] as any)?.override_unit_price as number | undefined
+                      const persistedSqft = (group.measurements[0] as any)?.override_group_sqft as number | undefined
+                      const override = {
+                        sqft: overrideState.sqft ?? persistedSqft,
+                        unitPrice: overrideState.unitPrice ?? persistedUnit,
+                      }
+                      let currentUnitPrice = 0
                       
                       if (group.is_hybrid_system && group.insulation_type === 'hybrid') {
                         // Calculate hybrid pricing
@@ -2253,7 +2460,10 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                           group.open_cell_inches || 0
                         )
                         const hybridPricing = calculateHybridPricing(hybridCalc)
-                        totalPrice = group.total_square_feet * hybridPricing.totalPricePerSqft
+                        const effectiveSqft = typeof override.sqft === 'number' ? override.sqft : group.total_square_feet
+                        const effectiveUnit = typeof override.unitPrice === 'number' ? override.unitPrice : hybridPricing.totalPricePerSqft
+                        currentUnitPrice = effectiveUnit
+                        totalPrice = effectiveSqft * effectiveUnit
                         
                         priceBreakdown = (
                           <div className="text-sm font-medium text-slate-700 bg-blue-50 rounded p-2">
@@ -2285,22 +2495,25 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                           const inches = group.insulation_type === 'closed_cell' ? (group.closed_cell_inches || 0) : (group.open_cell_inches || 0)
                           console.log('💡 Using inches-based pricing:', inches, 'inches')
                           if (inches > 0) {
-                            const pricing = calculatePriceByInches(group.total_square_feet, group.insulation_type, inches)
-                            pricePerSqft = pricing.pricePerSqft
-                            totalPrice = pricing.totalPrice
+                            const effectiveSqft = typeof override.sqft === 'number' ? override.sqft : group.total_square_feet
+                            const pricing = calculatePriceByInches(effectiveSqft, group.insulation_type, inches)
+                            pricePerSqft = typeof override.unitPrice === 'number' ? override.unitPrice : pricing.pricePerSqft
+                            totalPrice = effectiveSqft * pricePerSqft
                             console.log('💰 Inches-based pricing result:', { pricePerSqft, totalPrice })
                           }
                         } else {
                           // Fallback to R-value pricing
                           console.log('💡 Using R-value based pricing')
+                          const effectiveSqft = typeof override.sqft === 'number' ? override.sqft : group.total_square_feet
                           const measurementPrice = calculateMeasurementPrice(
-                            group.total_square_feet, 
+                            effectiveSqft, 
                             group.insulation_type as InsulationType, 
                             Number(group.r_value) || 0
                           )
-                          pricePerSqft = measurementPrice?.pricePerSqft || 0
+                          pricePerSqft = typeof override.unitPrice === 'number' ? override.unitPrice : (measurementPrice?.pricePerSqft || 0)
                           console.log('💰 R-value pricing result:', { measurementPrice, pricePerSqft })
-                          totalPrice = group.total_square_feet * pricePerSqft
+                          totalPrice = effectiveSqft * pricePerSqft
+                          currentUnitPrice = pricePerSqft
                         }
                         
                         console.log('📊 Final group calculation:', {
@@ -2356,15 +2569,90 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                               
                               {/* Pricing and Square Footage Summary */}
                               <div className="mt-3 p-3 bg-slate-50 rounded border-l-4 border-blue-400">
-                                <div className="flex justify-between items-center text-sm">
-                                  <div className="font-medium text-slate-700">
-                                    {group.total_square_feet.toFixed(1)} sq ft
+                                <div className="flex flex-col gap-2 text-sm">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="font-medium text-slate-700 flex items-center gap-2">
+                                      {isManager ? (
+                                        <>
+                                          <Input
+                                            className="w-28 h-8"
+                                            type="number"
+                                            step="0.1"
+                                            min="0"
+                                            value={groupOverrides[groupKey]?.sqft ?? group.total_square_feet.toFixed(1)}
+                                            onChange={(e) => {
+                                              const v = parseFloat(e.target.value)
+                                              setGroupOverrides((prev) => ({
+                                                ...prev,
+                                                [groupKey]: { ...prev[groupKey], sqft: isNaN(v) ? undefined : v }
+                                              }))
+                                            }}
+                                          />
+                                          <span>sq ft</span>
+                                        </>
+                                      ) : (
+                                        <span>{group.total_square_feet.toFixed(1)} sq ft</span>
+                                      )}
+                                    </div>
+                                    <div className="font-bold text-green-600">
+                                      {formatCurrency(totalPrice)}
+                                    </div>
                                   </div>
-                                  <div className="font-bold text-green-600">
-                                    {formatCurrency(totalPrice)}
-                                  </div>
+                                  {isManager && (
+                                    <div className="flex items-center gap-2 text-slate-700">
+                                      <span className="text-xs">Unit Price ($/sq ft):</span>
+                                      <Input
+                                        className="w-28 h-8"
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={groupOverrides[groupKey]?.unitPrice ?? ""}
+                                        placeholder={currentUnitPrice.toFixed(2)}
+                                        onChange={(e) => {
+                                          const v = parseFloat(e.target.value)
+                                          setGroupOverrides((prev) => ({
+                                            ...prev,
+                                            [groupKey]: { ...prev[groupKey], unitPrice: isNaN(v) ? undefined : v }
+                                          }))
+                                        }}
+                                      />
+                                      <span className="text-xs text-slate-500">({currentUnitPrice.toFixed(2)} default)</span>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={async () => {
+                                          try {
+                                            // Persist overrides on each measurement in the group
+                                            const updates = group.measurements.map(async (m) => {
+                                              const response = await fetch(`/api/measurements/${m.id}`, {
+                                                method: 'PATCH',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                credentials: 'include',
+                                                body: JSON.stringify({
+                                                  override_unit_price: groupOverrides[groupKey]?.unitPrice,
+                                                  override_group_sqft: groupOverrides[groupKey]?.sqft
+                                                })
+                                              })
+                                              if (!response.ok) {
+                                                throw new Error(`HTTP error! status: ${response.status}`)
+                                              }
+                                              return await response.json()
+                                            })
+                                            await Promise.all(updates)
+                                            // Reload measurements to reflect the saved overrides
+                                            await loadMeasurements()
+                                            toast.success('Overrides saved')
+                                          } catch (err) {
+                                            console.error('Save error:', err)
+                                            toast.error('Failed to save overrides')
+                                          }
+                                        }}
+                                      >
+                                        Save
+                                      </Button>
+                                    </div>
+                                  )}
                                 </div>
-
                               </div>
                             </div>
                             <div className="flex gap-2 ml-4 flex-shrink-0">
@@ -2451,34 +2739,49 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                       open_cell_inches: number | null
                     }>)
 
-                    // Calculate total using grouped measurements
-                    const subtotal = Object.values(groupedMeasurements).reduce((sum, group) => {
+                    // Calculate total using grouped measurements (respect overrides if typed OR saved)
+                    const subtotal = Object.entries(groupedMeasurements).reduce((sum, [groupKey, group]) => {
+                      // In-memory overrides from the UI
+                      const uiOverride = groupOverrides[groupKey] || {}
+                      // Persisted overrides saved on measurements (use first item in group)
+                      const persistedUnit = (group.measurements[0] as any)?.override_unit_price as number | undefined
+                      const persistedSqft = (group.measurements[0] as any)?.override_group_sqft as number | undefined
+                      const effectiveSqft = typeof uiOverride.sqft === 'number'
+                        ? uiOverride.sqft
+                        : (typeof persistedSqft === 'number' ? persistedSqft : group.total_square_feet)
+
                       if (group.is_hybrid_system && group.insulation_type === 'hybrid') {
-                        // Calculate hybrid pricing
                         const hybridCalc = calculateHybridRValue(
-                          group.closed_cell_inches || 0, 
+                          group.closed_cell_inches || 0,
                           group.open_cell_inches || 0
                         )
                         const hybridPricing = calculateHybridPricing(hybridCalc)
-                        return sum + (group.total_square_feet * hybridPricing.totalPricePerSqft)
+                        const unit = typeof uiOverride.unitPrice === 'number'
+                          ? uiOverride.unitPrice
+                          : (typeof persistedUnit === 'number' ? persistedUnit : hybridPricing.totalPricePerSqft)
+                        return sum + (effectiveSqft * unit)
                       } else {
-                        // Regular system pricing - use inches if available
-                        if ((group.insulation_type === 'closed_cell' || group.insulation_type === 'open_cell') && 
+                        if ((group.insulation_type === 'closed_cell' || group.insulation_type === 'open_cell') &&
                             (group.closed_cell_inches || group.open_cell_inches)) {
                           const inches = group.insulation_type === 'closed_cell' ? (group.closed_cell_inches || 0) : (group.open_cell_inches || 0)
                           if (inches > 0) {
-                            const pricing = calculatePriceByInches(group.total_square_feet, group.insulation_type, inches)
-                            return sum + pricing.totalPrice
+                            const pricing = calculatePriceByInches(effectiveSqft, group.insulation_type, inches)
+                            const unit = typeof uiOverride.unitPrice === 'number'
+                              ? uiOverride.unitPrice
+                              : (typeof persistedUnit === 'number' ? persistedUnit : pricing.pricePerSqft)
+                            return sum + (effectiveSqft * unit)
                           }
                         }
-                        
-                        // Fallback to R-value pricing
-                        const pricePerSqft = calculateMeasurementPrice(
-                          group.total_square_feet, 
-                          group.insulation_type as InsulationType, 
+
+                        const fallback = calculateMeasurementPrice(
+                          effectiveSqft,
+                          group.insulation_type as InsulationType,
                           Number(group.r_value) || 0
-                        )?.pricePerSqft || 0
-                        return sum + (group.total_square_feet * pricePerSqft)
+                        )
+                        const unit = typeof uiOverride.unitPrice === 'number'
+                          ? uiOverride.unitPrice
+                          : (typeof persistedUnit === 'number' ? persistedUnit : (fallback?.pricePerSqft || 0))
+                        return sum + (effectiveSqft * unit)
                       }
                     }, 0)
                     
@@ -2532,80 +2835,6 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         </Card>
       </div>
       
-      {/* Final Output Summary */}
-      {Object.keys(aggregatedMeasurements).length > 0 && (
-        <Card className="border-green-200 bg-green-50">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-green-900">
-              <Calculator className="h-5 w-5" />
-              Final Project Summary
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 mb-4">
-                <span className="font-semibold text-green-900">
-                  Project Type: {job.project_type === 'new_construction' ? 'New Construction' : 'Remodel'}
-                </span>
-              </div>
-              
-              <div className="space-y-3">
-                <h4 className="font-semibold text-green-900">Total Areas:</h4>
-                {Object.values(aggregatedMeasurements)
-                  .sort((a, b) => {
-                    // Sort by floor level (alphabetically), then by area type
-                    const areaOrder = { 'roof': 1, 'exterior_walls': 2, 'interior_walls': 3, 'basement_walls': 4, 'ceiling': 5, 'gable': 6 }
-                    
-                    // First sort by floor level alphabetically
-                    const floorCompare = a.floor_level.localeCompare(b.floor_level)
-                    if (floorCompare !== 0) {
-                      return floorCompare
-                    }
-                    // Then by area type
-                    return areaOrder[a.area_type] - areaOrder[b.area_type]
-                  })
-                  .map((area) => (
-                    <div key={`${area.floor_level}-${area.area_type}`} className="bg-white rounded-lg p-4 border border-green-200">
-                      <div className="flex justify-between items-center">
-                        <div className="flex-1">
-                          <span className="font-medium text-slate-900">
-                            {getAreaDisplayName(area.area_type)}: {area.total_square_feet.toFixed(0)} sq ft
-                          </span>
-                          <div className="text-sm text-slate-600 mt-1">
-                            → R-{approximateRValue(Number(area.r_value))} → {area.insulation_type ? area.insulation_type.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()) : 'Not specified'}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                }
-              </div>
-              
-              <div className="text-xs text-green-700 mt-4 p-3 bg-green-100 rounded">
-                <div className="font-semibold mb-2">📋 Massachusetts Building Code Requirements:</div>
-                {job.project_type === 'new_construction' ? (
-                  <div className="space-y-1">
-                    <div><strong>New Construction:</strong></div>
-                    <div>• Roof: R-60 minimum</div>
-                    <div>• Exterior Walls: R-30 minimum</div>
-                    <div>• Basement: R-15 minimum</div>
-                  </div>
-                ) : job.project_type === 'remodel' ? (
-                  <div className="space-y-1">
-                    <div><strong>Renovation/Remodel:</strong></div>
-                    <div>• Roof: R-49 minimum</div>
-                    <div>• Exterior Walls: R-21 minimum</div>
-                    <div>• Basement: R-15 minimum</div>
-                  </div>
-                ) : (
-                  <div>ℹ️ Massachusetts building code compliance - R-values automatically assigned based on project type</div>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Estimate Builder Modal */}
       {showEstimateBuilder && (
         <EstimateBuilder
