@@ -29,6 +29,10 @@ export async function GET(request: NextRequest) {
       .from('jobs')
       .select(`
         *,
+        latest_estimate_pdf_url,
+        latest_estimate_pdf_name,
+        pdf_generated_at,
+        estimate_sent_at,
         lead:leads!lead_id(name, phone, address),
         measurements(id, room_name, floor_level, area_type, surface_type, framing_size, square_feet, insulation_type, r_value, photo_url, notes),
         estimates(id, estimate_number, subtotal, status, created_by)

@@ -57,7 +57,8 @@ import {
   Edit,
   Settings,
   EyeOff,
-  ChevronDown
+  ChevronDown,
+  FileText
 } from "lucide-react"
 
 interface Job extends DatabaseJob {
@@ -76,7 +77,7 @@ interface User {
 }
 
 type TradeType = 'all' | 'insulation' | 'hvac' | 'plaster'
-type ColumnKey = 'jobName' | 'customer' | 'quoteAmount' | 'service' | 'type' | 'building' | 'estimate' | 'squareFeet' | 'created' | 'workflow' | 'actions'
+type ColumnKey = 'jobName' | 'customer' | 'quoteAmount' | 'service' | 'type' | 'building' | 'estimate' | 'pdf' | 'squareFeet' | 'created' | 'workflow' | 'actions'
 
 const defaultColumns: Record<ColumnKey, boolean> = {
   jobName: true,
@@ -86,6 +87,7 @@ const defaultColumns: Record<ColumnKey, boolean> = {
   type: false, // Hidden by default to save space
   building: false, // Hidden by default on mobile
   estimate: true,
+  pdf: true,
   squareFeet: false, // Hidden by default on mobile
   created: false, // Hidden by default on mobile
   workflow: true,
@@ -100,6 +102,7 @@ const columnLabels: Record<ColumnKey, string> = {
   type: 'Type',
   building: 'Building',
   estimate: 'Estimate',
+  pdf: 'Estimate PDF',
   squareFeet: 'Square Feet',
   created: 'Date Created',
   workflow: 'Workflow',
@@ -541,24 +544,74 @@ export default function JobsPage() {
     }))
     
     try {
-      const response = await fetch(`/api/jobs/${jobId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workflow_status: workflowStatus })
-      })
+      // Special handling for "Send to Customer"
+      if (workflowStatus === 'send_to_customer') {
+        console.log('📧 Sending estimate to customer...')
+        
+        // Show loading toast
+        const loadingToast = toast.loading('Generating PDF and sending email to customer...')
+        
+        // Call the email API
+        const emailResponse = await fetch(`/api/jobs/${jobId}/send-estimate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        })
 
-      const result = await response.json()
-      if (result.success) {
-        toast.success(`Workflow updated to: ${workflowStatus.replace(/_/g, ' ')}`)
-        loadJobs() // Reload to get updated data
+        const emailResult = await emailResponse.json()
+        
+        // Dismiss loading toast
+        toast.dismiss(loadingToast)
+        
+        if (emailResult.success) {
+          toast.success(
+            <div className="space-y-1">
+              <p className="font-semibold">✅ Estimate Sent Successfully!</p>
+              <p className="text-sm">Email sent to: {emailResult.customerEmail}</p>
+              <p className="text-sm">Customer: {emailResult.customerName}</p>
+            </div>
+          )
+        } else {
+          console.error('Email sending failed:', emailResult.error)
+          toast.error(
+            <div className="space-y-1">
+              <p className="font-semibold">❌ Failed to Send Estimate</p>
+              <p className="text-sm">{emailResult.error || 'Unknown error occurred'}</p>
+            </div>
+          )
+          // Reset the workflow status on failure
+          setLocalWorkflowStatus(prev => ({
+            ...prev,
+            [jobId]: prev[jobId] || undefined
+          }))
+          return
+        }
       } else {
-        // Keep the local state since database update failed
-        toast.warning(`Workflow status saved locally. Database update will occur when schema is updated.`)
+        // Regular workflow status update
+        const response = await fetch(`/api/jobs/${jobId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workflow_status: workflowStatus })
+        })
+
+        const result = await response.json()
+        if (result.success) {
+          toast.success(`Workflow updated to: ${workflowStatus.replace(/_/g, ' ')}`)
+        } else {
+          toast.warning(`Workflow status saved locally. Database update will occur when schema is updated.`)
+        }
       }
+      
+      loadJobs() // Reload to get updated data
+      
     } catch (error) {
       console.error('Error updating workflow:', error)
-      // Keep the local state since database update failed
-      toast.warning(`Workflow status saved locally. Database update will occur when schema is updated.`)
+      toast.error('Failed to update workflow. Please try again.')
+      
+      // Reset the local state on error
+      setLocalWorkflowStatus(prev => ({
+        ...prev,
+        [jobId]: prev[jobId] || undefined
+      }))
     }
   }
 
@@ -1024,6 +1077,7 @@ export default function JobsPage() {
                       {visibleColumns.type && <th className="text-left p-3 sm:p-4 font-medium text-slate-600 min-w-[90px]">Type</th>}
                       {visibleColumns.building && <th className="text-left p-3 sm:p-4 font-medium text-slate-600 min-w-[100px]">Building</th>}
                       {visibleColumns.estimate && <th className="text-left p-3 sm:p-4 font-medium text-slate-600 min-w-[100px]">Estimate</th>}
+                      {visibleColumns.pdf && <th className="text-left p-3 sm:p-4 font-medium text-slate-600 min-w-[120px]">Estimate PDF</th>}
                       {visibleColumns.squareFeet && <th className="text-left p-3 sm:p-4 font-medium text-slate-600 min-w-[100px]">Square Feet</th>}
                       {visibleColumns.created && <th className="text-left p-3 sm:p-4 font-medium text-slate-600 min-w-[90px]">Created</th>}
                       {visibleColumns.workflow && <th className="text-left p-3 sm:p-4 font-medium text-slate-600 min-w-[150px]">Workflow</th>}
@@ -1104,6 +1158,50 @@ export default function JobsPage() {
                         {visibleColumns.estimate && (
                           <td className="p-3 sm:p-4">
                             {getEstimateStatusBadge(job) || <span className="text-sm text-slate-500">No estimate</span>}
+                          </td>
+                        )}
+                        {visibleColumns.pdf && (
+                          <td className="p-3 sm:p-4">
+                            {job.latest_estimate_pdf_url ? (
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    // Handle both data URLs and regular URLs
+                                    const pdfUrl = job.latest_estimate_pdf_url!
+                                    if (pdfUrl.startsWith('data:')) {
+                                      // For data URLs, create a blob and download
+                                      const byteCharacters = atob(pdfUrl.split(',')[1])
+                                      const byteNumbers = new Array(byteCharacters.length)
+                                      for (let i = 0; i < byteCharacters.length; i++) {
+                                        byteNumbers[i] = byteCharacters.charCodeAt(i)
+                                      }
+                                      const byteArray = new Uint8Array(byteNumbers)
+                                      const blob = new Blob([byteArray], { type: 'application/pdf' })
+                                      const url = URL.createObjectURL(blob)
+                                      window.open(url, '_blank')
+                                      // Clean up the object URL after a delay
+                                      setTimeout(() => URL.revokeObjectURL(url), 1000)
+                                    } else {
+                                      // For regular URLs, open directly
+                                      window.open(pdfUrl, '_blank')
+                                    }
+                                  }}
+                                  className="flex items-center gap-1"
+                                >
+                                  <FileText className="h-4 w-4" />
+                                  PDF
+                                </Button>
+                                {job.pdf_generated_at && (
+                                  <span className="text-xs text-slate-500">
+                                    {new Date(job.pdf_generated_at).toLocaleDateString()}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-sm text-slate-500">No PDF</span>
+                            )}
                           </td>
                         )}
                         {visibleColumns.squareFeet && (

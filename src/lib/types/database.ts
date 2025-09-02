@@ -119,6 +119,11 @@ export type Database = {
           created_by: string
           created_at: string
           updated_at: string
+          latest_estimate_pdf_url: string | null
+          latest_estimate_pdf_name: string | null
+          pdf_generated_at: string | null
+          estimate_sent_at: string | null
+          workflow_status: string | null
         }
         Insert: {
           id?: string
@@ -137,6 +142,11 @@ export type Database = {
           created_by: string
           created_at?: string
           updated_at?: string
+          latest_estimate_pdf_url?: string | null
+          latest_estimate_pdf_name?: string | null
+          pdf_generated_at?: string | null
+          estimate_sent_at?: string | null
+          workflow_status?: string | null
         }
         Update: {
           id?: string
@@ -155,6 +165,11 @@ export type Database = {
           created_by?: string
           created_at?: string
           updated_at?: string
+          latest_estimate_pdf_url?: string | null
+          latest_estimate_pdf_name?: string | null
+          pdf_generated_at?: string | null
+          estimate_sent_at?: string | null
+          workflow_status?: string | null
         }
         Relationships: [
           {

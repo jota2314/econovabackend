@@ -98,7 +98,7 @@ interface EstimateData {
   notes?: string
 }
 
-export async function generateEstimatePDF(data: EstimateData): Promise<void> {
+export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: boolean }): Promise<void | Uint8Array> {
   const pdf = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -125,23 +125,24 @@ export async function generateEstimatePDF(data: EstimateData): Promise<void> {
     const logoX = 15
     const logoY = 10
     
-    // Load logo using fetch from public folder
-    const logoResponse = await fetch('/logo1.png')
-    if (logoResponse.ok) {
-      const logoBlob = await logoResponse.blob()
-      const logoBase64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader()
-        reader.onloadend = () => resolve(reader.result as string)
-        reader.readAsDataURL(logoBlob)
-      })
+    // Load logo from file system (server-side safe)
+    const fs = await import('fs')
+    const path = await import('path')
+    
+    const logoPath = path.join(process.cwd(), 'public', 'logo1.png')
+    
+    if (fs.existsSync(logoPath)) {
+      const logoBuffer = fs.readFileSync(logoPath)
+      const logoBase64 = `data:image/png;base64,${logoBuffer.toString('base64')}`
       
       pdf.addImage(logoBase64, 'PNG', logoX, logoY, logoWidth, logoHeight)
+      console.log('✅ Logo successfully added to PDF')
     } else {
-      throw new Error('Logo not found')
+      throw new Error('Logo file not found at: ' + logoPath)
     }
     
   } catch (error) {
-    console.log('Logo loading failed, using company name instead')
+    console.log('❌ Logo loading failed:', error)
     // Fallback: Show company name instead of logo
     pdf.setTextColor(0, 0, 0)
     pdf.setFontSize(14)
@@ -1032,9 +1033,16 @@ export async function generateEstimatePDF(data: EstimateData): Promise<void> {
   
   // No footer on page 2 - only signatures
 
-  // Save the PDF
-  const fileName = `estimate_${data.jobName.replace(/[^a-z0-9]/gi, '_')}_${data.generatedDate.getTime()}.pdf`
-  pdf.save(fileName)
+  // Save the PDF or return buffer
+  if (data.returnBuffer) {
+    // Return buffer for storage
+    const pdfBuffer = pdf.output('arraybuffer')
+    return new Uint8Array(pdfBuffer)
+  } else {
+    // Download as before
+    const fileName = `estimate_${data.jobName.replace(/[^a-z0-9]/gi, '_')}_${data.generatedDate.getTime()}.pdf`
+    pdf.save(fileName)
+  }
 }
 
 export async function generateQuickEstimatePDF(
@@ -1073,3 +1081,4 @@ export async function generateQuickEstimatePDF(
 
   await generateEstimatePDF(estimateData)
 }
+

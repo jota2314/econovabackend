@@ -2227,7 +2227,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                     variant="outline"
                     size="sm"
                     onClick={async () => {
-                      // Generate quick PDF estimate using current pricing (including overrides)
+                      // Generate and save PDF estimate using new API
                       try {
                         // Get current user info for salesperson details
                         const currentUser = 'Manager' // This should come from auth context
@@ -2280,11 +2280,11 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                           // Persisted overrides from database
                           const persistedUnit = (group.measurements[0] as any)?.override_unit_price as number | undefined
                           const persistedSqft = (group.measurements[0] as any)?.override_group_sqft as number | undefined
-                          
+
                           const effectiveSqft = typeof uiOverride.sqft === 'number'
                             ? uiOverride.sqft
                             : (typeof persistedSqft === 'number' ? persistedSqft : group.total_square_feet)
-                          
+
                           let unitPrice = 0
                           if (typeof uiOverride.unitPrice === 'number') {
                             unitPrice = uiOverride.unitPrice
@@ -2294,12 +2294,12 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                             // Calculate standard price
                             if (group.is_hybrid_system && group.insulation_type === 'hybrid') {
                               const hybridCalc = calculateHybridRValue(
-                                group.closed_cell_inches || 0, 
+                                group.closed_cell_inches || 0,
                                 group.open_cell_inches || 0
                               )
                               const hybridPricing = calculateHybridPricing(hybridCalc)
                               unitPrice = hybridPricing.totalPricePerSqft
-                            } else if ((group.insulation_type === 'closed_cell' || group.insulation_type === 'open_cell') && 
+                            } else if ((group.insulation_type === 'closed_cell' || group.insulation_type === 'open_cell') &&
                                        (group.closed_cell_inches || group.open_cell_inches)) {
                               const inches = group.insulation_type === 'closed_cell' ? (group.closed_cell_inches || 0) : (group.open_cell_inches || 0)
                               if (inches > 0) {
@@ -2319,12 +2319,18 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                           return sum + (effectiveSqft * unitPrice)
                         }, 0)
                         
-                        await generateQuickEstimatePDF(
-                          measurements as any,
-                          job.job_name || 'Spray Foam Estimate',
-                          job.lead?.name || 'Customer',
-                          jobPhotos,
-                          {
+                        // Call API to generate and save PDF
+                        const response = await fetch(`/api/jobs/${job.id}/generate-pdf`, {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json'
+                          },
+                          body: JSON.stringify({
+                            measurements: measurements,
+                            jobName: job.job_name || 'Spray Foam Estimate',
+                            customerName: job.lead?.name || 'Customer',
+                            jobPhotos: jobPhotos,
+                            additionalData: {
                             customerEmail: job.lead?.email,
                             customerPhone: job.lead?.phone,
                             customerAddress: job.lead?.address,
@@ -2337,27 +2343,48 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                             salespersonName: currentUser,
                             salespersonEmail: 'jorge@EconovaEnergySavings.com',
                             salespersonPhone: '617-596-2476',
-                            companyWebsite: 'EconovaEnergySavings.com',
-                            // Pass override data for PDF generation
-                            overrideTotal: estimateTotal,
-                            groupOverrides: groupOverrides,
-                            groupedMeasurements: pdfGroupedMeasurements
-                          }
-                        )
+                              companyWebsite: 'EconovaEnergySavings.com',
+                              overrideTotal: estimateTotal,
+                              groupOverrides: groupOverrides,
+                              groupedMeasurements: pdfGroupedMeasurements
+                            }
+                          })
+                        })
+
+                        if (!response.ok) {
+                          throw new Error(`HTTP error! status: ${response.status}`)
+                        }
+
+                        const result = await response.json()
                         
-                        // Show the total with overrides in toast
-                        const estimate = { total: estimateTotal }
+                        if (result.success) {
+                          // Also download the PDF for immediate viewing
+                          window.open(result.pdfUrl, '_blank')
+                          
+                          // Update the job in parent component if callback provided
+                          if (onJobUpdate) {
+                            const updatedJob = {
+                              ...job,
+                              latest_estimate_pdf_url: result.pdfUrl,
+                              latest_estimate_pdf_name: result.fileName,
+                              pdf_generated_at: new Date().toISOString()
+                            }
+                            onJobUpdate(updatedJob)
+                          }
                         
                         toast.success(
                           <div className="space-y-2">
-                            <p className="font-semibold">Quick PDF Generated!</p>
-                            <p>Downloading PDF...</p>
-                            <p className="text-lg font-bold">Total: {formatCurrency(estimate.total)}</p>
+                              <p className="font-semibold">PDF Generated & Saved!</p>
+                              <p>PDF saved to database and opened in new tab</p>
+                              <p className="text-lg font-bold">Total: {formatCurrency(estimateTotal)}</p>
                           </div>
                         )
+                        } else {
+                          throw new Error(result.error || 'Failed to generate PDF')
+                        }
                       } catch (error) {
                         console.error('Error generating PDF:', error)
-                        toast.error('Failed to generate PDF. Please try again.')
+                        toast.error('Failed to generate and save PDF. Please try again.')
                       }
                     }}
                   >
@@ -2593,11 +2620,11 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                                       ) : (
                                         <span>{group.total_square_feet.toFixed(1)} sq ft</span>
                                       )}
-                                    </div>
-                                    <div className="font-bold text-green-600">
-                                      {formatCurrency(totalPrice)}
-                                    </div>
                                   </div>
+                                  <div className="font-bold text-green-600">
+                                    {formatCurrency(totalPrice)}
+                                  </div>
+                                </div>
                                   {isManager && (
                                     <div className="flex items-center gap-2 text-slate-700">
                                       <span className="text-xs">Unit Price ($/sq ft):</span>
@@ -2752,7 +2779,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
 
                       if (group.is_hybrid_system && group.insulation_type === 'hybrid') {
                         const hybridCalc = calculateHybridRValue(
-                          group.closed_cell_inches || 0,
+                          group.closed_cell_inches || 0, 
                           group.open_cell_inches || 0
                         )
                         const hybridPricing = calculateHybridPricing(hybridCalc)
@@ -2761,7 +2788,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                           : (typeof persistedUnit === 'number' ? persistedUnit : hybridPricing.totalPricePerSqft)
                         return sum + (effectiveSqft * unit)
                       } else {
-                        if ((group.insulation_type === 'closed_cell' || group.insulation_type === 'open_cell') &&
+                        if ((group.insulation_type === 'closed_cell' || group.insulation_type === 'open_cell') && 
                             (group.closed_cell_inches || group.open_cell_inches)) {
                           const inches = group.insulation_type === 'closed_cell' ? (group.closed_cell_inches || 0) : (group.open_cell_inches || 0)
                           if (inches > 0) {
@@ -2775,7 +2802,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
 
                         const fallback = calculateMeasurementPrice(
                           effectiveSqft,
-                          group.insulation_type as InsulationType,
+                          group.insulation_type as InsulationType, 
                           Number(group.r_value) || 0
                         )
                         const unit = typeof uiOverride.unitPrice === 'number'
@@ -2834,7 +2861,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
           </CardContent>
         </Card>
       </div>
-      
+
       {/* Estimate Builder Modal */}
       {showEstimateBuilder && (
         <EstimateBuilder
