@@ -1,6 +1,6 @@
 "use client"
 
-import { ScrollArea } from "@/components/ui/scroll-area"
+
 import { Header } from "./header"
 import { Sidebar } from "./sidebar"
 
@@ -19,10 +19,8 @@ export function DashboardLayout({ children, title, user }: DashboardLayoutProps)
   return (
     <div className="min-h-screen bg-slate-50/50" suppressHydrationWarning>
       <div className="grid lg:grid-cols-[280px_1fr] min-h-screen">
-        <div className="hidden lg:block border-r bg-white">
-          <ScrollArea className="h-screen">
-            <Sidebar user={user} />
-          </ScrollArea>
+        <div className="hidden lg:block border-r bg-white overflow-y-auto h-screen">
+          <Sidebar user={user} />
         </div>
         
         <div className="flex flex-col min-h-screen">
