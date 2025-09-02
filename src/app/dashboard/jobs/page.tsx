@@ -1060,23 +1060,9 @@ export default function JobsPage() {
             </div>
           ) : (
             // Table View
-            <div className="w-full border border-gray-200 rounded-lg bg-white">
-              <div 
-                style={{ 
-                  overflowX: 'scroll',
-                  overflowY: 'hidden',
-                  width: '100%',
-                  WebkitOverflowScrolling: 'touch',
-                  scrollbarWidth: 'auto'
-                }}
-              >
+            <div className="w-full border border-gray-200 rounded-lg bg-white overflow-x-auto">
                 <table 
-                  className="border-collapse"
-                  style={{ 
-                    width: '1200px',
-                    minWidth: '1200px',
-                    tableLayout: 'fixed'
-                  }}
+                  className="w-full border-collapse min-w-[1200px]"
                 >
                   <thead>
                     <tr className="border-b">
@@ -1254,7 +1240,6 @@ export default function JobsPage() {
                     ))}
                   </tbody>
                 </table>
-              </div>
             </div>
           )}
         </div>
