@@ -20,14 +20,12 @@ export function DashboardLayout({ children, title, user }: DashboardLayoutProps)
     <div className="min-h-screen bg-slate-50/50" suppressHydrationWarning>
       <div className="grid lg:grid-cols-[280px_1fr] min-h-screen">
         <div className="hidden lg:block border-r bg-white">
-          <div className="sticky top-0 h-screen">
-            <ScrollArea className="h-full">
-              <Sidebar user={user} />
-            </ScrollArea>
-          </div>
+          <ScrollArea className="h-screen">
+            <Sidebar user={user} />
+          </ScrollArea>
         </div>
         
-        <div className="flex flex-col">
+        <div className="flex flex-col min-h-screen">
           <Header title={title} user={user} />
           
           <main className="flex-1">
