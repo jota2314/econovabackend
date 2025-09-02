@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/select"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Badge } from "@/components/ui/badge"
-import { ScrollArea } from "@/components/ui/scroll-area"
+
 import { toast } from "sonner"
 import { 
   Calculator, 
@@ -204,7 +204,6 @@ export function EstimateBuilder({ job, measurements, onClose, onEstimateCreated 
         </CardHeader>
 
         <CardContent>
-          <ScrollArea className="h-[70vh]">
             <div className="space-y-6">
               
               {/* Measurements Summary */}
@@ -472,7 +471,6 @@ export function EstimateBuilder({ job, measurements, onClose, onEstimateCreated 
               </Form>
 
             </div>
-          </ScrollArea>
         </CardContent>
       </Card>
     </div>

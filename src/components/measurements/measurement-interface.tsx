@@ -19,7 +19,7 @@ import {
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { ScrollArea } from "@/components/ui/scroll-area"
+
 import { ImageGallery, ImageThumbnailGrid } from '@/components/ui/image-gallery'
 import { toast } from "sonner"
 import { 
@@ -2421,7 +2421,6 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             </div>
           </CardHeader>
           <CardContent>
-            <ScrollArea className="h-[600px]">
               {loading ? (
                 <div className="flex items-center justify-center py-8">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600"></div>
@@ -2882,7 +2881,6 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                   })()}
                 </div>
               )}
-            </ScrollArea>
           </CardContent>
         </Card>
       </div>
