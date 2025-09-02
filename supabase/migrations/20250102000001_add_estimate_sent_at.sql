@@ -7,3 +7,4 @@ COMMENT ON COLUMN public.jobs.estimate_sent_at IS 'Timestamp when the estimate w
 
 -- Create index for better query performance
 CREATE INDEX idx_jobs_estimate_sent_at ON public.jobs(estimate_sent_at DESC);
+

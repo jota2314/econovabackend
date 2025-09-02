@@ -129,6 +129,7 @@ export function Sidebar({ className, user }: SidebarProps) {
               height={85}
               className="h-20 w-auto"
               style={{ height: 'auto', width: 'auto' }}
+              priority
             />
           </div>
           

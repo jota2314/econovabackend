@@ -21,11 +21,11 @@ const nextConfig: NextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://amonwicqzmmpzybnzthp.supabase.co",
+              "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://amonwicqzmmpzybnzthp.supabase.co https://va.vercel-scripts.com",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https: blob:",
               "font-src 'self'",
-              "connect-src 'self' https://amonwicqzmmpzybnzthp.supabase.co wss://amonwicqzmmpzybnzthp.supabase.co",
+              "connect-src 'self' https://amonwicqzmmpzybnzthp.supabase.co wss://amonwicqzmmpzybnzthp.supabase.co https://vitals.vercel-insights.com",
               "frame-src 'none'",
             ].join('; '),
           },

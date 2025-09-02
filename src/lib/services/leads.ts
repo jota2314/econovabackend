@@ -14,20 +14,34 @@ export class LeadsService {
       console.log('🔄 Starting leads query...')
       
       // Get current user and their role
-      const { data: { user } } = await this.supabase.auth.getUser()
+      const { data: { user }, error: authError } = await this.supabase.auth.getUser()
+      
+      if (authError) {
+        console.error('❌ Authentication error:', authError)
+        throw new Error('Authentication failed. Please refresh the page.')
+      }
+      
+      if (!user) {
+        console.warn('⚠️ No authenticated user found')
+        throw new Error('Please log in to view leads.')
+      }
+      
       let userRole = 'salesperson' // default role
       
-      if (user) {
-        const { data: userProfile } = await this.supabase
-          .from('users')
-          .select('role')
-          .eq('id', user.id)
-          .single()
-        
-        if (userProfile) {
-          userRole = userProfile.role
-        }
+      const { data: userProfile, error: profileError } = await this.supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+      
+      if (profileError) {
+        console.error('❌ Error fetching user profile:', profileError)
+        // Continue with default role instead of failing
+      } else if (userProfile) {
+        userRole = userProfile.role
       }
+      
+      console.log(`👤 User: ${user.email}, Role: ${userRole}`)
       
       // Build the query step by step
       let query = this.supabase

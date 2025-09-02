@@ -132,6 +132,18 @@ export default function JobsPage() {
     loadUser()
     loadJobs()
     loadLeads()
+    
+    // Listen for estimate updates to refresh job data
+    const handleEstimateUpdate = (event: CustomEvent) => {
+      console.log('🔄 Estimate updated, refreshing jobs data...', event.detail)
+      loadJobs() // Refresh jobs to show updated estimate totals
+    }
+    
+    window.addEventListener('estimateUpdated', handleEstimateUpdate as EventListener)
+    
+    return () => {
+      window.removeEventListener('estimateUpdated', handleEstimateUpdate as EventListener)
+    }
   }, [])
 
   const loadUser = async () => {
@@ -332,11 +344,9 @@ export default function JobsPage() {
           // First check if we have an estimate with subtotal (apply 6.25% markup like in table)
           if (job.estimates && job.estimates.length > 0) {
             const latestEstimate = job.estimates[job.estimates.length - 1]
-            if (latestEstimate.subtotal) {
-              // Apply the same 6.25% markup that's shown in the table
-              const totalWithMarkup = latestEstimate.subtotal * 1.0625
-              console.log(`Using estimate subtotal with 6.25% markup for job ${job.id}: $${latestEstimate.subtotal} * 1.0625 = $${totalWithMarkup}`)
-              return totalWithMarkup
+            if (latestEstimate.total_amount) {
+              console.log(`Using estimate total_amount for job ${job.id}: $${latestEstimate.total_amount}`)
+              return latestEstimate.total_amount
             }
           }
           // Fall back to quote_amount if no estimate
@@ -937,8 +947,8 @@ export default function JobsPage() {
                               const latestEstimate = job.estimates && job.estimates.length > 0 
                                 ? job.estimates[job.estimates.length - 1] 
                                 : null;
-                              if (latestEstimate?.subtotal) {
-                                return `$${latestEstimate.subtotal.toLocaleString()}`;
+                              if (latestEstimate?.total_amount) {
+                                return `$${latestEstimate.total_amount.toLocaleString()}`;
                               } else if (job.quote_amount) {
                                 return `$${job.quote_amount.toLocaleString()}`;
                               }
@@ -1109,8 +1119,8 @@ export default function JobsPage() {
                                 const latestEstimate = job.estimates && job.estimates.length > 0 
                                   ? job.estimates[job.estimates.length - 1] 
                                   : null;
-                                if (latestEstimate?.subtotal) {
-                                  return `$${(() => { const total = latestEstimate.subtotal * 1.0625; return total.toLocaleString(); })()}`;
+                                if (latestEstimate?.total_amount) {
+                                  return `$${latestEstimate.total_amount.toLocaleString()}`;
                                 } else if (job.quote_amount) {
                                   return `$${job.quote_amount.toLocaleString()}`;
                                 }

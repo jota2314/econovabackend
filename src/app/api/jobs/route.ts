@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
         estimate_sent_at,
         lead:leads!lead_id(name, phone, address),
         measurements(id, room_name, floor_level, area_type, surface_type, framing_size, square_feet, insulation_type, r_value, photo_url, notes),
-        estimates(id, estimate_number, subtotal, status, created_by)
+        estimates(id, estimate_number, subtotal, total_amount, status, created_by)
       `)
       .order('created_at', { ascending: false })
 

@@ -7,3 +7,4 @@ COMMENT ON COLUMN public.jobs.workflow_status IS 'Current workflow status of the
 
 -- Create index for better query performance
 CREATE INDEX idx_jobs_workflow_status ON public.jobs(workflow_status);
+

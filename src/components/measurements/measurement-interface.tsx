@@ -554,6 +554,19 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         toast.success(`Estimate ${action}! Total: ${formatCurrency(total)} (${lineItems.length} line items)`)
         console.log(`✅ Estimate ${action} with ID:`, result.data?.id || existingEstimate?.id)
         console.log('🎯 Total line items included:', lineItems.length)
+        
+        // Broadcast estimate update to sync with other parts of the app
+        window.dispatchEvent(new CustomEvent('estimateUpdated', { 
+          detail: { 
+            estimateId: result.data?.id || existingEstimate?.id,
+            jobId: job.id,
+            newTotal: total,
+            timestamp: Date.now(),
+            source: 'jobs_page'
+          } 
+        }))
+        console.log('📡 Broadcasted estimate update event from jobs page')
+        
         // Optionally update job status or refresh data
       } else {
         console.error('❌ Estimate save failed:', result.error)
@@ -611,18 +624,18 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
       setUploadingPhoto(true)
       console.log('📤 Uploading job photo:', file.name)
       
-      // Create a data URL for immediate display
+      // Create a data URL for immediate display and database storage
       const reader = new FileReader()
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         const dataUrl = e.target?.result as string
         
         // Add to job photos immediately for instant feedback
         setJobPhotos(prev => [...prev, dataUrl])
         
-        // Create a photo "measurement" record
-        // Photo is already added to jobPhotos state above
-        // No need to create a measurement record for photos
-        console.log('✅ Photo uploaded and added to job photos')
+        // Save the photo to the database as a measurement record
+        await createPhotoMeasurement(file.name, dataUrl)
+        
+        console.log('✅ Photo uploaded and saved to database')
       }
       reader.readAsDataURL(file)
       
@@ -679,6 +692,18 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
   useEffect(() => {
     loadMeasurements()
     loadPricing(serviceType)
+    
+    // Listen for estimate updates from other parts of the app
+    const handleEstimateUpdate = (event: CustomEvent) => {
+      console.log('🔄 Estimate updated elsewhere, refreshing measurement data...', event.detail)
+      loadMeasurements() // Refresh measurements to show any updates
+    }
+    
+    window.addEventListener('estimateUpdated', handleEstimateUpdate as EventListener)
+    
+    return () => {
+      window.removeEventListener('estimateUpdated', handleEstimateUpdate as EventListener)
+    }
   }, [loadMeasurements, loadPricing, serviceType])
 
   // Handle service type change

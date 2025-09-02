@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -14,6 +15,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Bell, Search, User, LogOut, Settings, HelpCircle } from "lucide-react"
 import { MobileSidebar } from "./mobile-sidebar"
+import { notificationsService, type Notification } from "@/lib/services/notifications"
 
 interface HeaderProps {
   title?: string
@@ -30,12 +32,34 @@ export function Header({
   user
 }: HeaderProps) {
   const router = useRouter()
+  const [notifications, setNotifications] = useState<Notification[]>([])
+  const [loading, setLoading] = useState(true)
   
   // Ensure we always have user data for consistent rendering
   const userData = user || {
     name: "Guest User",
     email: "guest@sprayfoam.com",
     role: "salesperson"
+  }
+  
+  // Load real notifications
+  useEffect(() => {
+    loadNotifications()
+    // Refresh notifications every 30 seconds
+    const interval = setInterval(loadNotifications, 30000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const loadNotifications = async () => {
+    try {
+      setLoading(true)
+      const realNotifications = await notificationsService.getRecentNotifications(10)
+      setNotifications(realNotifications)
+    } catch (error) {
+      console.error('Error loading notifications:', error)
+    } finally {
+      setLoading(false)
+    }
   }
   
   const handleLogout = async () => {
@@ -47,13 +71,17 @@ export function Header({
     // In a real app, this would open a search modal or navigate to search page
     alert('Search functionality coming soon!')
   }
-  
-  // Sample notifications (in real app, these would come from API)
-  const notifications = [
-    { id: 1, message: "New lead assigned to you", time: "5 min ago", read: false },
-    { id: 2, message: "Job #1234 measurement complete", time: "1 hour ago", read: false },
-    { id: 3, message: "Quote approved by customer", time: "2 hours ago", read: true }
-  ]
+
+  const handleNotificationClick = (notification: Notification) => {
+    // Navigate to relevant page based on notification type
+    if (notification.relatedType === 'lead') {
+      router.push('/dashboard/leads')
+    } else if (notification.relatedType === 'job') {
+      router.push('/dashboard/jobs')
+    } else if (notification.relatedType === 'estimate') {
+      router.push('/dashboard/estimate-approvals')
+    }
+  }
   
   const unreadCount = notifications.filter(n => !n.read).length
   return (
@@ -96,33 +124,80 @@ export function Header({
                 <DropdownMenuLabel>
                   <div className="flex items-center justify-between">
                     <span>Notifications</span>
-                    <Badge variant="secondary" className="text-xs">
-                      {unreadCount} new
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="text-xs">
+                        {loading ? '...' : `${unreadCount} new`}
+                      </Badge>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          loadNotifications()
+                        }}
+                        disabled={loading}
+                        className="h-6 w-6 p-0"
+                      >
+                        <div className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`}>
+                          🔄
+                        </div>
+                      </Button>
+                    </div>
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                {notifications.length === 0 ? (
+                
+                {loading ? (
                   <div className="p-4 text-center text-sm text-slate-500">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-slate-400 mx-auto mb-2"></div>
+                    Loading notifications...
+                  </div>
+                ) : notifications.length === 0 ? (
+                  <div className="p-4 text-center text-sm text-slate-500">
+                    <Bell className="h-8 w-8 mx-auto mb-2 text-slate-300" />
                     No new notifications
                   </div>
                 ) : (
-                  notifications.map((notification) => (
-                    <DropdownMenuItem
-                      key={notification.id}
-                      className={`flex flex-col items-start p-3 ${!notification.read ? 'bg-slate-50' : ''}`}
-                    >
-                      <span className="text-sm font-medium">{notification.message}</span>
-                      <span className="text-xs text-slate-500">{notification.time}</span>
-                    </DropdownMenuItem>
-                  ))
+                  <div className="max-h-80 overflow-y-auto">
+                    {notifications.map((notification) => (
+                      <DropdownMenuItem
+                        key={notification.id}
+                        className={`flex items-start p-3 cursor-pointer hover:bg-slate-50 ${
+                          !notification.read ? 'bg-blue-50 border-l-2 border-l-blue-500' : ''
+                        }`}
+                        onClick={() => handleNotificationClick(notification)}
+                      >
+                        <div className="flex-shrink-0 mr-3 mt-0.5">
+                          <span className="text-lg">
+                            {notificationsService.getNotificationIcon(notification.type)}
+                          </span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className={`text-sm font-medium ${
+                            notificationsService.getNotificationColor(notification.type)
+                          }`}>
+                            {notification.message}
+                          </div>
+                          <div className="text-xs text-slate-500 mt-1">
+                            {notification.time}
+                          </div>
+                          {!notification.read && (
+                            <div className="w-2 h-2 bg-blue-500 rounded-full mt-1"></div>
+                          )}
+                        </div>
+                      </DropdownMenuItem>
+                    ))}
+                  </div>
                 )}
+                
                 <DropdownMenuSeparator />
                 <DropdownMenuItem 
-                  className="text-center justify-center text-sm text-blue-600 hover:text-blue-700"
+                  className="text-center justify-center text-sm text-blue-600 hover:text-blue-700 cursor-pointer"
                   onClick={() => router.push('/dashboard')}
                 >
-                  View all notifications
+                  <Button variant="ghost" size="sm" className="w-full">
+                    View all notifications
+                  </Button>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

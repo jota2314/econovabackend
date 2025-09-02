@@ -5,6 +5,7 @@ import { AuthProvider } from "@/providers/auth-provider";
 import { Toaster } from "sonner";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { RoleProvider } from "@/contexts/role-context";
+import { DevTools } from "@/components/dev/dev-tools";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -51,6 +52,7 @@ export default function RootLayout({
           closeButton
         />
         <SpeedInsights />
+        <DevTools />
       </body>
     </html>
   );

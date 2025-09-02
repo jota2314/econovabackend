@@ -20,7 +20,7 @@ export async function POST(
       )
     }
 
-    console.log(`✅ Approving estimate ${id} by user ${user.id}`)
+    console.log(`❌ Rejecting estimate ${id} by user ${user.id}`)
 
     // Check if user is a manager
     const { data: userProfile } = await supabase
@@ -31,16 +31,16 @@ export async function POST(
 
     if (userProfile?.role !== 'manager') {
       return NextResponse.json(
-        { success: false, error: 'Only managers can approve estimates' },
+        { success: false, error: 'Only managers can reject estimates' },
         { status: 403 }
       )
     }
 
-    // Update estimate status to approved
+    // Update estimate status to rejected
     const { data: updatedEstimate, error: updateError } = await supabase
       .from('estimates')
       .update({
-        status: 'approved',
+        status: 'rejected',
         approved_by: user.id,
         approved_at: new Date().toISOString()
       })
@@ -49,23 +49,23 @@ export async function POST(
       .single()
 
     if (updateError) {
-      console.error('Error approving estimate:', updateError)
+      console.error('Error rejecting estimate:', updateError)
       return NextResponse.json(
-        { success: false, error: 'Failed to approve estimate' },
+        { success: false, error: 'Failed to reject estimate' },
         { status: 500 }
       )
     }
 
-    console.log(`✅ Estimate ${id} approved successfully`)
+    console.log(`❌ Estimate ${id} rejected successfully`)
 
     return NextResponse.json({
       success: true,
-      message: 'Estimate approved successfully',
+      message: 'Estimate rejected successfully',
       estimate: updatedEstimate
     })
 
   } catch (error) {
-    console.error('Error in approve estimate API:', error)
+    console.error('Error in reject estimate API:', error)
     return NextResponse.json(
       { success: false, error: 'Internal server error' },
       { status: 500 }

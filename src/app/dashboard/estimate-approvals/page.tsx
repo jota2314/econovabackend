@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -29,7 +29,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { createClient } from "@/lib/supabase/client"
-// Dialog components removed - using full-page view instead
+
 
 interface Estimate {
   id: string
@@ -69,15 +69,10 @@ export default function EstimateApprovalsPage() {
   const [statusFilter, setStatusFilter] = useState("pending_approval")
   const [serviceFilter, setServiceFilter] = useState("all")
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards')
-  // Removed dialog state since we're using full-page view
+
 
   const router = useRouter()
   const supabase = createClient()
-
-  useEffect(() => {
-    loadUser()
-    loadEstimates()
-  }, [statusFilter, serviceFilter])
 
   const loadUser = async () => {
     try {
@@ -98,7 +93,7 @@ export default function EstimateApprovalsPage() {
     }
   }
 
-  const loadEstimates = async () => {
+  const loadEstimates = useCallback(async () => {
     try {
       setLoading(true)
       
@@ -120,7 +115,27 @@ export default function EstimateApprovalsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [statusFilter, serviceFilter])
+
+  useEffect(() => {
+    loadUser()
+    loadEstimates()
+  }, [loadEstimates])
+
+  // Listen for estimate updates from other parts of the app (jobs page)
+  useEffect(() => {
+    const handleEstimateUpdate = (event: CustomEvent) => {
+      console.log('🔄 Estimate updated from jobs page, refreshing estimate approvals...', event.detail)
+      // Use the existing loadEstimates function to maintain consistency
+      loadEstimates()
+    }
+    
+    window.addEventListener('estimateUpdated', handleEstimateUpdate as EventListener)
+    
+    return () => {
+      window.removeEventListener('estimateUpdated', handleEstimateUpdate as EventListener)
+    }
+  }, [loadEstimates]) // Include loadEstimates in dependencies
 
   const approveEstimate = async (estimateId: string) => {
     if (user?.role !== 'manager') {
@@ -217,10 +232,12 @@ export default function EstimateApprovalsPage() {
 
   // Check if user is manager for functionality
   const isManager = user?.role === 'manager'
+  
+
 
   const viewEstimate = (estimateId: string) => {
-    // Navigate to the full-page estimate detail view
-    router.push(`/dashboard/estimate-approvals/${estimateId}`)
+    // Navigate to the summary page (no measurements, just estimate summary)
+    router.push(`/dashboard/estimate-approvals/${estimateId}/summary`)
   }
 
   // Update function removed - editing happens in the detail page
@@ -291,6 +308,8 @@ export default function EstimateApprovalsPage() {
             <span className="text-sm">Manager approval required for estimates</span>
           </div>
         )}
+        
+
       </div>
 
       {/* Dashboard Metrics */}
@@ -615,6 +634,8 @@ export default function EstimateApprovalsPage() {
           </div>
         </div>
       )}
+
+
     </div>
   )
 }

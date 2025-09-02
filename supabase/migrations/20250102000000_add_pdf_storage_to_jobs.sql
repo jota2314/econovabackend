@@ -11,3 +11,4 @@ COMMENT ON COLUMN public.jobs.pdf_generated_at IS 'Timestamp when the latest PDF
 
 -- Create index for better query performance
 CREATE INDEX idx_jobs_pdf_generated_at ON public.jobs(pdf_generated_at DESC);
+

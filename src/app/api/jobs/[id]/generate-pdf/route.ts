@@ -50,6 +50,75 @@ export async function POST(
     const body: PDFGenerationRequest = await request.json()
     const { measurements, jobName, customerName, jobPhotos, additionalData } = body
     
+    console.log('[PDF API] Checking for updated estimate data...')
+    
+    // Check if there are approved estimates with updated line items
+    const { data: latestEstimate } = await supabase
+      .from('estimates')
+      .select(`
+        id,
+        estimate_number,
+        subtotal,
+        total_amount,
+        status,
+        estimate_line_items (
+          id,
+          description,
+          quantity,
+          unit_price,
+          line_total,
+          service_type
+        )
+      `)
+      .eq('job_id', jobId)
+      .in('status', ['approved', 'sent', 'pending_approval'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+    
+    // If we have an approved estimate with line items, use that data instead of raw measurements
+    let finalMeasurements = measurements
+    let finalOverrideTotal = additionalData?.overrideTotal
+    
+    if (latestEstimate?.estimate_line_items && latestEstimate.estimate_line_items.length > 0) {
+      console.log('[PDF API] Found latest estimate with line items:', latestEstimate.estimate_number)
+      console.log('[PDF API] Line items count:', latestEstimate.estimate_line_items.length)
+      console.log('[PDF API] Using updated estimate data instead of raw measurements')
+      
+      // Convert estimate line items back to measurement format for PDF
+      finalMeasurements = latestEstimate.estimate_line_items.map((item: any, index: number) => {
+        console.log(`[PDF API] Processing line item ${index + 1}:`, {
+          description: item.description,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          line_total: item.line_total
+        })
+        
+        return {
+          room_name: item.description || `Item ${index + 1}`,
+          surface_type: item.service_type || 'insulation',
+          square_feet: item.quantity,
+          height: Math.sqrt(item.quantity), // Approximate
+          width: Math.sqrt(item.quantity), // Approximate
+          insulation_type: 'closed_cell' as const,
+          r_value: 30,
+          framing_size: '2x6',
+          photo_url: undefined,
+          // Pass the actual pricing data
+          unit_price: item.unit_price,
+          line_total: item.line_total || (item.quantity * item.unit_price)
+        }
+      })
+      
+      // Use the updated total from estimate
+      finalOverrideTotal = latestEstimate.total_amount
+      
+      console.log(`[PDF API] Using estimate total: $${latestEstimate.total_amount}`)
+      console.log(`[PDF API] Final measurements for PDF:`, finalMeasurements.length, 'items')
+    } else {
+      console.log('[PDF API] No estimate line items found, using raw measurements')
+    }
+    
     console.log('[PDF API] Request data:', {
       jobName,
       customerName,
@@ -81,11 +150,11 @@ export async function POST(
       salespersonEmail: additionalData?.salespersonEmail || 'jorge@EconovaEnergySavings.com',
       salespersonPhone: additionalData?.salespersonPhone || '617-596-2476',
       companyWebsite: additionalData?.companyWebsite || 'EconovaEnergySavings.com',
-      measurements: measurements,
+      measurements: finalMeasurements, // Use updated measurements if available
       jobPhotos: jobPhotos || [],
       generatedDate: new Date(),
       validUntil: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000), // 15 days from now
-      overrideTotal: additionalData?.overrideTotal,
+      overrideTotal: finalOverrideTotal, // Use updated total if available
       groupOverrides: additionalData?.groupOverrides,
       groupedMeasurements: additionalData?.groupedMeasurements,
       returnBuffer: true // Flag to return buffer instead of downloading
