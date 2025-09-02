@@ -96,36 +96,21 @@ export async function POST(
     
     console.log('[PDF API] PDF buffer generated, size:', pdfBuffer.length)
 
-    console.log('[PDF API] Saving PDF to file system...')
+    console.log('[PDF API] Creating data URL for PDF (Vercel serverless compatible)...')
     
-    // Save PDF to public directory for easy access
-    const fs = await import('fs')
-    const path = await import('path')
+    // Convert PDF buffer to base64 data URL for immediate use
+    // This works in Vercel's serverless environment
+    const base64Data = Buffer.from(pdfBuffer).toString('base64')
+    const dataUrl = `data:application/pdf;base64,${base64Data}`
     
-    // Create pdfs directory if it doesn't exist
-    const publicDir = path.join(process.cwd(), 'public')
-    const pdfsDir = path.join(publicDir, 'pdfs')
-    
-    if (!fs.existsSync(pdfsDir)) {
-      fs.mkdirSync(pdfsDir, { recursive: true })
-    }
-    
-    // Save PDF file
-    const filePath = path.join(pdfsDir, fileName)
-    fs.writeFileSync(filePath, pdfBuffer)
-    
-    // Create public URL
-    const publicUrl = `/pdfs/${fileName}`
-    
-    console.log('[PDF API] PDF saved to:', filePath)
-    console.log('[PDF API] Public URL:', publicUrl)
+    console.log('[PDF API] Data URL created, size:', dataUrl.length)
     console.log('[PDF API] Updating job record...')
     
     // Update job record with PDF info
     const { error: updateError } = await supabase
       .from('jobs')
       .update({
-        latest_estimate_pdf_url: publicUrl, // Use public file URL
+        latest_estimate_pdf_url: dataUrl, // Use data URL for Vercel compatibility
         latest_estimate_pdf_name: fileName,
         pdf_generated_at: new Date().toISOString()
       })
@@ -140,9 +125,9 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      pdfUrl: publicUrl, // Return public URL for immediate viewing
+      pdfUrl: dataUrl, // Return data URL for immediate viewing
       fileName: fileName,
-      message: 'PDF generated and saved successfully'
+      message: 'PDF generated successfully (Vercel compatible)'
     })
 
   } catch (error) {

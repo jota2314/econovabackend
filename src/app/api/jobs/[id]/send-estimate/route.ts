@@ -51,62 +51,13 @@ export async function POST(
     let pdfBuffer: Uint8Array
     let pdfFileName = `Estimate_${job.job_name.replace(/[^a-z0-9]/gi, '_')}.pdf`
 
-    if (job.latest_estimate_pdf_url && !job.latest_estimate_pdf_url.startsWith('data:')) {
-      // Use existing saved PDF file
-      console.log('[Email API] Using existing PDF:', job.latest_estimate_pdf_url)
-      
-      const fs = await import('fs')
-      const path = await import('path')
-      
-      const pdfPath = path.join(process.cwd(), 'public', job.latest_estimate_pdf_url)
-      
-      if (fs.existsSync(pdfPath)) {
-        pdfBuffer = fs.readFileSync(pdfPath)
-        pdfFileName = job.latest_estimate_pdf_name || pdfFileName
-        console.log('[Email API] Using saved PDF, size:', pdfBuffer.length)
-      } else {
-        console.log('[Email API] Saved PDF file not found, generating new one...')
-        // Generate new PDF if file doesn't exist
-        const pdfGenerationResponse = await fetch(`${request.url.split('/send-estimate')[0]}/generate-pdf`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            measurements: job.measurements || [],
-            jobName: job.job_name || 'Spray Foam Estimate',
-            customerName: job.lead?.name || 'Valued Customer',
-            jobPhotos: [],
-            additionalData: {
-              customerPhone: job.lead?.phone || '',
-              customerEmail: job.lead?.email || '',
-              projectAddress: (job as any).project_address || '',
-              projectCity: (job as any).project_city || '',
-              projectState: (job as any).project_state || '',
-              projectZipCode: (job as any).project_zip_code || '',
-              salespersonName: 'Manager',
-              salespersonEmail: 'jorge@EconovaEnergySavings.com',
-              salespersonPhone: '617-596-2476',
-              companyWebsite: 'EconovaEnergySavings.com'
-            }
-          })
-        })
-        
-        const pdfResult = await pdfGenerationResponse.json()
-        if (pdfResult.success) {
-          // Read the newly generated PDF
-          const newPdfPath = path.join(process.cwd(), 'public', pdfResult.pdfUrl)
-          pdfBuffer = fs.readFileSync(newPdfPath)
-          pdfFileName = pdfResult.fileName
-          console.log('[Email API] Generated new PDF, size:', pdfBuffer.length)
-        } else {
-          throw new Error('Failed to generate PDF: ' + pdfResult.error)
-        }
-      }
-    } else if (job.latest_estimate_pdf_url?.startsWith('data:')) {
-      // Handle legacy data URL format
-      console.log('[Email API] Converting data URL to buffer...')
+    if (job.latest_estimate_pdf_url?.startsWith('data:')) {
+      // Use existing PDF data URL (standard for Vercel deployment)
+      console.log('[Email API] Using existing PDF data URL...')
       const base64Data = job.latest_estimate_pdf_url.split(',')[1]
       pdfBuffer = Buffer.from(base64Data, 'base64')
-      console.log('[Email API] Converted data URL, size:', pdfBuffer.length)
+      pdfFileName = job.latest_estimate_pdf_name || pdfFileName
+      console.log('[Email API] Using saved PDF, size:', pdfBuffer.length)
     } else {
       // No PDF exists, generate one
       console.log('[Email API] No PDF exists, generating new one...')
@@ -135,10 +86,9 @@ export async function POST(
       
       const pdfResult = await pdfGenerationResponse.json()
       if (pdfResult.success) {
-        const fs = await import('fs')
-        const path = await import('path')
-        const newPdfPath = path.join(process.cwd(), 'public', pdfResult.pdfUrl)
-        pdfBuffer = fs.readFileSync(newPdfPath)
+        // The PDF is now returned as a data URL, convert to buffer
+        const base64Data = pdfResult.pdfUrl.split(',')[1]
+        pdfBuffer = Buffer.from(base64Data, 'base64')
         pdfFileName = pdfResult.fileName
         console.log('[Email API] Generated new PDF, size:', pdfBuffer.length)
       } else {
