@@ -3,8 +3,6 @@ import { createClient } from '@/lib/supabase/server'
 import { Resend } from 'resend'
 import { env } from '@/lib/config/env'
 
-const resend = new Resend(env.RESEND_API_KEY)
-
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -210,6 +208,9 @@ export async function POST(
         </div>
       </div>
     `
+
+    // Initialize Resend client at runtime when environment variables are available
+    const resend = new Resend(env.RESEND_API_KEY)
 
     // Send email with PDF attachment
     console.log('[Email API] Sending email to:', job.lead.email)
