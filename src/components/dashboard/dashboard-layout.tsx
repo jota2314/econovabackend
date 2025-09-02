@@ -18,21 +18,21 @@ interface DashboardLayoutProps {
 export function DashboardLayout({ children, title, user }: DashboardLayoutProps) {
   return (
     <div className="min-h-screen bg-slate-50/50" suppressHydrationWarning>
-      <div className="grid lg:grid-cols-[280px_1fr] h-screen">
+      <div className="grid lg:grid-cols-[280px_1fr] min-h-screen">
         <div className="hidden lg:block border-r bg-white">
-          <ScrollArea className="h-full">
-            <Sidebar user={user} />
-          </ScrollArea>
+          <div className="sticky top-0 h-screen">
+            <ScrollArea className="h-full">
+              <Sidebar user={user} />
+            </ScrollArea>
+          </div>
         </div>
         
-        <div className="flex flex-col overflow-hidden">
+        <div className="flex flex-col">
           <Header title={title} user={user} />
           
-          <main className="flex-1 overflow-y-auto overflow-x-visible">
-            <div className="min-h-full">
-              <div className="p-4 lg:p-6 space-y-6">
-                {children}
-              </div>
+          <main className="flex-1">
+            <div className="p-4 lg:p-6 space-y-6">
+              {children}
             </div>
           </main>
         </div>
