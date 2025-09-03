@@ -32,24 +32,16 @@ import { Loader2, Briefcase, User, Home, FileText, Wind, Thermometer, Hammer, Bu
 const jobSchema = z.object({
   job_name: z.string().min(1, "Job name is required"),
   lead_id: z.string().min(1, "Lead selection is required"),
-  service_type: z.enum(["insulation", "hvac", "plaster"], {
-    required_error: "Service type is required"
-  }),
-  building_type: z.enum(["residential", "commercial"], {
-    required_error: "Building type is required"
-  }),
-  measurement_type: z.enum(["field", "drawings"], {
-    required_error: "Measurement type is required"
-  }),
+  service_type: z.enum(["insulation", "hvac", "plaster"]),
+  building_type: z.enum(["residential", "commercial"]),
+  measurement_type: z.enum(["field", "drawings"]),
   // Project address fields (required)
   project_address: z.string().min(1, "Project address is required"),
   project_city: z.string().min(1, "City is required"),
   project_state: z.string().min(1, "State is required"),
   project_zip_code: z.string().min(5, "ZIP code is required").max(10, "ZIP code too long"),
   // Project type fields (required)
-  project_type: z.enum(["new_construction", "remodel"], {
-    required_error: "Project type is required"
-  }),
+  project_type: z.enum(["new_construction", "remodel"]),
   // Service-specific optional fields
   // HVAC fields
   system_type: z.enum(["central_air", "heat_pump", "furnace"]).optional(),

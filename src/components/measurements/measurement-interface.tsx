@@ -348,22 +348,22 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         let insulationKey = measurement.insulation_type || 'unknown'
         if (measurement.is_hybrid_system) {
           insulationKey = `hybrid-${measurement.closed_cell_inches}cc-${measurement.open_cell_inches}oc`
-        } else if (measurement.closed_cell_inches > 0) {
+        } else if (measurement.closed_cell_inches && measurement.closed_cell_inches > 0) {
           insulationKey = `${measurement.insulation_type}-${measurement.closed_cell_inches}in`
-        } else if (measurement.open_cell_inches > 0) {
+        } else if (measurement.open_cell_inches && measurement.open_cell_inches > 0) {
           insulationKey = `${measurement.insulation_type}-${measurement.open_cell_inches}in`
         } else if (measurement.r_value) {
           insulationKey = `${measurement.insulation_type}-R${measurement.r_value}`
         }
         
-        const key = `${baseRoomName}-${measurement.area_type}-${insulationKey}`
+        const key = `${baseRoomName}-${measurement.area_type || 'unknown'}-${insulationKey}`
         if (!groups[key]) {
           groups[key] = {
             room_name: baseRoomName,
-            area_type: measurement.area_type,
+            area_type: measurement.area_type || 'exterior_walls',
             measurements: [],
             total_square_feet: 0,
-            insulation_type: measurement.insulation_type,
+            insulation_type: measurement.insulation_type || 'closed_cell',
             r_value: measurement.r_value,
             framing_size: measurement.framing_size,
             is_hybrid_system: measurement.is_hybrid_system,

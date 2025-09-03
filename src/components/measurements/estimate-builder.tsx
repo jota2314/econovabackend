@@ -104,13 +104,13 @@ export function EstimateBuilder({ job, measurements, onClose, onEstimateCreated 
     // Calculate base estimate
     const baseEstimate = calculateTotalEstimate(
       measurements.map(m => ({
-        squareFeet: m.square_feet,
-        insulationType: m.insulation_type as InsulationType,
+        squareFeet: m.square_feet || 0,
+        insulationType: (m.insulation_type || 'closed_cell') as InsulationType,
         rValue: m.r_value ? Number(m.r_value) : 0
       }))
     )
 
-    const totalSquareFeet = measurements.reduce((sum, m) => sum + m.square_feet, 0)
+    const totalSquareFeet = measurements.reduce((sum, m) => sum + (m.square_feet || 0), 0)
     
     // Apply complexity multiplier
     let adjustedSubtotal = baseEstimate.subtotal * formValues.complexityMultiplier
@@ -212,8 +212,8 @@ export function EstimateBuilder({ job, measurements, onClose, onEstimateCreated 
                 <div className="grid gap-2">
                   {measurements.map((measurement) => {
                     const pricing = calculateTotalEstimate([{
-                      squareFeet: measurement.square_feet,
-                      insulationType: measurement.insulation_type as InsulationType,
+                      squareFeet: measurement.square_feet || 0,
+                      insulationType: (measurement.insulation_type || 'closed_cell') as InsulationType,
                       rValue: measurement.r_value ? Number(measurement.r_value) : 0
                     }])
                     
@@ -222,7 +222,7 @@ export function EstimateBuilder({ job, measurements, onClose, onEstimateCreated 
                         <div className="flex-1">
                           <span className="font-medium">{measurement.room_name}</span>
                           <div className="text-sm text-slate-600">
-                            {measurement.square_feet.toFixed(1)} sq ft • {measurement.insulation_type?.replace('_', ' ')} • R-{measurement.r_value}
+                            {(measurement.square_feet || 0).toFixed(1)} sq ft • {measurement.insulation_type?.replace('_', ' ')} • R-{measurement.r_value}
                           </div>
                         </div>
                         <div className="text-right">

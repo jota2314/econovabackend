@@ -626,6 +626,8 @@ export type Enums<
 
 export type Lead = Tables<'leads'>
 export type Job = Tables<'jobs'>
+export type User = Tables<'users'>
+export type InsulationMeasurement = Tables<'measurements'>
 export type HvacMeasurement = Tables<'hvac_measurements'>
 export type PlasterMeasurement = Tables<'plaster_measurements'>
 export type PricingCatalog = Tables<'pricing_catalog'>
