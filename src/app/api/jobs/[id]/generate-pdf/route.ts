@@ -167,21 +167,34 @@ export async function POST(
     
     console.log('[PDF API] PDF buffer generated, size:', pdfBuffer.length)
 
-    console.log('[PDF API] Creating data URL for PDF (Vercel serverless compatible)...')
-    
-    // Convert PDF buffer to base64 data URL for immediate use
-    // This works in Vercel's serverless environment
-    const base64Data = Buffer.from(pdfBuffer).toString('base64')
-    const dataUrl = `data:application/pdf;base64,${base64Data}`
-    
-    console.log('[PDF API] Data URL created, size:', dataUrl.length)
+    console.log('[PDF API] Uploading PDF to Supabase Storage...')
+    const bucket = 'estimates'
+    const storagePath = `jobs/${jobId}/${fileName}`
+
+    // Upload PDF buffer to Storage (avoid huge JSON/body sizes)
+    const { error: uploadError } = await supabase.storage
+      .from(bucket)
+      .upload(storagePath, Buffer.from(pdfBuffer), {
+        contentType: 'application/pdf',
+        upsert: true
+      })
+
+    if (uploadError) {
+      console.error('[PDF API] Storage upload error:', uploadError)
+      return NextResponse.json({ error: 'Failed to upload PDF to storage', details: uploadError.message }, { status: 500 })
+    }
+
+    // Get a public URL for the uploaded file
+    const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(storagePath)
+    const publicUrl = publicUrlData?.publicUrl
+
+    console.log('[PDF API] Storage upload complete. Public URL:', publicUrl)
+
     console.log('[PDF API] Updating job record...')
-    
-    // Update job record with PDF info
     const { error: updateError } = await supabase
       .from('jobs')
       .update({
-        latest_estimate_pdf_url: dataUrl, // Use data URL for Vercel compatibility
+        latest_estimate_pdf_url: publicUrl,
         latest_estimate_pdf_name: fileName,
         pdf_generated_at: new Date().toISOString()
       })
@@ -196,9 +209,9 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      pdfUrl: dataUrl, // Return data URL for immediate viewing
+      pdfUrl: publicUrl,
       fileName: fileName,
-      message: 'PDF generated successfully (Vercel compatible)'
+      message: 'PDF generated and uploaded to storage successfully'
     })
 
   } catch (error) {
