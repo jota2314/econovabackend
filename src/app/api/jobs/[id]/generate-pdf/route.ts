@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+export const runtime = 'nodejs'
 import { createClient } from '@/lib/supabase/server'
 import jsPDF from 'jspdf'
 
@@ -168,25 +169,52 @@ export async function POST(
     console.log('[PDF API] PDF buffer generated, size:', pdfBuffer.length)
 
     console.log('[PDF API] Uploading PDF to Supabase Storage...')
-    const bucket = 'estimates'
+    // Use existing bucket (verified via Supabase: estimate-pdfs)
+    const bucket = 'estimate-pdfs'
     const storagePath = `jobs/${jobId}/${fileName}`
 
     // Upload PDF buffer to Storage (avoid huge JSON/body sizes)
-    const { error: uploadError } = await supabase.storage
-      .from(bucket)
-      .upload(storagePath, Buffer.from(pdfBuffer), {
-        contentType: 'application/pdf',
-        upsert: true
-      })
+    // Upload PDF (try Buffer first for Node.js; fallback to Blob)
+    let uploadError: any | null = null
+    {
+      const attempt = await supabase.storage
+        .from(bucket)
+        .upload(storagePath, Buffer.from(pdfBuffer), {
+          contentType: 'application/pdf',
+          upsert: true,
+        })
+      uploadError = attempt.error
+    }
+    if (uploadError) {
+      console.warn('[PDF API] Buffer upload failed, retrying with Blob...', uploadError)
+      try {
+        const pdfBlob = new Blob([pdfBuffer], { type: 'application/pdf' })
+        const attempt2 = await supabase.storage
+          .from(bucket)
+          .upload(storagePath, pdfBlob, { upsert: true })
+        uploadError = attempt2.error
+      } catch (e: any) {
+        uploadError = e
+      }
+    }
 
     if (uploadError) {
-      console.error('[PDF API] Storage upload error:', uploadError)
-      return NextResponse.json({ error: 'Failed to upload PDF to storage', details: uploadError.message }, { status: 500 })
+      console.error('[PDF API] Storage upload error (both attempts):', uploadError)
+      const message = uploadError?.message || uploadError?.error || 'Unknown upload error'
+      return NextResponse.json({ error: 'Failed to upload PDF to storage', details: message }, { status: 500 })
     }
 
     // Get a public URL for the uploaded file
     const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(storagePath)
-    const publicUrl = publicUrlData?.publicUrl
+    let publicUrl = publicUrlData?.publicUrl
+
+    // If bucket is private, provide a signed URL fallback (24h)
+    if (!publicUrl) {
+      const { data: signed } = await supabase.storage
+        .from(bucket)
+        .createSignedUrl(storagePath, 60 * 60 * 24)
+      publicUrl = signed?.signedUrl
+    }
 
     console.log('[PDF API] Storage upload complete. Public URL:', publicUrl)
 
