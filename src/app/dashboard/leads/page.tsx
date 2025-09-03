@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -29,7 +29,8 @@ import {
   TrendingUp,
   CheckSquare,
   Settings,
-  AlertCircle
+  AlertCircle,
+  RefreshCw
 } from "lucide-react"
 import { LeadsTable } from "@/components/leads/leads-table"
 import { LeadFormDialog } from "@/components/leads/lead-form-dialog"
@@ -40,60 +41,125 @@ import { LeadMapView } from "@/components/leads/lead-map-view"
 import { EnhancedLeadsTable } from "@/components/leads/enhanced-leads-table"
 import { SMSModal } from "@/components/communications/sms-modal"
 import { CommunicationHistorySidebar } from "@/components/communications/communication-history-sidebar"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Lead, TablesInsert } from "@/lib/types/database"
 import { leadsService } from "@/lib/services/leads"
 import { useAuthContext } from "@/providers/auth-provider"
 import { toast } from "sonner"
 
-type ViewMode = 'list' | 'communication' | 'pipeline' | 'map' | 'enhanced'
-type QuickFilter = 'all' | 'hot' | 'follow-up-today' | 'no-contact-7days' | 'my-leads' | 'team-leads' | 'unassigned'
+type ViewMode = 'communication' | 'table' | 'enhanced' | 'pipeline' | 'map'
+type QuickFilter = 'all' | 'active' | 'recent' | 'assigned_to_me' | 'unassigned'
+
+interface LeadsCache {
+  data: Lead[]
+  timestamp: number
+  userRole: string
+}
+
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+const MAX_RETRY_ATTEMPTS = 2
 
 export default function LeadsPage() {
+  // Core state
   const [leads, setLeads] = useState<Lead[]>([])
-  const [filteredLeads, setFilteredLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+  
+  // UI state
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [selectedLeads, setSelectedLeads] = useState<string[]>([])
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>('communication')
   
-  // Filter and search states
+  // Filter states
   const [searchTerm, setSearchTerm] = useState('')
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all')
   const [serviceFilter, setServiceFilter] = useState<'all' | 'insulation' | 'hvac' | 'plaster'>('all')
   const [statusFilter, setStatusFilter] = useState<'all' | Lead['status']>('all')
   
-  // Communication modal states
+  // Communication states
   const [smsModalOpen, setSmsModalOpen] = useState(false)
   const [historyModalOpen, setHistoryModalOpen] = useState(false)
   const [selectedLeadForComms, setSelectedLeadForComms] = useState<Lead | null>(null)
-  const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
-  
+
   const { user } = useAuthContext()
 
-  // Load leads with retry logic
-  const loadLeads = async (retryCount = 0) => {
+  // Cache management
+  const getCacheKey = useCallback(() => `leads_cache_${user?.id || 'anonymous'}`, [user?.id])
+  
+  const getFromCache = useCallback(() => {
     try {
-      console.log(`🔄 Loading leads... (attempt ${retryCount + 1})`)
+      const cached = localStorage.getItem(getCacheKey())
+      if (!cached) return null
+      
+      const parsedCache = JSON.parse(cached)
+      const isExpired = Date.now() - parsedCache.timestamp > CACHE_DURATION
+      
+      if (isExpired) {
+        localStorage.removeItem(getCacheKey())
+        return null
+      }
+      
+      return parsedCache.data
+    } catch {
+      return null
+    }
+  }, [getCacheKey])
+  
+  const setCache = useCallback((data: Lead[]) => {
+    try {
+      const cache = {
+        data,
+        timestamp: Date.now()
+      }
+      localStorage.setItem(getCacheKey(), JSON.stringify(cache))
+    } catch (error) {
+      console.warn('Failed to cache leads data:', error)
+    }
+  }, [getCacheKey])
+
+  // Improved load leads function with caching
+  const loadLeads = useCallback(async (forceRefresh = false, retryCount = 0) => {
+    if (!user) {
+      console.log('⚠️ No user, skipping load')
+      return
+    }
+    try {
       setLoading(true)
       setError(null)
       
+      // Check cache first (unless force refresh)
+      if (!forceRefresh) {
+        const cached = getFromCache()
+        if (cached) {
+          console.log('✅ Using cached leads data')
+          setLeads(cached)
+          setLastRefresh(new Date())
+          setLoading(false)
+          return
+        }
+      }
+      
+      console.log(`🔄 Loading leads from API... (attempt ${retryCount + 1})`)
       const data = await leadsService.getLeads()
       console.log('✅ Successfully loaded', data?.length || 0, 'leads')
       setLeads(data || [])
       setLastRefresh(new Date())
+      
+      // Cache the results
+      setCache(data || [])
       
     } catch (error) {
       console.error('❌ Exception loading leads:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       
       // Retry logic for network/timeout errors
-      if ((errorMessage.includes('timeout') || errorMessage.includes('network')) && retryCount < 2) {
+      if ((errorMessage.includes('timeout') || errorMessage.includes('network')) && retryCount < MAX_RETRY_ATTEMPTS) {
         console.log(`🔄 Retrying leads query in ${(retryCount + 1) * 2} seconds...`)
         setTimeout(() => {
-          loadLeads(retryCount + 1)
+          loadLeads(forceRefresh, retryCount + 1)
         }, (retryCount + 1) * 2000)
         return
       }
@@ -119,7 +185,7 @@ export default function LeadsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [user, getFromCache, setCache])
 
   // Add or update lead
   const handleSubmitLead = async (leadData: TablesInsert<'leads'>) => {
@@ -293,57 +359,7 @@ export default function LeadsPage() {
     }
   }
 
-  // Filter leads based on search and filters
-  const applyFilters = () => {
-    let filtered = leads
 
-    // Search filter
-    if (searchTerm) {
-      filtered = filtered.filter(lead =>
-        lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        lead.phone.includes(searchTerm) ||
-        lead.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        lead.company?.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    }
-
-    // Status filter
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(lead => lead.status === statusFilter)
-    }
-
-    // Quick filters
-    switch (quickFilter) {
-      case 'hot':
-        filtered = filtered.filter(lead => 
-          lead.status === 'measurement_scheduled' || lead.status === 'quoted'
-        )
-        break
-      case 'follow-up-today':
-        // This would need a follow-up date field in the database
-        // For now, show contacted leads
-        filtered = filtered.filter(lead => lead.status === 'contacted')
-        break
-      case 'no-contact-7days':
-        const sevenDaysAgo = new Date()
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-        filtered = filtered.filter(lead => 
-          new Date(lead.created_at) < sevenDaysAgo && lead.status === 'new'
-        )
-        break
-      case 'my-leads':
-        filtered = filtered.filter(lead => lead.assigned_to === user?.id)
-        break
-      case 'team-leads':
-        filtered = filtered.filter(lead => lead.assigned_to && lead.assigned_to !== user?.id)
-        break
-      case 'unassigned':
-        filtered = filtered.filter(lead => !lead.assigned_to)
-        break
-    }
-
-    setFilteredLeads(filtered)
-  }
 
   // Bulk actions
   const handleSelectAll = (selected: boolean) => {
@@ -406,10 +422,61 @@ export default function LeadsPage() {
     }
   }
 
-  // Apply filters when dependencies change
-  useEffect(() => {
-    applyFilters()
-  }, [leads, searchTerm, quickFilter, serviceFilter, statusFilter])
+  // Optimized filtering with memoization
+  const filteredLeads = useMemo(() => {
+    if (!leads.length) return []
+    
+    return leads.filter(lead => {
+      // Search term filter
+      if (searchTerm) {
+        const searchLower = searchTerm.toLowerCase()
+        const matchesSearch = 
+          lead.name.toLowerCase().includes(searchLower) ||
+          lead.email?.toLowerCase().includes(searchLower) ||
+          lead.phone?.includes(searchTerm) ||
+          lead.company?.toLowerCase().includes(searchLower) ||
+          lead.address?.toLowerCase().includes(searchLower)
+        
+        if (!matchesSearch) return false
+      }
+      
+      // Quick filter
+      if (quickFilter !== 'all') {
+        switch (quickFilter) {
+          case 'active':
+            if (['closed_won', 'closed_lost'].includes(lead.status)) return false
+            break
+          case 'recent':
+            const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+            if (new Date(lead.created_at) < weekAgo) return false
+            break
+          case 'assigned_to_me':
+            if (lead.assigned_to !== user?.id) return false
+            break
+          case 'unassigned':
+            if (lead.assigned_to) return false
+            break
+        }
+      }
+      
+      // Status filter
+      if (statusFilter !== 'all' && lead.status !== statusFilter) {
+        return false
+      }
+      
+      // Service filter (if lead has service_type property)
+      if (serviceFilter !== 'all' && (lead as any).service_type && (lead as any).service_type !== serviceFilter) {
+        return false
+      }
+      
+      return true
+    })
+  }, [leads, searchTerm, quickFilter, statusFilter, serviceFilter, user?.id])
+
+  // Refresh handler
+  const handleRefresh = useCallback(() => {
+    loadLeads(true) // Force refresh
+  }, [loadLeads])
 
   // Load leads on component mount when user is authenticated
   useEffect(() => {
@@ -480,6 +547,17 @@ export default function LeadsPage() {
         
         <div className="flex items-center gap-2">
           <Button
+            onClick={handleRefresh}
+            variant="outline"
+            size="sm"
+            disabled={loading}
+            className="flex items-center gap-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          
+          <Button
             variant="outline"
             size="sm"
             onClick={() => setShowImportDialog(true)}
@@ -505,9 +583,9 @@ export default function LeadsPage() {
       <div className="flex flex-col lg:flex-row gap-4">
         <div className="flex items-center gap-2 flex-wrap">
           <Button
-            variant={viewMode === 'list' ? 'default' : 'outline'}
+            variant={viewMode === 'table' ? 'default' : 'outline'}
             size="sm"
-            onClick={() => setViewMode('list')}
+            onClick={() => setViewMode('table')}
             className="transition-all"
           >
             <List className="h-4 w-4 mr-2" />
@@ -653,7 +731,7 @@ export default function LeadsPage() {
 
       {/* Content Views */}
       <div className="transition-all duration-300">
-        {viewMode === 'list' && (
+        {viewMode === 'table' && (
           <LeadsTable
             leads={filteredLeads}
             selectedLeads={selectedLeads}

@@ -180,7 +180,7 @@ export async function POST(
           floor_level,
           area_type, 
           surface_type,
-          framing_size, 
+          // framing_size, // Property doesn't exist in DB schema
           height, 
           width, 
           insulation_type,
@@ -196,7 +196,7 @@ export async function POST(
         } = body
 
         // Validate insulation fields
-        if (!insulationRoomName || !surface_type || !framing_size || height === undefined || width === undefined) {
+        if (!insulationRoomName || !surface_type || height === undefined || width === undefined) {
           return NextResponse.json(
             { success: false, error: 'Missing required insulation fields' },
             { status: 400 }
@@ -211,7 +211,7 @@ export async function POST(
           floor_level: floor_level || null,
           area_type: area_type || null,
           surface_type,
-          framing_size,
+          // framing_size, // Property doesn't exist in DB schema
           height: parseFloat(height),
           width: parseFloat(width),
           // square_feet is generated automatically - don't insert it

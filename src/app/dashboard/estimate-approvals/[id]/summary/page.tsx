@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -38,8 +38,13 @@ interface EstimateDetail {
     id: string
     job_name: string
     service_type: string
-    leads: {
+    lead: {
       name: string
+      email: string
+      phone: string
+      address: string
+      city: string
+      state: string
     }
   }
   created_by_user: {
@@ -96,97 +101,30 @@ export default function EstimateSummaryPage({ params }: { params: Promise<{ id: 
     try {
       setLoading(true)
       
-      // Load estimate with basic info first
-      const { data: estimateData, error: estimateError } = await supabase
-        .from('estimates')
-        .select(`
-          id,
-          estimate_number,
-          subtotal,
-          total_amount,
-          status,
-          created_at,
-          markup_percentage,
-          job_id,
-          created_by
-        `)
-        .eq('id', id)
-        .single()
+      // Use the optimized API endpoint that fetches all data in one query
+      const response = await fetch(`/api/estimates/${id}`)
+      const result = await response.json()
 
-      if (estimateError) {
-        console.error('Error loading estimate:', estimateError)
-        toast.error('Failed to load estimate')
+      if (!result.success) {
+        console.error('Error loading estimate:', result.error)
+        toast.error('Failed to load estimate: ' + result.error)
         return
       }
 
-      // Load job and lead info
-      const { data: jobData } = await supabase
-        .from('jobs')
-        .select(`
-          id,
-          job_name,
-          service_type,
-          lead_id
-        `)
-        .eq('id', estimateData.job_id)
-        .single()
-
-      // Load lead info
-      const { data: leadData } = await supabase
-        .from('leads')
-        .select('name')
-        .eq('id', jobData?.lead_id)
-        .single()
-
-      // Load creator info
-      const { data: userData } = await supabase
-        .from('users')
-        .select('full_name, email')
-        .eq('id', estimateData.created_by)
-        .single()
-
-      // Load line items
-      const { data: lineItems } = await supabase
-        .from('estimate_line_items')
-        .select(`
-          id,
-          description,
-          quantity,
-          unit_price,
-          line_total,
-          service_type
-        `)
-        .eq('estimate_id', id)
-
-      // Load measurement photos
+      const estimateData = result.data
+      
+      // Load measurement photos separately (only additional query needed)
       const { data: measurements } = await supabase
         .from('measurements')
         .select('photo_url')
-        .eq('job_id', jobData?.id)
+        .eq('job_id', estimateData.jobs.id)
         .not('photo_url', 'is', null)
 
       const photos = measurements?.map(m => m.photo_url).filter(Boolean) || []
       setMeasurementPhotos(photos)
 
-      // Combine all data
-      const combinedEstimate = {
-        ...estimateData,
-        jobs: {
-          id: jobData?.id || '',
-          job_name: jobData?.job_name || 'Unknown Job',
-          service_type: jobData?.service_type || 'Unknown',
-          leads: {
-            name: leadData?.name || 'Unknown Customer'
-          }
-        },
-        created_by_user: {
-          full_name: userData?.full_name || 'Unknown User',
-          email: userData?.email || 'unknown@email.com'
-        },
-        estimate_line_items: lineItems || []
-      }
-
-      setEstimate(combinedEstimate)
+      // The API already returns properly structured data
+      setEstimate(estimateData)
     } catch (error) {
       console.error('Error loading estimate summary:', error)
       toast.error('Failed to load estimate summary')
@@ -197,15 +135,21 @@ export default function EstimateSummaryPage({ params }: { params: Promise<{ id: 
 
   const approveEstimate = async () => {
     try {
-      const response = await fetch(`/api/estimates/${estimateId}/approve`, {
-        method: 'POST'
+      const response = await fetch(`/api/estimates/${estimateId}/approval`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action: 'approve' })
       })
       
-      if (response.ok) {
+      const result = await response.json()
+      
+      if (result.success) {
         toast.success('Estimate approved successfully!')
         router.push('/dashboard/estimate-approvals')
       } else {
-        toast.error('Failed to approve estimate')
+        toast.error('Failed to approve estimate: ' + (result.error || 'Unknown error'))
       }
     } catch (error) {
       console.error('Error approving estimate:', error)
@@ -215,15 +159,21 @@ export default function EstimateSummaryPage({ params }: { params: Promise<{ id: 
 
   const rejectEstimate = async () => {
     try {
-      const response = await fetch(`/api/estimates/${estimateId}/reject`, {
-        method: 'POST'
+      const response = await fetch(`/api/estimates/${estimateId}/approval`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action: 'reject' })
       })
       
-      if (response.ok) {
-        toast.success('Estimate rejected')
+      const result = await response.json()
+      
+      if (result.success) {
+        toast.success('Estimate rejected successfully!')
         router.push('/dashboard/estimate-approvals')
       } else {
-        toast.error('Failed to reject estimate')
+        toast.error('Failed to reject estimate: ' + (result.error || 'Unknown error'))
       }
     } catch (error) {
       console.error('Error rejecting estimate:', error)
@@ -503,20 +453,121 @@ export default function EstimateSummaryPage({ params }: { params: Promise<{ id: 
     }
   }
 
-  // Group line items by service type
-  const groupedLineItems = estimate?.estimate_line_items?.reduce((acc, item) => {
-    const serviceType = item.service_type || 'Other'
-    if (!acc[serviceType]) {
-      acc[serviceType] = []
-    }
-    acc[serviceType].push(item)
-    return acc
-  }, {} as Record<string, typeof estimate.estimate_line_items>) || {}
+  // Group line items by service type (memoized for performance)
+  const groupedLineItems = useMemo(() => {
+    return estimate?.estimate_line_items?.reduce((acc, item) => {
+      const serviceType = item.service_type || 'Other'
+      if (!acc[serviceType]) {
+        acc[serviceType] = []
+      }
+      acc[serviceType].push(item)
+      return acc
+    }, {} as Record<string, typeof estimate.estimate_line_items>) || {}
+  }, [estimate?.estimate_line_items])
 
   if (loading) {
+    // Skeleton loading state to prevent CLS - matches the actual layout structure
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen bg-slate-50">
+        {/* Header skeleton */}
+        <div className="bg-slate-50 border-b border-slate-200">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            {/* Back button skeleton */}
+            <div className="mb-4">
+              <div className="h-8 w-32 bg-slate-200 rounded animate-pulse"></div>
+            </div>
+            
+            {/* Header info skeleton */}
+            <div className="flex flex-col lg:flex-row gap-4 mb-6">
+              <div className="flex-1">
+                <div className="h-8 w-64 bg-slate-200 rounded animate-pulse mb-2"></div>
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="h-4 w-32 bg-slate-200 rounded animate-pulse"></div>
+                  <div className="h-4 w-24 bg-slate-200 rounded animate-pulse"></div>
+                  <div className="h-4 w-20 bg-slate-200 rounded animate-pulse"></div>
+                  <div className="h-6 w-16 bg-slate-200 rounded animate-pulse"></div>
+                </div>
+              </div>
+              
+              {/* Toggle buttons skeleton */}
+              <div className="flex gap-2">
+                <div className="h-9 w-36 bg-slate-200 rounded animate-pulse"></div>
+                <div className="h-9 w-28 bg-slate-200 rounded animate-pulse"></div>
+              </div>
+            </div>
+
+            {/* Actions card skeleton */}
+            <div className="mb-6">
+              <div className="bg-white rounded-lg border border-slate-200 p-6">
+                <div className="h-6 w-20 bg-slate-200 rounded animate-pulse mb-4"></div>
+                <div className="space-y-4">
+                  <div className="h-9 w-full bg-slate-200 rounded animate-pulse"></div>
+                  <div className="h-9 w-full bg-slate-200 rounded animate-pulse"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Main content skeleton */}
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="bg-white rounded-lg border border-slate-200 p-6">
+            <div className="h-6 w-40 bg-slate-200 rounded animate-pulse mb-6"></div>
+            
+            {/* Service sections skeleton */}
+            <div className="space-y-6">
+              {[1, 2].map((i) => (
+                <div key={i} className="border rounded-lg p-4">
+                  <div className="flex justify-between items-center mb-4">
+                    <div className="h-6 w-24 bg-slate-200 rounded animate-pulse"></div>
+                    <div className="h-6 w-20 bg-slate-200 rounded animate-pulse"></div>
+                  </div>
+                  
+                  {/* Line items skeleton */}
+                  <div className="space-y-3">
+                    {[1, 2, 3].map((j) => (
+                      <div key={j} className="bg-gray-50 rounded-lg p-4">
+                        <div className="flex justify-between items-start mb-3">
+                          <div>
+                            <div className="h-5 w-48 bg-slate-200 rounded animate-pulse mb-2"></div>
+                            <div className="h-4 w-32 bg-slate-200 rounded animate-pulse"></div>
+                          </div>
+                          <div className="h-5 w-16 bg-slate-200 rounded animate-pulse"></div>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <div className="h-4 w-20 bg-slate-200 rounded animate-pulse mb-1"></div>
+                            <div className="h-8 w-full bg-slate-200 rounded animate-pulse"></div>
+                          </div>
+                          <div>
+                            <div className="h-4 w-32 bg-slate-200 rounded animate-pulse mb-1"></div>
+                            <div className="h-8 w-full bg-slate-200 rounded animate-pulse"></div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Totals skeleton */}
+            <div className="bg-green-50 rounded-lg p-6 mt-8">
+              <div className="h-6 w-40 bg-slate-200 rounded animate-pulse mb-4"></div>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <div className="h-5 w-20 bg-slate-200 rounded animate-pulse"></div>
+                  <div className="h-5 w-24 bg-slate-200 rounded animate-pulse"></div>
+                </div>
+                <div className="flex justify-between items-center">
+                  <div className="h-6 w-16 bg-slate-200 rounded animate-pulse"></div>
+                  <div className="h-6 w-28 bg-slate-200 rounded animate-pulse"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     )
   }
@@ -536,7 +587,7 @@ export default function EstimateSummaryPage({ params }: { params: Promise<{ id: 
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50" style={{ containIntrinsicSize: '1px 5000px' }}>
       {/* Header with Cards */}
       <div className="bg-slate-50 border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -564,7 +615,7 @@ export default function EstimateSummaryPage({ params }: { params: Promise<{ id: 
                 </div>
                 <div className="flex items-center gap-2">
                   <User className="h-4 w-4" />
-                  <span>{estimate.jobs.leads.name}</span>
+                  <span>{estimate.jobs.lead.name}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <DollarSign className="h-4 w-4" />
@@ -604,6 +655,7 @@ export default function EstimateSummaryPage({ params }: { params: Promise<{ id: 
           {/* Collapsible Details */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
             {/* Estimate Details - Collapsible */}
+            <div className={`transition-all duration-200 ${showEstimateDetails ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden'}`}>
             {showEstimateDetails && (
               <Card>
                 <CardHeader className="pb-3">
@@ -640,8 +692,10 @@ export default function EstimateSummaryPage({ params }: { params: Promise<{ id: 
                 </CardContent>
               </Card>
             )}
+            </div>
 
             {/* Client Information - Collapsible */}
+            <div className={`transition-all duration-200 ${showClientInfo ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden'}`}>
             {showClientInfo && (
               <Card>
                 <CardHeader className="pb-3">
@@ -653,7 +707,23 @@ export default function EstimateSummaryPage({ params }: { params: Promise<{ id: 
                 <CardContent className="space-y-3">
                   <div>
                     <div className="text-sm text-slate-500 mb-1">Client Name</div>
-                    <div className="font-medium text-slate-800">{estimate.jobs.leads.name}</div>
+                    <div className="font-medium text-slate-800">{estimate.jobs.lead.name}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-slate-500 mb-1">Email</div>
+                    <div className="font-medium text-slate-800">{estimate.jobs.lead.email}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-slate-500 mb-1">Phone</div>
+                    <div className="font-medium text-slate-800">{estimate.jobs.lead.phone}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-slate-500 mb-1">Address</div>
+                    <div className="font-medium text-slate-800">
+                      {estimate.jobs.lead.address}
+                      {estimate.jobs.lead.city && `, ${estimate.jobs.lead.city}`}
+                      {estimate.jobs.lead.state && `, ${estimate.jobs.lead.state}`}
+                    </div>
                   </div>
                   <div>
                     <div className="text-sm text-slate-500 mb-1">Service Type</div>
@@ -673,6 +743,7 @@ export default function EstimateSummaryPage({ params }: { params: Promise<{ id: 
                 </CardContent>
               </Card>
             )}
+            </div>
           </div>
 
           {/* Actions Card - Always Visible */}
@@ -790,6 +861,10 @@ export default function EstimateSummaryPage({ params }: { params: Promise<{ id: 
                           alt={`Measurement photo ${index + 1}`}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                           onClick={() => window.open(photo, '_blank')}
+                          loading="lazy"
+                          width="200"
+                          height="200"
+                          style={{ aspectRatio: '1 / 1' }}
                         />
                       </div>
                     ))}

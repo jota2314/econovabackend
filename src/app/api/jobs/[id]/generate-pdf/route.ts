@@ -76,11 +76,13 @@ export async function POST(
       .limit(1)
       .single()
     
-    // If we have an approved estimate with line items, use that data instead of raw measurements
+    // Always use live measurements instead of approved estimate data
     let finalMeasurements = measurements
     let finalOverrideTotal = additionalData?.overrideTotal
     
-    if (latestEstimate?.estimate_line_items && latestEstimate.estimate_line_items.length > 0) {
+    // COMMENTED OUT: Force use of live measurements instead of approved estimate data
+    // This ensures PDF always matches what user sees in the app
+    if (false && latestEstimate?.estimate_line_items && latestEstimate.estimate_line_items.length > 0) {
       console.log('[PDF API] Found latest estimate with line items:', latestEstimate.estimate_number)
       console.log('[PDF API] Line items count:', latestEstimate.estimate_line_items.length)
       console.log('[PDF API] Using updated estimate data instead of raw measurements')

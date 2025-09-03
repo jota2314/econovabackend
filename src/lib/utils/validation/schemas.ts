@@ -89,8 +89,10 @@ export const measurementSchema = z.object({
     .min(0.1, 'Width must be at least 0.1 feet')
     .max(100, 'Width cannot exceed 100 feet'),
   
-  insulation_type: z.enum(['closed_cell', 'open_cell', 'batt', 'blown_in', 'hybrid']).optional(),
-  
+    insulation_type: z.enum(['closed_cell', 'open_cell', 'batt', 'blown_in', 'hybrid', 'mineral_wool']).optional(),
+
+  r_value: z.string().optional(),
+
   closed_cell_inches: z.number()
     .min(0, 'Thickness cannot be negative')
     .max(6, 'Closed cell thickness cannot exceed 6 inches')

@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { requireManagerRole, type AuthenticatedRequest } from '@/lib/middleware/auth'
 
@@ -57,8 +57,7 @@ async function handleApprovalAction(
   const updateData: any = {
     status: newStatus,
     approved_by: request.user!.id,
-    approved_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    approved_at: new Date().toISOString()
   }
 
   // Use transaction for measurement locking
@@ -125,7 +124,55 @@ async function handleApprovalAction(
   })
 }
 
-// PUT method for approve/reject action
+// POST method for approve/reject action (primary method)
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params
+  try {
+    const supabase = await createClient()
+    
+    // Get authenticated user
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    
+    if (authError || !user) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    // Check if user is a manager
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (userProfile?.role !== 'manager') {
+      return NextResponse.json(
+        { success: false, error: 'Only managers can approve/reject estimates' },
+        { status: 403 }
+      )
+    }
+
+    // Create authenticated request and call handler
+    const authenticatedRequest = request as AuthenticatedRequest
+    authenticatedRequest.user = user
+    authenticatedRequest.userProfile = userProfile
+
+    return handleApprovalAction(authenticatedRequest, { params: Promise.resolve({ id }) })
+  } catch (error) {
+    console.error('Error in POST approval handler:', error)
+    return NextResponse.json(
+      { success: false, error: 'Internal server error' },
+      { status: 500 }
+    )
+  }
+}
+
+// PUT method for approve/reject action  
 export const PUT = requireManagerRole(handleApprovalAction)
 
 // PATCH method for backward compatibility with existing frontend

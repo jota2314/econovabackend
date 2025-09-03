@@ -67,6 +67,166 @@ import {
   clearPricingCache 
 } from "@/lib/utils/database-pricing-calculator"
 import { generateQuickEstimatePDF } from "@/lib/utils/estimate-pdf-generator"
+
+// Interface for grouped measurements
+interface MeasurementGroup {
+  room_name: string
+  area_type: string
+  measurements: Measurement[]
+  total_square_feet: number
+  insulation_type: InsulationType
+  r_value: string | null
+  framing_size: string | null
+  is_hybrid_system: boolean | null
+  closed_cell_inches: number | null
+  open_cell_inches: number | null
+  wall_count: number
+}
+
+// Open cell catalog values from pricing
+const OPEN_CELL_CATALOG = [
+  { inches: 3.5, rValue: 13 },
+  { inches: 5.5, rValue: 21 },
+  { inches: 7, rValue: 27 },
+  { inches: 8, rValue: 30 },
+  { inches: 9, rValue: 34 },
+  { inches: 10, rValue: 38 },
+  { inches: 12, rValue: 45 },
+  { inches: 13, rValue: 49 }
+]
+
+// Snap to closest catalog value for open cell
+function snapToClosestCatalogValue(inches: number): number {
+  if (inches <= 0) return 0
+  
+  let closest = OPEN_CELL_CATALOG[0]
+  let minDiff = Math.abs(inches - closest.inches)
+  
+  for (const item of OPEN_CELL_CATALOG) {
+    const diff = Math.abs(inches - item.inches)
+    if (diff < minDiff) {
+      minDiff = diff
+      closest = item
+    }
+  }
+  
+  return closest.inches
+}
+
+// Get suggested insulation thickness based on framing size, type, and area
+function getSuggestedInsulation(framingSize: string, insulationType: string, areaType?: string) {
+  // Special handling for roof scenarios to meet R49 code
+  if (areaType === 'roof') {
+    if (framingSize === '2x8') {
+      // 2x8 roof requires all closed cell to meet R49
+      return {
+        closed_cell_inches: 7,
+        open_cell_inches: 0,
+        rValue: 49,
+        reason: '7" closed cell achieves R49 in 2x8 rafters',
+        isHybrid: false
+      }
+    } else if (framingSize === '2x10') {
+      // 2x10 roof uses hybrid 5" closed + 4" open = R49
+      return {
+        closed_cell_inches: 5,
+        open_cell_inches: 4,
+        rValue: 49,
+        reason: '5" closed + 4" open achieves R49 in 2x10 rafters',
+        isHybrid: true
+      }
+    } else if (framingSize === '2x12') {
+      // 2x12 roof uses hybrid 3" closed + 8" open = R49+
+      return {
+        closed_cell_inches: 3,
+        open_cell_inches: 8,
+        rValue: 49,
+        reason: '3" closed + 8" open achieves R49 in 2x12 rafters',
+        isHybrid: true
+      }
+    }
+  }
+
+  // For 2x4 wall remodel work, recommend closed cell for better R-value per inch
+  if (framingSize === '2x4' && areaType !== 'roof') {
+    if (insulationType === 'closed_cell') {
+      // 3" closed cell = R21 (ideal for 2x4 remodel to meet code)
+      return {
+        closed_cell_inches: 3,
+        open_cell_inches: 0,
+        rValue: 21,
+        reason: '3" closed cell achieves R21 in 2x4 walls',
+        isHybrid: false
+      }
+    } else if (insulationType === 'open_cell') {
+      // 3.5" open cell = R13 (fills cavity but lower R-value)
+      return {
+        closed_cell_inches: 0,
+        open_cell_inches: 3.5,
+        rValue: 13,
+        reason: 'fills 2x4 cavity, consider closed cell for R21',
+        isHybrid: false
+      }
+    }
+  }
+  
+  // For standard walls, open cell typically fills the cavity
+  const framingToOpenCell: Record<string, { inches: number, rValue: number }> = {
+    '2x4': { inches: 3.5, rValue: 13 },   // fills cavity
+    '2x6': { inches: 5.5, rValue: 21 },   // fills cavity → R21
+    '2x8': { inches: 7, rValue: 27 },     // close to cavity fill
+    '2x10': { inches: 9, rValue: 34 },    // close to cavity fill
+    '2x12': { inches: 10, rValue: 38 }    // practical thickness
+  }
+  
+  const suggestion = framingToOpenCell[framingSize] || { inches: 5.5, rValue: 21 }
+  return {
+    closed_cell_inches: 0,
+    open_cell_inches: suggestion.inches,
+    rValue: suggestion.rValue,
+    reason: `fills ${framingSize} cavity`,
+    isHybrid: false
+  }
+}
+
+// Backward compatibility function for open cell
+function getSuggestedOpenCellInches(framingSize: string): number {
+  return getSuggestedInsulation(framingSize, 'open_cell').open_cell_inches
+}
+
+// R-value lookup based on pricing catalog
+function getRValueFromInches(insulationType: 'closed_cell' | 'open_cell', inches: number): number {
+  if (insulationType === 'closed_cell') {
+    // Closed cell: ~R7 per inch (keeping existing logic)
+    return inches * 7.0
+  } else if (insulationType === 'open_cell') {
+    // Find exact match first
+    const exactMatch = OPEN_CELL_CATALOG.find(item => item.inches === inches)
+    if (exactMatch) return exactMatch.rValue
+    
+    // Find closest match for interpolation
+    const sorted = OPEN_CELL_CATALOG.sort((a, b) => a.inches - b.inches)
+    
+    if (inches <= sorted[0].inches) return sorted[0].rValue
+    if (inches >= sorted[sorted.length - 1].inches) return sorted[sorted.length - 1].rValue
+    
+    // Linear interpolation between closest values
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const current = sorted[i]
+      const next = sorted[i + 1]
+      
+      if (inches >= current.inches && inches <= next.inches) {
+        const ratio = (inches - current.inches) / (next.inches - current.inches)
+        return Math.round(current.rValue + (next.rValue - current.rValue) * ratio)
+      }
+    }
+    
+    // Fallback to linear calculation
+    return inches * 3.8
+  }
+  
+  return 0
+}
 import { Job as DatabaseJob, PricingCatalog, Database } from "@/lib/types/database"
 import { EstimateBuilder } from "./estimate-builder"
 import { 
@@ -79,12 +239,17 @@ import {
   type HybridSystemCalculation 
 } from "@/lib/utils/hybrid-calculator"
 import { useRole } from "@/contexts/role-context"
+import { determineUnitPrice } from "@/lib/pricing/determine-unit-price"
+import { fetchDbUnitPrice } from "@/lib/pricing/fetchDbUnitPrice"
+
+// Feature flag for new pricing logic
+const USE_NEW_PRICING = process.env.NEXT_PUBLIC_USE_NEW_PRICING === 'true' || false
 
 // Helper function to get Massachusetts R-value requirements
-function getMassachusettsRValueRequirement(projectType: string | null, areaType: string): number | null {
+function getMassachusettsRValueRequirement(projectType: 'new' | 'remodel' | null, areaType: string): number | null {
   if (!projectType || !areaType) return null
   
-  if (projectType === 'new_construction') {
+  if (projectType === 'new') {
     switch (areaType) {
       case 'roof':
         return 60
@@ -119,6 +284,7 @@ interface Job extends DatabaseJob {
   lead?: {
     name: string
     phone: string
+    email?: string | null
     address?: string
   }
   measurements?: Measurement[]
@@ -127,6 +293,21 @@ interface Job extends DatabaseJob {
 // Using InsulationMeasurement type from database
 interface Measurement extends Omit<InsulationMeasurement, 'id' | 'job_id' | 'created_at' | 'updated_at'> {
   id: string
+  framing_size?: string | null
+}
+
+interface MeasurementGroup {
+  room_name: string
+  area_type: string
+  measurements: Measurement[]
+  total_square_feet: number
+  insulation_type: InsulationType
+  r_value: string | null
+  framing_size: string | null
+  is_hybrid_system: boolean | null
+  closed_cell_inches: number | null
+  open_cell_inches: number | null
+  wall_count: number
   photo_file?: File | null
 }
 
@@ -143,7 +324,8 @@ const insulationMeasurementSchema = z.object({
   surface_type: z.enum(["wall", "ceiling"]),
   framing_size: z.enum(["2x4", "2x6", "2x8", "2x10", "2x12"]),
   wall_dimensions: z.array(wallDimensionSchema).min(1, "At least one wall section is required"),
-  insulation_type: z.enum(["closed_cell", "open_cell", "batt", "blown_in", "hybrid"]).optional(),
+  insulation_type: z.enum(["closed_cell", "open_cell", "batt", "blown_in", "hybrid", "mineral_wool"]).optional(),
+  r_value: z.string().optional(),
   closed_cell_inches: z.number().min(0).optional(),
   open_cell_inches: z.number().min(0).optional(),
   target_r_value: z.number().min(0).optional(),
@@ -223,6 +405,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             closed_cell_inches: 0,
             open_cell_inches: 0,
             target_r_value: 0,
+            r_value: "",
             notes: "",
             override_closed_cell_price_per_sqft: undefined,
             override_open_cell_price_per_sqft: undefined,
@@ -269,6 +452,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             closed_cell_inches: 0,
             open_cell_inches: 0,
             target_r_value: 0,
+            r_value: "",
             notes: "",
             override_closed_cell_price_per_sqft: undefined,
             override_open_cell_price_per_sqft: undefined,
@@ -347,7 +531,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         // Create unique key that includes insulation specifications
         let insulationKey = measurement.insulation_type || 'unknown'
         if (measurement.is_hybrid_system) {
-          insulationKey = `hybrid-${measurement.closed_cell_inches}cc-${measurement.open_cell_inches}oc`
+          insulationKey = `hybrid-${measurement.closed_cell_inches || 0}cc-${measurement.open_cell_inches || 0}oc`
         } else if (measurement.closed_cell_inches && measurement.closed_cell_inches > 0) {
           insulationKey = `${measurement.insulation_type}-${measurement.closed_cell_inches}in`
         } else if (measurement.open_cell_inches && measurement.open_cell_inches > 0) {
@@ -358,37 +542,26 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         
         const key = `${baseRoomName}-${measurement.area_type || 'unknown'}-${insulationKey}`
         if (!groups[key]) {
-          groups[key] = {
+          const newGroup: MeasurementGroup = {
             room_name: baseRoomName,
             area_type: measurement.area_type || 'exterior_walls',
             measurements: [],
             total_square_feet: 0,
-            insulation_type: measurement.insulation_type || 'closed_cell',
+            insulation_type: measurement.insulation_type as InsulationType || 'closed_cell',
             r_value: measurement.r_value,
-            framing_size: measurement.framing_size,
+            framing_size: measurement.framing_size || null,
             is_hybrid_system: measurement.is_hybrid_system,
             closed_cell_inches: measurement.closed_cell_inches,
             open_cell_inches: measurement.open_cell_inches,
             wall_count: 0
           }
+          groups[key] = newGroup
         }
         groups[key].measurements.push(measurement)
-        groups[key].total_square_feet += measurement.square_feet
+        groups[key].total_square_feet += measurement.square_feet || 0
         groups[key].wall_count += 1
         return groups
-      }, {} as Record<string, {
-        room_name: string
-        area_type: string
-        measurements: Measurement[]
-        total_square_feet: number
-        insulation_type: string | null
-        r_value: string | null
-        framing_size: string | null
-        is_hybrid_system: boolean | null
-        closed_cell_inches: number | null
-        open_cell_inches: number | null
-        wall_count: number
-      }>)
+      }, {} as Record<string, MeasurementGroup>)
 
       // Calculate total using override prices if available, otherwise use standard pricing
       total = Object.values(groupedMeasurements).reduce((sum, group) => {
@@ -428,7 +601,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
       }, 0)
 
       lineItems = Object.values(groupedMeasurements).map(group => {
-        const areaDisplayName = group.area_type ? getAreaDisplayName(group.area_type) : 'Unknown Area'
+        const areaDisplayName = group.area_type ? getAreaDisplayName(group.area_type as any) : 'Unknown Area'
         let unitPrice = 0
         
         // Check for manager override price first (use first measurement in group)
@@ -458,14 +631,16 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             const price = calculateMeasurementPrice(
               group.total_square_feet,
               group.insulation_type as InsulationType,
-              Number(group.r_value) || 0
+              Number(group.r_value) || 0,
+              group.area_type
             )
             unitPrice = price.pricePerSqft
           }
         }
         
         return {
-          description: `${group.room_name} - ${areaDisplayName} (${group.total_square_feet} sq ft, ${group.wall_count} wall${group.wall_count !== 1 ? 's' : ''})`,
+          description: `${group.room_name} - ${areaDisplayName}`,
+          framing_size: group.measurements[0]?.framing_size || '',
           quantity: group.total_square_feet,
           unit_price: unitPrice,
           unit: 'sq ft',
@@ -714,7 +889,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
 
   // Calculate total square feet
   const totalSquareFeet = measurements.reduce((total, measurement) => {
-    return total + measurement.square_feet
+    return total + (measurement.square_feet || 0)
   }, 0)
 
   // Group measurements by floor level and area type for aggregation
@@ -734,7 +909,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         insulation_type: measurement.insulation_type
       }
     }
-    acc[key].total_square_feet += measurement.square_feet
+    acc[key].total_square_feet += (measurement.square_feet || 0)
     acc[key].measurements.push(measurement)
     return acc
   }, {} as Record<string, {
@@ -756,7 +931,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         const insulationData = data as InsulationMeasurementFormData
         
         // Calculate R-value based on project type and area type
-        const projectType = (job.project_type as ProjectType) || 'new_construction'
+        const projectType = job.construction_type || 'remodel'
         const rValueResult = insulationData.area_type 
           ? calculateRValue(projectType, insulationData.area_type)
           : { rValue: 0 }  // Default if no area type
@@ -781,28 +956,38 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
           isHybridSystem = true
           
           if (closedCellInches > 0 || openCellInches > 0) {
-            const hybridCalc = calculateHybridRValue(closedCellInches, openCellInches)
+            const hybridCalc = calculateHybridRValue(
+              closedCellInches,
+              openCellInches,
+              insulationData.framing_size,
+              insulationData.area_type,
+              job?.construction_type
+            )
             finalRValue = hybridCalc.totalRValue.toString()
           }
         } else if (insulationData.insulation_type === 'closed_cell') {
           closedCellInches = insulationData.closed_cell_inches || 0
           if (closedCellInches > 0) {
-            finalRValue = (closedCellInches * 7.0).toString()
+            finalRValue = getRValueFromInches('closed_cell', closedCellInches).toString()
           }
         } else if (insulationData.insulation_type === 'open_cell') {
           openCellInches = insulationData.open_cell_inches || 0
           if (openCellInches > 0) {
-            finalRValue = (openCellInches * 3.8).toString()
+            finalRValue = getRValueFromInches('open_cell', openCellInches).toString()
           }
+        } else if (insulationData.insulation_type === 'mineral_wool') {
+          // For Mineral Wool, take the selected R-value (15 or 25) from the form
+          // This prevents defaulting to code target like R60
+          finalRValue = insulationData.r_value || '15'
         }
 
         const newMeasurement: Measurement = {
           id: `temp-${Date.now()}-${i}`,
           room_name: validWalls.length > 1 ? `${insulationData.room_name} - Wall ${i + 1}` : insulationData.room_name,
           floor_level: insulationData.floor_level || null,
-          area_type: insulationData.area_type,
+          area_type: insulationData.area_type || null,
           surface_type: insulationData.surface_type,
-          framing_size: insulationData.framing_size,
+          // framing_size: insulationData.framing_size, // Property doesn't exist in DB
           height: wall.height,
           width: wall.width,
           square_feet,
@@ -813,7 +998,13 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
           is_hybrid_system: isHybridSystem,
           notes: insulationData.notes || null,
           photo_url: null,
-          photo_file: null
+          locked_by_estimate_id: null,
+          is_locked: null,
+          locked_at: null,
+          override_closed_cell_price_per_sqft: null,
+          override_open_cell_price_per_sqft: null,
+          override_set_by: null,
+          override_set_at: null
         }
         newMeasurements.push(newMeasurement)
       }
@@ -1119,6 +1310,85 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
     }, 0)
   }
 
+  // New centralized pricing function using orchestrator
+  const calculateRealtimePriceWithOrchestrator = async () => {
+    const insulationType = form.watch('insulation_type')
+    const totalSqFt = calculateTotalSquareFeet()
+    
+    if (!insulationType || totalSqFt === 0) {
+      setRealtimePricing(null)
+      return
+    }
+
+    try {
+      const projectType = job.construction_type || 'remodel'
+      const areaType = form.watch('area_type')
+      const rValueResult = areaType ? calculateRValue(projectType, areaType) : { rValue: 0 }
+      const rValue = rValueResult?.rValue || 0
+
+      const closedCellInches = form.watch('closed_cell_inches') || 0
+      const openCellInches = form.watch('open_cell_inches') || 0
+      
+      // Get override values for managers
+      const overrideClosed = form.watch('override_closed_cell_price_per_sqft')
+      const overrideOpen = form.watch('override_open_cell_price_per_sqft')
+      let override: number | undefined
+      
+      if (isManager) {
+        if (insulationType === 'closed_cell' && typeof overrideClosed === 'number') {
+          override = overrideClosed
+        } else if (insulationType === 'open_cell' && typeof overrideOpen === 'number') {
+          override = overrideOpen
+        }
+      }
+
+      // Use the orchestrator with injected helpers
+      const result = await determineUnitPrice({
+        sqft: totalSqFt,
+        kind: insulationType as "closed_cell" | "open_cell" | "hybrid",
+        r: rValue,
+        ccInches: closedCellInches,
+        ocInches: openCellInches,
+        override,
+        // Injected helper functions
+        getDbUnitPrice: async (kind, r) => {
+          return await fetchDbUnitPrice(kind, r, closedCellInches, openCellInches)
+        },
+        hybridPerSqft: (ccInches, ocInches) => {
+          const hybridCalc = calculateHybridRValue(ccInches, ocInches)
+          const hybridPricing = calculateHybridPricing(hybridCalc)
+          return hybridPricing.totalPricePerSqft
+        },
+        perInch: (sqft, kind, inches) => {
+          const pricing = calculatePriceByInches(sqft, kind, inches)
+          return pricing.pricePerSqft
+        },
+        perRValue: (sqft, kind, r) => {
+          const pricing = calculateMeasurementPrice(sqft, kind as InsulationType, r)
+          return pricing.pricePerSqft
+        }
+      })
+
+      setRealtimePricing({
+        pricePerSqft: result.unitPrice,
+        totalPrice: totalSqFt * result.unitPrice
+      })
+
+      // Log for debugging
+      console.log('New pricing result:', {
+        source: result.source,
+        unitPrice: result.unitPrice,
+        details: result.details,
+        totalPrice: totalSqFt * result.unitPrice
+      })
+
+    } catch (error) {
+      console.error('Error in new pricing orchestrator:', error)
+      // Fall back to old logic if new logic fails
+      await calculateRealtimePriceAsync()
+    }
+  }
+
   // Calculate real-time pricing using database
   const calculateRealtimePriceAsync = async () => {
     const insulationType = form.watch('insulation_type')
@@ -1151,7 +1421,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
       }
       
       // Regular system pricing using database; apply override precedence if present and manager
-      const projectType = (job.project_type as ProjectType) || 'new_construction'
+      const projectType = job.construction_type || 'remodel'
       const areaType = form.watch('area_type')
       const rValueResult = areaType ? calculateRValue(projectType, areaType) : { rValue: 0 }
       const rValue = rValueResult?.rValue || 0
@@ -1177,7 +1447,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
     } catch (error) {
       console.error('Error calculating realtime pricing:', error)
       // Fallback to hardcoded pricing if database fails
-      const projectType = (job.project_type as ProjectType) || 'new_construction'
+      const projectType = job.construction_type || 'remodel'
       const areaType = form.watch('area_type')
       const rValueResult = areaType ? calculateRValue(projectType, areaType) : { rValue: 0 }
       const rValue = rValueResult?.rValue || 0
@@ -1193,7 +1463,11 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
   // Effect to recalculate pricing when form values change
   useEffect(() => {
     const debounceTimer = setTimeout(() => {
-      calculateRealtimePriceAsync()
+      if (USE_NEW_PRICING) {
+        calculateRealtimePriceWithOrchestrator()
+      } else {
+        calculateRealtimePriceAsync()
+      }
     }, 300) // Debounce to avoid too many database calls
 
     return () => clearTimeout(debounceTimer)
@@ -1205,6 +1479,95 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
     form.watch('open_cell_inches'),
     totalSqFt
   ])
+
+  // Watch for area_type and framing_size changes to auto-set insulation type
+  useEffect(() => {
+    const areaType = form.watch('area_type')
+    const framingSize = form.watch('framing_size')
+    
+    if (areaType === 'roof' && framingSize) {
+      // Use setTimeout to ensure state is ready
+      setTimeout(() => {
+        if (framingSize === '2x8') {
+          form.setValue('insulation_type', 'closed_cell', { shouldValidate: true })
+          form.setValue('closed_cell_inches', 7, { shouldValidate: true })
+          form.setValue('open_cell_inches', 0, { shouldValidate: true })
+        } else if (framingSize === '2x10') {
+          form.setValue('insulation_type', 'hybrid', { shouldValidate: true })
+          form.setValue('closed_cell_inches', 5, { shouldValidate: true })
+          form.setValue('open_cell_inches', 4, { shouldValidate: true })
+        } else if (framingSize === '2x12') {
+          form.setValue('insulation_type', 'hybrid', { shouldValidate: true })
+          form.setValue('closed_cell_inches', 3, { shouldValidate: true })
+          form.setValue('open_cell_inches', 8, { shouldValidate: true })
+        }
+      }, 0)
+    }
+  }, [form.watch('area_type'), form.watch('framing_size'), form])
+
+  // Handle insulation type changes
+  useEffect(() => {
+    const insulationType = form.watch('insulation_type')
+    const areaType = form.watch('area_type')
+    const framingSize = form.watch('framing_size')
+    
+    if (!insulationType || !framingSize) return
+    
+    // For roof areas, enforce specific configurations
+    if (areaType === 'roof') {
+      setTimeout(() => {
+        if (framingSize === '2x8') {
+          form.setValue('closed_cell_inches', 7, { shouldValidate: true })
+          form.setValue('open_cell_inches', 0, { shouldValidate: true })
+                                } else if (framingSize === '2x10') {
+                          const isNewConstruction = job?.construction_type === 'new'
+                          if (isNewConstruction) {
+                            form.setValue('closed_cell_inches', 7, { shouldValidate: true })
+                            form.setValue('open_cell_inches', 3, { shouldValidate: true })
+                          } else {
+                            form.setValue('closed_cell_inches', 5, { shouldValidate: true })
+                            form.setValue('open_cell_inches', 4, { shouldValidate: true })
+                          }
+                                } else if (framingSize === '2x12') {
+                          const isNewConstruction = job?.construction_type === 'new'
+                          if (isNewConstruction) {
+                            form.setValue('closed_cell_inches', 5, { shouldValidate: true })
+                            form.setValue('open_cell_inches', 6.5, { shouldValidate: true })
+                          } else {
+                            form.setValue('closed_cell_inches', 3, { shouldValidate: true })
+                            form.setValue('open_cell_inches', 8, { shouldValidate: true })
+                          }
+        }
+      }, 0)
+      return
+    }
+    
+    // For non-roof areas, handle standard thickness suggestions
+    const framingToInches: Record<string, number> = {
+      '2x4': 4,
+      '2x6': 6,
+      '2x8': 8,
+      '2x10': 10,
+      '2x12': 12
+    }
+    
+    const suggestedInches = framingToInches[framingSize] || 0
+    
+    setTimeout(() => {
+      if (insulationType === 'closed_cell') {
+        form.setValue('closed_cell_inches', suggestedInches, { shouldValidate: true })
+        form.setValue('open_cell_inches', 0, { shouldValidate: true })
+      } else if (insulationType === 'open_cell') {
+        form.setValue('closed_cell_inches', 0, { shouldValidate: true })
+        form.setValue('open_cell_inches', suggestedInches, { shouldValidate: true })
+      } else if (insulationType === 'hybrid') {
+        const closedCellInches = Math.min(2, suggestedInches)
+        const openCellInches = Math.max(0, suggestedInches - 2)
+        form.setValue('closed_cell_inches', closedCellInches, { shouldValidate: true })
+        form.setValue('open_cell_inches', openCellInches, { shouldValidate: true })
+      }
+    }, 0)
+  }, [form.watch('insulation_type'), form.watch('area_type'), form.watch('framing_size'), form])
 
   // Render different forms based on service type
   const renderInsulationForm = () => (
@@ -1231,6 +1594,231 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
           )}
         />
 
+        {/* Area Type and Framing */}
+        <div className="grid grid-cols-2 gap-4">
+          <FormField
+            control={form.control}
+            name="area_type"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Area Type</FormLabel>
+                <Select 
+                  onValueChange={(value) => {
+                    field.onChange(value)
+                    
+                    // Auto-set insulation based on area type
+                    if (value === 'interior_walls') {
+                      // For interior walls, recommend Mineral Wool Batt 3" (R-15)
+                      setTimeout(() => {
+                        form.setValue('insulation_type', 'mineral_wool', { shouldValidate: true })
+                        form.setValue('r_value', '15', { shouldValidate: true }) // 3" is more common for walls
+                        form.setValue('closed_cell_inches', 0, { shouldValidate: true })
+                        form.setValue('open_cell_inches', 0, { shouldValidate: true })
+                      }, 0)
+                    } else if (value === 'ceiling') {
+                      // For ceiling, recommend Mineral Wool Batt 3" (R-15)
+                      setTimeout(() => {
+                        form.setValue('insulation_type', 'mineral_wool', { shouldValidate: true })
+                        form.setValue('r_value', '15', { shouldValidate: true }) // 3" is more common
+                        form.setValue('closed_cell_inches', 0, { shouldValidate: true })
+                        form.setValue('open_cell_inches', 0, { shouldValidate: true })
+                      }, 0)
+                    } else if (value === 'roof') {
+                      const framingSize = form.getValues('framing_size')
+                      
+                      // Use setTimeout to ensure the area_type change is processed first
+                      setTimeout(() => {
+                        if (framingSize === '2x8') {
+                          form.setValue('insulation_type', 'closed_cell', { shouldValidate: true })
+                          form.setValue('closed_cell_inches', 7, { shouldValidate: true })
+                          form.setValue('open_cell_inches', 0, { shouldValidate: true })
+                        } else if (framingSize === '2x10') {
+                          form.setValue('insulation_type', 'hybrid', { shouldValidate: true })
+                          form.setValue('closed_cell_inches', 5, { shouldValidate: true })
+                          form.setValue('open_cell_inches', 4, { shouldValidate: true })
+                        } else if (framingSize === '2x12') {
+                          form.setValue('insulation_type', 'hybrid', { shouldValidate: true })
+                          form.setValue('closed_cell_inches', 3, { shouldValidate: true })
+                          form.setValue('open_cell_inches', 8, { shouldValidate: true })
+                        }
+                      }, 0)
+                    }
+                  }} 
+                  defaultValue={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select area" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="exterior_walls">Exterior Walls</SelectItem>
+                    <SelectItem value="interior_walls">Interior Walls</SelectItem>
+                    <SelectItem value="ceiling">Ceiling</SelectItem>
+                    <SelectItem value="gable">Gable</SelectItem>
+                    <SelectItem value="roof">Roof</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+                {/* Show Massachusetts R-value requirement for selected area */}
+                {(() => {
+                  const selectedAreaType = form.watch('area_type')
+                  const requiredRValue = getMassachusettsRValueRequirement(job.construction_type, selectedAreaType)
+                  
+                  if (requiredRValue) {
+                    return (
+                      <div className="text-xs text-blue-600 mt-1 p-2 bg-blue-50 border border-blue-200 rounded">
+                        📋 MA Code Requirement: R-{requiredRValue} minimum
+                      </div>
+                    )
+                  }
+                  return null
+                })()}
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="framing_size"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Framing Size</FormLabel>
+                <Select 
+                  onValueChange={(value) => {
+                    field.onChange(value)
+                    
+                    const areaType = form.getValues('area_type')
+                    
+                    // Special handling for roof areas
+                    if (areaType === 'roof') {
+                      // Use setTimeout to ensure the framing_size change is processed first
+                      setTimeout(() => {
+                        const isNewConstruction = job?.construction_type === 'new'
+                        
+                        if (isNewConstruction) {
+                          // New Construction: R60 target
+                          if (value === '2x10') {
+                            // 2x10 new construction: 3" closed + 7" open = R47.6
+                            form.setValue('insulation_type', 'hybrid', { shouldValidate: true })
+                                                      form.setValue('closed_cell_inches', 7, { shouldValidate: true })
+                          form.setValue('open_cell_inches', 3, { shouldValidate: true })
+                          } else if (value === '2x12') {
+                            // 2x12 new construction: 5" closed + 7" open = R61.6
+                            form.setValue('insulation_type', 'hybrid', { shouldValidate: true })
+                            form.setValue('closed_cell_inches', 5, { shouldValidate: true })
+                            form.setValue('open_cell_inches', 7, { shouldValidate: true })
+                          }
+                        } else {
+                          // Remodel: R49 requirement
+                          if (value === '2x8') {
+                            // 2x8 remodel: 7" closed cell = R49
+                            form.setValue('insulation_type', 'closed_cell', { shouldValidate: true })
+                            form.setValue('closed_cell_inches', 7, { shouldValidate: true })
+                            form.setValue('open_cell_inches', 0, { shouldValidate: true })
+                          } else if (value === '2x10') {
+                            // 2x10 remodel: 5" closed + 4" open = R49
+                            form.setValue('insulation_type', 'hybrid', { shouldValidate: true })
+                            form.setValue('closed_cell_inches', 5, { shouldValidate: true })
+                            form.setValue('open_cell_inches', 4, { shouldValidate: true })
+                          } else if (value === '2x12') {
+                            // 2x12 remodel: 3" closed + 8" open = R49
+                            form.setValue('insulation_type', 'hybrid', { shouldValidate: true })
+                            form.setValue('closed_cell_inches', 3, { shouldValidate: true })
+                            form.setValue('open_cell_inches', 8, { shouldValidate: true })
+                          }
+                        }
+                      }, 0)
+                      return
+                    }
+                    
+                    // Standard handling for walls
+                    const framingToInches: Record<string, number> = {
+                      '2x4': 4,
+                      '2x6': 6,
+                      '2x8': 8,
+                      '2x10': 10,
+                      '2x12': 12
+                    }
+                    
+                    const suggestedInches = framingToInches[value] || 0
+                    const insulationType = form.getValues('insulation_type')
+                    
+                    // Set the suggested thickness based on insulation type
+                    if (insulationType === 'closed_cell') {
+                      form.setValue('closed_cell_inches', suggestedInches)
+                      form.setValue('open_cell_inches', 0)
+                    } else if (insulationType === 'open_cell') {
+                      form.setValue('closed_cell_inches', 0)
+                      form.setValue('open_cell_inches', suggestedInches)
+                    } else if (insulationType === 'hybrid') {
+                      // For hybrid walls, suggest 2" closed cell and remainder as open cell
+                      const closedCellInches = Math.min(2, suggestedInches)
+                      const openCellInches = Math.max(0, suggestedInches - 2)
+                      form.setValue('closed_cell_inches', closedCellInches)
+                      form.setValue('open_cell_inches', openCellInches)
+                    }
+                  }} 
+                  defaultValue={field.value}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Framing" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="2x4">2x4</SelectItem>
+                    <SelectItem value="2x6">2x6</SelectItem>
+                    <SelectItem value="2x8">2x8</SelectItem>
+                    <SelectItem value="2x10">2x10</SelectItem>
+                    <SelectItem value="2x12">2x12</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+                {field.value && (
+                  <div className="text-xs text-blue-600 mt-1 p-2 bg-blue-50 border border-blue-200 rounded">
+                    {form.watch('area_type') === 'roof' ? (
+                      <>
+                        {job?.construction_type === 'new' ? (
+                          <>
+                            📋 MA Code: R60 minimum for new construction roofs<br/>
+                            {field.value === '2x10' && (
+                              job?.construction_type === 'new'
+                                ? '💡 7" closed + 3" open achieves R60.0 (hybrid for best value)'
+                                : '💡 5" closed + 4" open achieves R49.0 (hybrid for best value)'
+                            )}
+                            {field.value === '2x12' && (
+                              job?.construction_type === 'new'
+                                ? '💡 5" closed + 6.5" open achieves R60.0 (hybrid for best value)'
+                                : '💡 3" closed + 8" open achieves R49.0 (hybrid for best value)'
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            📋 MA Code: R49 minimum for remodel roofs<br/>
+                            {field.value === '2x8' && '💡 7" closed cell achieves R49'}
+                            {field.value === '2x10' && '💡 5" closed + 4" open achieves R49'}
+                            {field.value === '2x12' && '💡 3" closed + 8" open achieves R49'}
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        💡 Framing depth: {
+                          field.value === '2x4' ? '4"' :
+                          field.value === '2x6' ? '6"' :
+                          field.value === '2x8' ? '8"' :
+                          field.value === '2x10' ? '10"' :
+                          field.value === '2x12' ? '12"' : ''
+                        } - Auto-filled insulation thickness
+                      </>
+                    )}
+                  </div>
+                )}
+              </FormItem>
+            )}
+          />
+        </div>
+
         {/* Insulation Type Selection */}
         <FormField
           control={form.control}
@@ -1245,8 +1833,41 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                 onValueChange={(value) => {
                   field.onChange(value)
                   
-                  // Auto-suggest thickness if framing size is already selected
+                  const areaType = form.getValues('area_type')
                   const framingSize = form.getValues('framing_size')
+                  
+                  // Special handling for roof areas to meet R49
+                  if (areaType === 'roof' && framingSize) {
+                    setTimeout(() => {
+                      if (framingSize === '2x8') {
+                        form.setValue('closed_cell_inches', 7, { shouldValidate: true })
+                        form.setValue('open_cell_inches', 0, { shouldValidate: true })
+                      } else if (framingSize === '2x10') {
+                        if (value === 'hybrid') {
+                          form.setValue('closed_cell_inches', 5, { shouldValidate: true })
+                          form.setValue('open_cell_inches', 4, { shouldValidate: true })
+                        } else {
+                          // Force back to hybrid for 2x10 roof
+                          form.setValue('insulation_type', 'hybrid', { shouldValidate: true })
+                          form.setValue('closed_cell_inches', 5, { shouldValidate: true })
+                          form.setValue('open_cell_inches', 4, { shouldValidate: true })
+                        }
+                      } else if (framingSize === '2x12') {
+                        if (value === 'hybrid') {
+                          form.setValue('closed_cell_inches', 3, { shouldValidate: true })
+                          form.setValue('open_cell_inches', 8, { shouldValidate: true })
+                        } else {
+                          // Force back to hybrid for 2x12 roof
+                          form.setValue('insulation_type', 'hybrid', { shouldValidate: true })
+                          form.setValue('closed_cell_inches', 3, { shouldValidate: true })
+                          form.setValue('open_cell_inches', 8, { shouldValidate: true })
+                        }
+                      }
+                    }, 0)
+                    return
+                  }
+                  
+                  // Standard handling for non-roof areas
                   if (framingSize) {
                     const framingToInches: Record<string, number> = {
                       '2x4': 4,
@@ -1260,25 +1881,25 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                     
                     // Set the suggested thickness based on the new insulation type
                     if (value === 'closed_cell') {
-                      form.setValue('closed_cell_inches', suggestedInches)
-                      form.setValue('open_cell_inches', 0)
+                      form.setValue('closed_cell_inches', suggestedInches, { shouldValidate: true })
+                      form.setValue('open_cell_inches', 0, { shouldValidate: true })
                     } else if (value === 'open_cell') {
-                      form.setValue('open_cell_inches', suggestedInches)
-                      form.setValue('closed_cell_inches', 0)
+                      form.setValue('open_cell_inches', suggestedInches, { shouldValidate: true })
+                      form.setValue('closed_cell_inches', 0, { shouldValidate: true })
                     } else if (value === 'hybrid') {
-                      // For hybrid, suggest 2" closed cell and remainder as open cell
+                      // For hybrid walls, suggest 2" closed cell and remainder as open cell
                       const closedCellInches = Math.min(2, suggestedInches)
                       const openCellInches = Math.max(0, suggestedInches - 2)
-                      form.setValue('closed_cell_inches', closedCellInches)
-                      form.setValue('open_cell_inches', openCellInches)
+                      form.setValue('closed_cell_inches', closedCellInches, { shouldValidate: true })
+                      form.setValue('open_cell_inches', openCellInches, { shouldValidate: true })
                     } else {
-                      // Clear thickness for non-spray foam types (batt and blown_in don't need thickness)
-                      form.setValue('closed_cell_inches', 0)
-                      form.setValue('open_cell_inches', 0)
+                      // Clear thickness for non-spray foam types
+                      form.setValue('closed_cell_inches', 0, { shouldValidate: true })
+                      form.setValue('open_cell_inches', 0, { shouldValidate: true })
                     }
                   }
                 }} 
-                defaultValue={field.value}
+                value={field.value}
               >
                 <FormControl>
                   <SelectTrigger>
@@ -1289,6 +1910,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                   <SelectItem value="closed_cell">Closed Cell Spray Foam</SelectItem>
                   <SelectItem value="open_cell">Open Cell Spray Foam</SelectItem>
                   <SelectItem value="batt">Fiberglass Batt</SelectItem>
+                  <SelectItem value="mineral_wool">Mineral Wool Batt</SelectItem>
                   <SelectItem value="blown_in">Fiberglass Blown-in</SelectItem>
                   <SelectItem value="hybrid">Hybrid (Open + Closed Cell)</SelectItem>
                 </SelectContent>
@@ -1297,6 +1919,41 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             </FormItem>
           )}
         />
+
+        {/* Mineral Wool Thickness Selection */}
+        {form.watch('insulation_type') === 'mineral_wool' && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-4">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="h-2 w-2 bg-blue-600 rounded-full"></div>
+              <h3 className="font-semibold text-blue-900">Mineral Wool Thickness</h3>
+            </div>
+            <FormField
+              control={form.control}
+              name="r_value"
+              render={({ field }) => (
+                <FormItem>
+                  <Select
+                    onValueChange={(value) => {
+                      field.onChange(value)
+                    }}
+                    value={field.value}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select thickness" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="15">3" (R-15)</SelectItem>
+                      <SelectItem value="25">6" (R-25)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+        )}
 
         {/* Insulation Thickness Inputs - Show for closed cell, open cell, and hybrid */}
         {(form.watch('insulation_type') === 'closed_cell' || 
@@ -1354,13 +2011,26 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                           type="number"
                           step="0.5"
                           min="0"
-                          max="12"
-                          placeholder="6.0"
+                          max="13"
+                          placeholder="5.5"
                           {...field}
-                          onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) || 0 : 0)}
+                          onChange={(e) => {
+                            const inputValue = e.target.value ? parseFloat(e.target.value) || 0 : 0
+                            // Auto-snap to closest catalog value for better pricing accuracy
+                            const snappedValue = inputValue > 0 ? snapToClosestCatalogValue(inputValue) : 0
+                            field.onChange(snappedValue)
+                          }}
                         />
                       </FormControl>
                       <FormMessage />
+                      <div className="text-xs text-gray-500 mt-1">
+                        Standard sizes: 3.5", 5.5", 7", 8", 9", 10", 12", 13"
+                        {form.watch('framing_size') === '2x4' && (
+                          <div className="text-blue-600 mt-1">
+                            💡 For 2x4 remodel: Consider 3" closed cell for R21
+                          </div>
+                        )}
+                      </div>
                     </FormItem>
                   )}
                 />
@@ -1368,33 +2038,41 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             </div>
 
             {/* Real-time R-value calculation */}
-            {(() => {
-              const insulationType = form.watch('insulation_type')
-              const closedInches = form.watch('closed_cell_inches') || 0
-              const openInches = form.watch('open_cell_inches') || 0
-              
-              if (insulationType === 'hybrid' && (closedInches > 0 || openInches > 0)) {
-                const calculation = calculateHybridRValue(closedInches, openInches)
-                return (
-                  <div className="bg-white border border-blue-300 rounded-lg p-3">
-                    <h4 className="font-semibold text-blue-900 text-sm mb-2">R-Value Calculation:</h4>
-                    <div className="text-sm space-y-1">
-                      {calculation.closedCellInches > 0 && (
-                        <div className="text-slate-700">
-                          {calculation.closedCellInches}" Closed Cell = R-{calculation.closedCellRValue.toFixed(0)} ({calculation.closedCellInches} × 7.0)
+                              {(() => {
+                    const insulationType = form.watch('insulation_type')
+                    const closedInches = form.watch('closed_cell_inches') || 0
+                    const openInches = form.watch('open_cell_inches') || 0
+                    const areaType = form.watch('area_type')
+                    const framingSize = form.watch('framing_size')
+                    
+                    if (insulationType === 'hybrid' && (closedInches > 0 || openInches > 0)) {
+                      const calculation = calculateHybridRValue(
+                        closedInches,
+                        openInches,
+                        framingSize,
+                        areaType,
+                        job?.construction_type
+                      )
+                      return (
+                        <div className="bg-white border border-blue-300 rounded-lg p-3">
+                          <h4 className="font-semibold text-blue-900 text-sm mb-2">R-Value Calculation:</h4>
+                          <div className="text-sm space-y-1">
+                            {calculation.closedCellInches > 0 && (
+                              <div className="text-slate-700">
+                                {calculation.closedCellInches}" Closed Cell = R-{calculation.closedCellRValue.toFixed(1)} ({calculation.closedCellInches} × 7.0)
+                              </div>
+                            )}
+                            {calculation.openCellInches > 0 && (
+                              <div className="text-slate-700">
+                                {calculation.openCellInches}" Open Cell = R-{calculation.openCellRValue.toFixed(1)} (from pricing catalog)
+                              </div>
+                            )}
+                            <div className="font-semibold text-blue-900 border-t border-blue-200 pt-2">
+                              Total R-value = R-{calculation.totalRValue.toFixed(1)}
+                            </div>
+                          </div>
                         </div>
-                      )}
-                      {calculation.openCellInches > 0 && (
-                        <div className="text-slate-700">
-                          {calculation.openCellInches}" Open Cell = R-{calculation.openCellRValue.toFixed(0)} ({calculation.openCellInches} × 3.8)
-                        </div>
-                      )}
-                      <div className="font-semibold text-blue-900 border-t border-blue-200 pt-2">
-                        Total R-value = R-{approximateRValue(calculation.totalRValue)}
-                      </div>
-                    </div>
-                  </div>
-                )
+                      )
               } else if (insulationType === 'closed_cell' && closedInches > 0) {
                 const rValue = closedInches * 7.0
                 return (
@@ -1408,13 +2086,13 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                   </div>
                 )
               } else if (insulationType === 'open_cell' && openInches > 0) {
-                const rValue = openInches * 3.8
+                const rValue = getRValueFromInches('open_cell', openInches)
                 return (
                   <div className="bg-white border border-blue-300 rounded-lg p-3">
                     <h4 className="font-semibold text-blue-900 text-sm mb-2">R-Value Calculation:</h4>
                     <div className="text-sm">
                       <div className="text-slate-700">
-                        {openInches}" Open Cell = R-{approximateRValue(rValue)} ({openInches} × 3.8)
+                        {openInches}" Open Cell = R-{approximateRValue(rValue)} (from pricing catalog)
                       </div>
                     </div>
                   </div>
@@ -1424,114 +2102,6 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             })()}
           </div>
         )}
-
-        {/* Area Type and Framing */}
-        <div className="grid grid-cols-2 gap-4">
-          <FormField
-            control={form.control}
-            name="area_type"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Area Type</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select area" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="exterior_walls">Exterior Walls</SelectItem>
-                    <SelectItem value="interior_walls">Interior Walls</SelectItem>
-                    <SelectItem value="ceiling">Ceiling</SelectItem>
-                    <SelectItem value="gable">Gable</SelectItem>
-                    <SelectItem value="roof">Roof</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-                {/* Show Massachusetts R-value requirement for selected area */}
-                {(() => {
-                  const selectedAreaType = form.watch('area_type')
-                  const requiredRValue = getMassachusettsRValueRequirement(job.project_type, selectedAreaType)
-                  
-                  if (requiredRValue) {
-                    return (
-                      <div className="text-xs text-blue-600 mt-1 p-2 bg-blue-50 border border-blue-200 rounded">
-                        📋 MA Code Requirement: R-{requiredRValue} minimum
-                      </div>
-                    )
-                  }
-                  return null
-                })()}
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="framing_size"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Framing Size</FormLabel>
-                <Select 
-                  onValueChange={(value) => {
-                    field.onChange(value)
-                    
-                    // Auto-suggest insulation thickness based on framing size
-                    const framingToInches: Record<string, number> = {
-                      '2x4': 4,
-                      '2x6': 6,
-                      '2x8': 8,
-                      '2x10': 10,
-                      '2x12': 12
-                    }
-                    
-                    const suggestedInches = framingToInches[value] || 0
-                    const insulationType = form.getValues('insulation_type')
-                    
-                    // Set the suggested thickness based on insulation type
-                    if (insulationType === 'closed_cell') {
-                      form.setValue('closed_cell_inches', suggestedInches)
-                    } else if (insulationType === 'open_cell') {
-                      form.setValue('open_cell_inches', suggestedInches)
-                    } else if (insulationType === 'hybrid') {
-                      // For hybrid, suggest 2" closed cell and remainder as open cell
-                      const closedCellInches = Math.min(2, suggestedInches)
-                      const openCellInches = Math.max(0, suggestedInches - 2)
-                      form.setValue('closed_cell_inches', closedCellInches)
-                      form.setValue('open_cell_inches', openCellInches)
-                    }
-                  }} 
-                  defaultValue={field.value}
-                >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Framing" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="2x4">2x4 (4" depth)</SelectItem>
-                    <SelectItem value="2x6">2x6 (6" depth)</SelectItem>
-                    <SelectItem value="2x8">2x8 (8" depth)</SelectItem>
-                    <SelectItem value="2x10">2x10 (10" depth)</SelectItem>
-                    <SelectItem value="2x12">2x12 (12" depth)</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-                {field.value && (
-                  <div className="text-xs text-blue-600 mt-1 p-2 bg-blue-50 border border-blue-200 rounded">
-                    💡 Framing depth: {
-                      field.value === '2x4' ? '4"' :
-                      field.value === '2x6' ? '6"' :
-                      field.value === '2x8' ? '8"' :
-                      field.value === '2x10' ? '10"' :
-                      field.value === '2x12' ? '12"' : ''
-                    } - Auto-filled insulation thickness
-                  </div>
-                )}
-              </FormItem>
-            )}
-          />
-        </div>
 
         {/* Wall Dimensions Section */}
         <div className="space-y-3">
@@ -2181,7 +2751,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                   {jobPhotos.length > 4 && (
                     <div 
                       className="aspect-square rounded bg-blue-100 border-2 border-dashed border-blue-300 flex items-center justify-center cursor-pointer hover:bg-blue-200 transition-colors"
-                      onClick={() => setShowPhotoGallery(true)}
+                      onClick={() => setGalleryOpen(true)}
                     >
                       <span className="text-xs font-medium text-blue-600">+{jobPhotos.length - 4}</span>
                     </div>
@@ -2261,26 +2831,27 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                         const realMeasurements = measurements.filter(m => !m.room_name.startsWith('Photo:'))
                         const pdfGroupedMeasurements = realMeasurements.reduce((groups, measurement) => {
                           const baseRoomName = measurement.room_name.replace(/ - Wall \d+$/, '')
-                          const groupKey = `${baseRoomName}-${measurement.area_type}-${measurement.insulation_type}-${measurement.r_value}-${measurement.framing_size}-${measurement.is_hybrid_system}-${measurement.closed_cell_inches}-${measurement.open_cell_inches}`
+                          const groupKey = `${baseRoomName}-${measurement.area_type}-${measurement.insulation_type}-${measurement.r_value}-${measurement.is_hybrid_system}-${measurement.closed_cell_inches}-${measurement.open_cell_inches}`
                           
                           if (!groups[groupKey]) {
                             groups[groupKey] = {
                               room_name: baseRoomName,
-                              area_type: measurement.area_type,
+                              area_type: measurement.area_type || 'exterior_walls',
                               measurements: [],
                               total_square_feet: 0,
-                              insulation_type: measurement.insulation_type,
-                              r_value: measurement.r_value,
-                              framing_size: measurement.framing_size,
-                              is_hybrid_system: measurement.is_hybrid_system,
-                              closed_cell_inches: measurement.closed_cell_inches,
-                              open_cell_inches: measurement.open_cell_inches,
-                              wall_count: 0
-                            }
+                              insulation_type: measurement.insulation_type || 'closed_cell',
+                              r_value: measurement.r_value || '',
+                              framing_size: measurement.framing_size || null,
+                              is_hybrid_system: measurement.is_hybrid_system || false,
+                              closed_cell_inches: measurement.closed_cell_inches || 0,
+                              open_cell_inches: measurement.open_cell_inches || 0,
+                              wall_count: 0,
+                              photo_file: null
+                            } as MeasurementGroup
                           }
                           
                           groups[groupKey].measurements.push(measurement)
-                          groups[groupKey].total_square_feet += measurement.square_feet
+                          groups[groupKey].total_square_feet += (measurement.square_feet || 0)
                           groups[groupKey].wall_count += 1
                           
                           return groups
@@ -2450,10 +3021,10 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                       // Create unique key that includes insulation specifications
                       let insulationKey = measurement.insulation_type || 'unknown'
                       if (measurement.is_hybrid_system) {
-                        insulationKey = `hybrid-${measurement.closed_cell_inches}cc-${measurement.open_cell_inches}oc`
-                      } else if (measurement.closed_cell_inches > 0) {
+                        insulationKey = `hybrid-${measurement.closed_cell_inches || 0}cc-${measurement.open_cell_inches || 0}oc`
+                      } else if ((measurement.closed_cell_inches || 0) > 0) {
                         insulationKey = `${measurement.insulation_type}-${measurement.closed_cell_inches}in`
-                      } else if (measurement.open_cell_inches > 0) {
+                      } else if ((measurement.open_cell_inches || 0) > 0) {
                         insulationKey = `${measurement.insulation_type}-${measurement.open_cell_inches}in`
                       } else if (measurement.r_value) {
                         insulationKey = `${measurement.insulation_type}-R${measurement.r_value}`
@@ -2463,19 +3034,20 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                       if (!groups[key]) {
                         groups[key] = {
                           room_name: baseRoomName,
-                          area_type: measurement.area_type,
+                          area_type: measurement.area_type || 'exterior_walls',
                           measurements: [],
                           total_square_feet: 0,
-                          insulation_type: measurement.insulation_type,
+                          insulation_type: measurement.insulation_type as InsulationType,
                           r_value: measurement.r_value,
                           framing_size: measurement.framing_size,
                           is_hybrid_system: measurement.is_hybrid_system,
                           closed_cell_inches: measurement.closed_cell_inches,
-                          open_cell_inches: measurement.open_cell_inches
-                        }
+                          open_cell_inches: measurement.open_cell_inches,
+                          wall_count: 0
+                        } as MeasurementGroup
                       }
                       groups[key].measurements.push(measurement)
-                      groups[key].total_square_feet += measurement.square_feet
+                      groups[key].total_square_feet += (measurement.square_feet || 0)
                       return groups
                     }, {} as Record<string, {
                       room_name: string
@@ -2484,7 +3056,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                       total_square_feet: number
                       insulation_type: string | null
                       r_value: string | null
-                      framing_size: string | null
+                      // framing_size: string | null // Property doesn't exist in DB
                       is_hybrid_system: boolean | null
                       closed_cell_inches: number | null
                       open_cell_inches: number | null
@@ -2526,7 +3098,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                               <div>• {hybridCalc.openCellInches}" Open Cell (R-{approximateRValue(hybridCalc.openCellRValue)})</div>
                             )}
                             <div className="text-xs text-slate-600 mt-2">
-                              {group.framing_size} Framing • {wallCount} wall{wallCount !== 1 ? 's' : ''}
+                              {wallCount} wall{wallCount !== 1 ? 's' : ''}
                             </div>
                           </div>
                         )
@@ -2559,7 +3131,8 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                           const measurementPrice = calculateMeasurementPrice(
                             effectiveSqft, 
                             group.insulation_type as InsulationType, 
-                            Number(group.r_value) || 0
+                            Number(group.r_value) || 0,
+                            group.area_type
                           )
                           pricePerSqft = typeof override.unitPrice === 'number' ? override.unitPrice : (measurementPrice?.pricePerSqft || 0)
                           console.log('💰 R-value pricing result:', { measurementPrice, pricePerSqft })
@@ -2586,7 +3159,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                         const framingToInches: Record<string, number> = {
                           '2x4': 4, '2x6': 6, '2x8': 8, '2x10': 10, '2x12': 12
                         }
-                        const battInches = group.insulation_type === 'batt' ? framingToInches[group.framing_size] || 0 : 0
+                        const battInches = group.insulation_type === 'batt' ? 4 : 0 // Default to 2x4 framing since framing_size doesn't exist in DB
                         
                         priceBreakdown = (
                           <div className="text-sm font-medium text-slate-700 bg-blue-50 rounded p-2">
@@ -2594,16 +3167,19 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                               {group.insulation_type === 'closed_cell' ? 'Closed Cell' : 
                                group.insulation_type === 'open_cell' ? 'Open Cell' : 
                                group.insulation_type === 'batt' ? 'Fiberglass Batt' :
+                              group.insulation_type === 'mineral_wool' ? 'Mineral Wool Batt' :
                                group.insulation_type === 'blown_in' ? 'Fiberglass Blown-in' :
                                group.insulation_type}{
                                (hasInches && inches > 0) ? 
-                                ` - ${inches}" (R-${group.insulation_type === 'closed_cell' ? approximateRValue(inches * 7.0) : approximateRValue(inches * 3.8)})` : 
+                                ` - ${inches}" (R-${group.insulation_type === 'closed_cell' ? approximateRValue(getRValueFromInches('closed_cell', inches)) : approximateRValue(getRValueFromInches('open_cell', inches))})` : 
                                (group.insulation_type === 'batt' && battInches > 0) ?
                                 ` - ${battInches}" (R-${approximateRValue(Number(group.r_value))})` :
-                                ` - R-${approximateRValue(Number(group.r_value))}`}
+                               (group.insulation_type === 'mineral_wool') ?
+                                ` - ${Number(group.r_value) === 15 ? '3"' : '6"'} (R-${group.r_value})` :
+                                ` - R-${group.r_value}`}
                             </div>
                             <div className="text-xs text-slate-600">
-                              {group.framing_size} Framing • {wallCount} wall{wallCount !== 1 ? 's' : ''}
+                              {wallCount} wall{wallCount !== 1 ? 's' : ''}
                             </div>
                           </div>
                         )
@@ -2614,7 +3190,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                           <div className="flex justify-between items-start mb-2">
                             <div className="flex-1">
                               <div className="font-semibold text-slate-900 mb-2">
-{group.room_name} - {getAreaDisplayName(group.area_type)}
+{group.room_name} - {getAreaDisplayName(group.area_type as any)}
                               </div>
                               {priceBreakdown}
                               
@@ -2723,7 +3299,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                                 className="text-red-600 hover:text-red-700 hover:bg-red-50"
                                 onClick={() => {
                                   // Delete all measurements in this group
-                                  if (confirm(`Are you sure you want to delete all ${wallCount} wall${wallCount !== 1 ? 's' : ''} in ${group.room_name} - ${getAreaDisplayName(group.area_type)}?`)) {
+                                  if (confirm(`Are you sure you want to delete all ${wallCount} wall${wallCount !== 1 ? 's' : ''} in ${group.room_name} - ${getAreaDisplayName(group.area_type as any)}?`)) {
                                     group.measurements.forEach(m => deleteMeasurement(m.id))
                                   }
                                 }}
@@ -2750,10 +3326,10 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                       // Create unique key that includes insulation specifications (same as line items)
                       let insulationKey = measurement.insulation_type || 'unknown'
                       if (measurement.is_hybrid_system) {
-                        insulationKey = `hybrid-${measurement.closed_cell_inches}cc-${measurement.open_cell_inches}oc`
-                      } else if (measurement.closed_cell_inches > 0) {
+                        insulationKey = `hybrid-${measurement.closed_cell_inches || 0}cc-${measurement.open_cell_inches || 0}oc`
+                      } else if ((measurement.closed_cell_inches || 0) > 0) {
                         insulationKey = `${measurement.insulation_type}-${measurement.closed_cell_inches}in`
-                      } else if (measurement.open_cell_inches > 0) {
+                      } else if ((measurement.open_cell_inches || 0) > 0) {
                         insulationKey = `${measurement.insulation_type}-${measurement.open_cell_inches}in`
                       } else if (measurement.r_value) {
                         insulationKey = `${measurement.insulation_type}-R${measurement.r_value}`
@@ -2763,19 +3339,20 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                       if (!groups[key]) {
                         groups[key] = {
                           room_name: baseRoomName,
-                          area_type: measurement.area_type,
+                          area_type: measurement.area_type || 'exterior_walls',
                           measurements: [],
                           total_square_feet: 0,
-                          insulation_type: measurement.insulation_type,
+                          insulation_type: measurement.insulation_type as InsulationType,
                           r_value: measurement.r_value,
                           framing_size: measurement.framing_size,
                           is_hybrid_system: measurement.is_hybrid_system,
                           closed_cell_inches: measurement.closed_cell_inches,
-                          open_cell_inches: measurement.open_cell_inches
-                        }
+                          open_cell_inches: measurement.open_cell_inches,
+                          wall_count: 0
+                        } as MeasurementGroup
                       }
                       groups[key].measurements.push(measurement)
-                      groups[key].total_square_feet += measurement.square_feet
+                      groups[key].total_square_feet += (measurement.square_feet || 0)
                       return groups
                     }, {} as Record<string, {
                       room_name: string
@@ -2784,7 +3361,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                       total_square_feet: number
                       insulation_type: string | null
                       r_value: string | null
-                      framing_size: string | null
+                      // framing_size: string | null // Property doesn't exist in DB
                       is_hybrid_system: boolean | null
                       closed_cell_inches: number | null
                       open_cell_inches: number | null
@@ -2928,7 +3505,7 @@ function MeasurementCard({ measurement, onDelete, onPhotoUpload }: MeasurementCa
   
   // Calculate pricing for this measurement
   const pricing = calculateMeasurementPrice(
-    measurement.square_feet,
+    measurement.square_feet || 0,
     measurement.insulation_type as InsulationType,
     measurement.r_value ? Number(measurement.r_value) : 0
   )
@@ -2967,7 +3544,7 @@ function MeasurementCard({ measurement, onDelete, onPhotoUpload }: MeasurementCa
               variant="outline" 
               className="border-green-300 text-green-700"
             >
-              {getAreaDisplayName(measurement.area_type)}
+              {getAreaDisplayName(measurement.area_type as any)}
             </Badge>
           )}
           <Badge 
@@ -2976,14 +3553,7 @@ function MeasurementCard({ measurement, onDelete, onPhotoUpload }: MeasurementCa
           >
             {measurement.surface_type === 'wall' ? 'Wall' : 'Ceiling'}
           </Badge>
-          {measurement.framing_size && (
-            <Badge 
-              variant="outline" 
-              className="border-orange-300 text-orange-700"
-            >
-              {measurement.framing_size}
-            </Badge>
-          )}
+          {/* framing_size property doesn't exist in DB */}
         </div>
         
         <Button
@@ -3007,7 +3577,7 @@ function MeasurementCard({ measurement, onDelete, onPhotoUpload }: MeasurementCa
         </div>
         <div>
           <Label className="text-xs text-slate-500">Square Feet</Label>
-          <div className="font-bold text-orange-600">{measurement.square_feet.toFixed(1)} sq ft</div>
+          <div className="font-bold text-orange-600">{(measurement.square_feet || 0).toFixed(1)} sq ft</div>
         </div>
         <div>
           <Label className="text-xs text-slate-500">Type</Label>
@@ -3016,12 +3586,7 @@ function MeasurementCard({ measurement, onDelete, onPhotoUpload }: MeasurementCa
       </div>
       
       <div className="grid grid-cols-2 gap-4 text-sm">
-        {measurement.framing_size && (
-          <div>
-            <Label className="text-xs text-slate-500">Framing</Label>
-            <div className="font-medium text-orange-600">{measurement.framing_size}</div>
-          </div>
-        )}
+        {/* framing_size property doesn't exist in DB */}
         {measurement.r_value && (
           <div>
             <Label className="text-xs text-slate-500">R-Value</Label>

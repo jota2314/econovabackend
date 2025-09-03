@@ -1,6 +1,6 @@
 // Massachusetts R-Value Calculator for Spray Foam Insulation
 
-export type ProjectType = 'new_construction' | 'remodel' | 'retrofit'
+export type ProjectType = 'new' | 'remodel'
 export type AreaType = 'roof' | 'exterior_walls' | 'interior_walls' | 'basement_walls' | 'ceiling' | 'gable'
 export type FloorLevel = 'first_floor' | 'second_floor' | 'basement'
 

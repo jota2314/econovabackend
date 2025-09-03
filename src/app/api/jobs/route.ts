@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
       project_state,
       project_zip_code,
       // Project type field
-      project_type, 
+      construction_type, 
       // Legacy fields (for backward compatibility)
       structural_framing, 
       roof_rafters,
@@ -196,7 +196,7 @@ export async function POST(request: NextRequest) {
       job_complexity: job_complexity || 'standard',
       // Insulation fields
       ...(service_type === 'insulation' && {
-        project_type: project_type || 'new_construction',
+        construction_type: construction_type || 'new',
         structural_framing,
         roof_rafters
       }),
@@ -225,11 +225,14 @@ export async function POST(request: NextRequest) {
       project_city,
       project_state,
       project_zip_code,
+      construction_type,
       structural_framing: service_type === 'insulation' ? structural_framing : null,
       roof_rafters: service_type === 'insulation' ? roof_rafters : null,
       scope_of_work: JSON.stringify(serviceSpecificData),
       total_square_feet: 0,
-      created_by: user.id
+      created_by: user.id,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
     }
     
     console.log('[POST /api/jobs] Creating job with data:', jobData)

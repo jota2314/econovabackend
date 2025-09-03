@@ -1,6 +1,62 @@
 import jsPDF from 'jspdf'
+
+// Extend jsPDF type to include GState methods
+declare module 'jspdf' {
+  interface jsPDF {
+    setGState(state: any): void
+    GState(options: { opacity: number }): any
+  }
+}
 import { formatCurrency, calculateMeasurementPrice, type InsulationType } from './pricing-calculator'
 import { calculateHybridRValue, calculateHybridPricing, formatHybridSystemDescription } from './hybrid-calculator'
+
+// Helper function to format area type for display (removes underscores and capitalizes)
+function formatAreaType(areaType: string): string {
+  return areaType
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+// ---- Small helpers to keep logic consistent across grouped and fallback paths ----
+
+function formatInchesForHybrid(closedInches?: number, openInches?: number): string {
+  const cc = Number(closedInches) || 0
+  const oc = Number(openInches) || 0
+  const total = cc + oc
+  if (total <= 0) return 'N/A'
+  const formatted = Number.isInteger(total) ? `${total}` : `${total.toFixed(1)}`
+  return `${formatted}"`
+}
+
+function mapMineralWoolInchesFromR(rValue: unknown): number {
+  const rv = typeof rValue === 'string' ? parseFloat(rValue) : Number(rValue)
+  if (rv === 15) return 3
+  if (rv === 25) return 6
+  return 0
+}
+
+function drawHybridBreakdownCentered(
+  pdf: jsPDF,
+  centerX: number,
+  startY: number,
+  closedInches?: number,
+  openInches?: number
+) {
+  let nextY = startY
+  pdf.setFontSize(7)
+  pdf.setTextColor(100, 100, 100)
+  const hybridCalc = calculateHybridRValue(closedInches || 0, openInches || 0)
+  if (hybridCalc.closedCellInches > 0) {
+    pdf.text(`• ${hybridCalc.closedCellInches} in Closed Cell`, centerX, nextY, { align: 'center' })
+    nextY += 4
+  }
+  if (hybridCalc.openCellInches > 0) {
+    pdf.text(`• ${hybridCalc.openCellInches} in Open Cell`, centerX, nextY, { align: 'center' })
+  }
+  pdf.setTextColor(0, 0, 0)
+  pdf.setFontSize(8)
+}
 
 /**
  * Approximate R-values to common insulation standards
@@ -89,6 +145,7 @@ interface EstimateData {
     framing_size?: string | null
     closed_cell_inches?: number
     open_cell_inches?: number
+    blown_in_inches?: number
     is_hybrid_system?: boolean
     photo_url?: string
   }>
@@ -96,6 +153,9 @@ interface EstimateData {
   generatedDate: Date
   validUntil?: Date
   notes?: string
+  groupedMeasurements?: Record<string, any>
+  groupOverrides?: Record<string, any>
+  overrideTotal?: number
 }
 
 export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: boolean }): Promise<void | Uint8Array> {
@@ -152,152 +212,144 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
   
   pdf.setTextColor(0, 0, 0) // Black text
   pdf.setFontSize(10)
-  pdf.text(`Generated: ${data.generatedDate.toLocaleDateString()}`, pageWidth - 50, 25)
+  pdf.setFont('helvetica', 'bold') // Make estimate info bold
+  
+  // Generate estimate number
+  const estimateNumber = `EST-${data.generatedDate.getFullYear()}${String(data.generatedDate.getMonth() + 1).padStart(2, '0')}${String(data.generatedDate.getDate()).padStart(2, '0')}-${String(data.generatedDate.getHours()).padStart(2, '0')}${String(data.generatedDate.getMinutes()).padStart(2, '0')}`
+  
+  // Header right side - Estimate number and date (BOLD)
+  pdf.text(`Estimate #: ${estimateNumber}`, pageWidth - 70, 20)
+  pdf.text(`Generated: ${data.generatedDate.toLocaleDateString()}`, pageWidth - 70, 30)
 
   yPosition = 50
 
   // Reset text color for body
   pdf.setTextColor(0, 0, 0)
 
-  // Enhanced Header with Customer and Salesperson Information
-  pdf.setFontSize(14)
+  // Add Information Boxes (Contractor, Customer) - Removed Bill To
+  const infoBoxHeight = 25
+  const infoBoxWidth = (pageWidth - (margin * 2) - 10) / 2 // 2 boxes with 10px spacing between
+  const boxSpacing = 10
+  
+  // Reset opacity for boxes
+  pdf.setGState(pdf.GState({opacity: 1}))
+  
+  // Box 1: CONTRACTOR INFO
+  let boxX = margin
+  pdf.setFillColor(34, 139, 34) // Dark green header
+  pdf.rect(boxX, yPosition, infoBoxWidth, 8, 'F')
+  
+  pdf.setFillColor(144, 238, 144) // Light green background
+  pdf.setGState(pdf.GState({opacity: 0.1}))
+  pdf.rect(boxX, yPosition + 8, infoBoxWidth, infoBoxHeight - 8, 'F')
+  pdf.setGState(pdf.GState({opacity: 1})) // Reset opacity
+  
+  // Border
+  pdf.setDrawColor(34, 139, 34)
+  pdf.setLineWidth(0.5)
+  pdf.rect(boxX, yPosition, infoBoxWidth, infoBoxHeight, 'S')
+  
+  // Header text
+  pdf.setTextColor(255, 255, 255) // White text
+  pdf.setFontSize(8)
   pdf.setFont('helvetica', 'bold')
-  pdf.text('PROJECT INFORMATION', margin, yPosition)
-  yPosition += 8
-
-  pdf.setFontSize(10)
+  pdf.text('CONTRACTOR INFO', boxX + 2, yPosition + 5.5)
+  
+  // Content
+  pdf.setTextColor(0, 0, 0) // Black text
+  pdf.setFontSize(7)
   pdf.setFont('helvetica', 'normal')
-
-    // Left Column - Customer & Project Info
-  const leftColumnX = margin
-  let leftColumnY = yPosition
-
+  pdf.text('Econova Energy Savings', boxX + 2, yPosition + 12)
+  pdf.text('619 Main St, Wilmington, MA', boxX + 2, yPosition + 16)
+  pdf.text('jorge@econovaenergysavings.com', boxX + 2, yPosition + 20)
+  pdf.text('781-732-4817', boxX + 2, yPosition + 24)
+  
+  // Box 2: CUSTOMER INFO (moved to second position)
+  boxX = margin + infoBoxWidth + boxSpacing
+  pdf.setFillColor(34, 139, 34) // Dark green header
+  pdf.rect(boxX, yPosition, infoBoxWidth, 8, 'F')
+  
+  pdf.setFillColor(144, 238, 144) // Light green background
+  pdf.setGState(pdf.GState({opacity: 0.1}))
+  pdf.rect(boxX, yPosition + 8, infoBoxWidth, infoBoxHeight - 8, 'F')
+  pdf.setGState(pdf.GState({opacity: 1})) // Reset opacity
+  
+  // Border
+  pdf.setDrawColor(34, 139, 34)
+  pdf.rect(boxX, yPosition, infoBoxWidth, infoBoxHeight, 'S')
+  
+  // Header text
+  pdf.setTextColor(255, 255, 255) // White text
+  pdf.setFontSize(8)
   pdf.setFont('helvetica', 'bold')
-  pdf.text('CUSTOMER:', leftColumnX, leftColumnY)
-  leftColumnY += 5
+  pdf.text('CUSTOMER INFO', boxX + 2, yPosition + 5.5)
+  
+  // Content
+  pdf.setTextColor(0, 0, 0) // Black text
+  pdf.setFontSize(7)
   pdf.setFont('helvetica', 'normal')
-  pdf.text(data.customerName, leftColumnX, leftColumnY)
-  leftColumnY += 5
-
-  if (data.customerPhone) {
-    pdf.text(`Phone: ${data.customerPhone}`, leftColumnX, leftColumnY)
-    leftColumnY += 5
-  }
-
+  pdf.text(data.customerName || 'Customer Name', boxX + 2, yPosition + 12)
+  
   if (data.customerEmail) {
-    pdf.text(`Email: ${data.customerEmail}`, leftColumnX, leftColumnY)
-    leftColumnY += 5
+    pdf.text(data.customerEmail, boxX + 2, yPosition + 16)
   }
-
-  // Salesperson
-  leftColumnY += 3
-  pdf.setFont('helvetica', 'bold')
-  pdf.text('SALESPERSON:', leftColumnX, leftColumnY)
-  leftColumnY += 5
-  pdf.setFont('helvetica', 'normal')
-  if (data.salespersonName) {
-    pdf.text(data.salespersonName, leftColumnX, leftColumnY)
-    leftColumnY += 5
-  }
-
-  // Project with Address (combined)
-  leftColumnY += 3
-  pdf.setFont('helvetica', 'bold')
-  pdf.text('PROJECT:', leftColumnX, leftColumnY)
-  leftColumnY += 5
-  pdf.setFont('helvetica', 'normal')
   
-  // Project address (if available)
-  if (data.projectAddress) {
-    pdf.text(data.projectAddress, leftColumnX, leftColumnY)
-    leftColumnY += 5
+  if (data.customerPhone) {
+    pdf.text(data.customerPhone, boxX + 2, yPosition + 20)
   }
-
-  if (data.projectCity || data.projectState || data.projectZipCode) {
-    const cityStateZip = [data.projectCity, data.projectState, data.projectZipCode].filter(Boolean).join(', ')
-    pdf.text(cityStateZip, leftColumnX, leftColumnY)
-    leftColumnY += 5
-  }
-
-    // Right Column - Company & Estimate Info
-  const rightColumnX = pageWidth / 2 + 10
-  let rightColumnY = yPosition
-
-  // Estimate Number
-  pdf.setFont('helvetica', 'bold')
-  pdf.text('ESTIMATE #:', rightColumnX, rightColumnY)
-  rightColumnY += 5
-  pdf.setFont('helvetica', 'normal')
-  const estimateNumber = `EST-${data.generatedDate.getFullYear()}${String(data.generatedDate.getMonth() + 1).padStart(2, '0')}${String(data.generatedDate.getDate()).padStart(2, '0')}-${String(data.generatedDate.getHours()).padStart(2, '0')}${String(data.generatedDate.getMinutes()).padStart(2, '0')}`
-  pdf.text(estimateNumber, rightColumnX, rightColumnY)
-  rightColumnY += 8
-
-  // Company Contact Info
-  pdf.setFont('helvetica', 'bold')
-  pdf.text('COMPANY:', rightColumnX, rightColumnY)
-  rightColumnY += 5
-  pdf.setFont('helvetica', 'normal')
-
-  if (data.salespersonEmail) {
-    pdf.text(`Email: ${data.salespersonEmail}`, rightColumnX, rightColumnY)
-    rightColumnY += 5
-  }
-
-  // Phone and Website on same line
-  if (data.salespersonPhone && data.companyWebsite) {
-    pdf.text(`Phone: ${data.salespersonPhone} | ${data.companyWebsite}`, rightColumnX, rightColumnY)
-    rightColumnY += 5
-  } else if (data.salespersonPhone) {
-    pdf.text(`Phone: ${data.salespersonPhone}`, rightColumnX, rightColumnY)
-    rightColumnY += 5
-  } else if (data.companyWebsite) {
-    pdf.text(data.companyWebsite, rightColumnX, rightColumnY)
-    rightColumnY += 5
-  }
-
-  // Set yPosition to the bottom of the longest column
-  yPosition = Math.max(leftColumnY, rightColumnY) + 10
-
-  // Project Description (Full Width)
-  pdf.setFontSize(12)
-  pdf.setFont('helvetica', 'bold')
-  pdf.text('PROJECT DESCRIPTION:', margin, yPosition)
-  yPosition += 8
-
+  
+  // Move yPosition past the boxes
+  yPosition += infoBoxHeight + 10
+  
+  // Add Project Address below the boxes
   pdf.setFontSize(10)
+  pdf.setFont('helvetica', 'bold')
+  pdf.text('PROJECT ADDRESS:', margin, yPosition)
+  yPosition += 6
+  
+  pdf.setFontSize(9)
   pdf.setFont('helvetica', 'normal')
   
-  // Generate project description
-  let projectDescription = 'This project '
-  
-  if (data.buildingType === 'residential') {
-    projectDescription += 'is a residential property '
-  } else if (data.buildingType === 'commercial') {
-    projectDescription += 'is a commercial property '
-  } else {
-    projectDescription += 'is a property '
+  // Build full project address
+  let fullProjectAddress = ''
+  if (data.projectAddress) {
+    fullProjectAddress = data.projectAddress
+    if (data.projectCity || data.projectState || data.projectZipCode) {
+      const cityStateZip = [data.projectCity, data.projectState, data.projectZipCode].filter(Boolean).join(', ')
+      fullProjectAddress += ', ' + cityStateZip
+    }
+  } else if (data.projectCity || data.projectState || data.projectZipCode) {
+    fullProjectAddress = [data.projectCity, data.projectState, data.projectZipCode].filter(Boolean).join(', ')
   }
   
-  if (data.projectType === 'new_construction') {
-    projectDescription += 'for new construction. '
-  } else if (data.projectType === 'remodel') {
-    projectDescription += 'being remodeled. '
+  if (fullProjectAddress) {
+    pdf.text(fullProjectAddress, margin, yPosition)
+    yPosition += 8
   } else {
-    projectDescription += 'requiring insulation services. '
+    pdf.text('Project Address Not Specified', margin, yPosition)
+    yPosition += 8
   }
   
-  projectDescription += 'We will provide professional spray foam insulation services to meet Massachusetts building code requirements and improve energy efficiency.'
+  // Spacer
+  yPosition += 8
   
-  // Split text to fit full page width (like estimate details)
-  const fullPageWidth = pageWidth - (margin * 2)
-  const descriptionLines = pdf.splitTextToSize(projectDescription, fullPageWidth)
+  // Add Insurance and Licensing Statement
+  pdf.setFontSize(9)
+  pdf.setFont('helvetica', 'normal')
+  const insuranceStatement = 'Econova Energy Savings is fully licensed and insured. All work will be performed in accordance with OSHA safety regulations. Local building codes will be followed to ensure the highest standards of quality and safety.'
   
-  descriptionLines.forEach((line: string) => {
+  // Split text to fit page width
+  const statementLines = pdf.splitTextToSize(insuranceStatement, pageWidth - (margin * 2))
+  statementLines.forEach((line: string) => {
     pdf.text(line, margin, yPosition)
     yPosition += 5
   })
   
   yPosition += 10
+  
+  // Reset drawing color and text color for rest of PDF
+  pdf.setDrawColor(0, 0, 0)
+  pdf.setTextColor(0, 0, 0)
 
   // Estimate Details Header
   pdf.setFontSize(14)
@@ -314,24 +366,87 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
   pdf.rect(margin, yPosition - 5, pageWidth - (margin * 2), 8, 'F')
   pdf.setGState(pdf.GState({opacity: 1})) // Reset opacity
   
-  pdf.text('Description', margin + 2, yPosition)
-  pdf.text('Insulation Type', margin + 70, yPosition)
-  pdf.text('Inches', margin + 115, yPosition)
-  pdf.text('R-Value', margin + 140, yPosition)
-  pdf.text('Total', margin + 155, yPosition) // Moved left to give more space
+  // Calculate available width
+  const availableWidth = pageWidth - (margin * 2)
+  
+  // Column widths (proportional)
+  const descWidth = availableWidth * 0.35 // 35% for Description
+  const insulWidth = availableWidth * 0.25 // 25% for Insulation Type
+  const inchesWidth = availableWidth * 0.15 // 15% for Inches
+  const rValueWidth = availableWidth * 0.12 // 12% for R-Value
+  const totalWidth = availableWidth * 0.13 // 13% for Total
+  
+  // Column positions (left edge)
+  const descPos = margin + 2
+  const insulPos = descPos + descWidth
+  const inchesPos = insulPos + insulWidth
+  const rValuePos = inchesPos + inchesWidth
+  const totalPos = rValuePos + rValueWidth
+  
+  // Headers (centered in their columns)
+  pdf.text('Description', descPos + descWidth/2, yPosition, { align: 'center' })
+  pdf.text('Insulation Type', insulPos + insulWidth/2, yPosition, { align: 'center' })
+  pdf.text('Inches', inchesPos + inchesWidth/2, yPosition, { align: 'center' })
+  pdf.text('R-Value', rValuePos + rValueWidth/2, yPosition, { align: 'center' })
+  pdf.text('Total', totalPos + totalWidth/2, yPosition, { align: 'center' })
   
   yPosition += 8
   pdf.setFont('helvetica', 'normal')
 
-  // Measurement Items - Use grouped measurements with overrides if available
+  // Measurement Items - Group like the on-screen Estimate Summary
   let subtotal = 0
   const itemsPerPage = 20
   let itemCount = 0
 
-  // Check if we have grouped measurements with overrides from the UI
-  if (data.groupedMeasurements && data.groupOverrides) {
+  // Build grouped data from input if not provided
+  const derivedGrouped: Record<string, any> | undefined = (() => {
+    if (data.groupedMeasurements && Object.keys(data.groupedMeasurements).length > 0) return undefined
+    if (!data.measurements || data.measurements.length === 0) return undefined
+    const real = data.measurements.filter(m => !m.room_name.startsWith('Photo:'))
+    const groups = real.reduce((acc: Record<string, any>, m: any) => {
+      const baseRoomName = m.room_name.replace(/ - Wall \d+$/, '')
+      let insulationKey = m.insulation_type || 'unknown'
+      if (m.is_hybrid_system) {
+        insulationKey = `hybrid-${m.closed_cell_inches || 0}cc-${m.open_cell_inches || 0}oc`
+      } else if ((m.closed_cell_inches || 0) > 0) {
+        insulationKey = `${m.insulation_type}-${m.closed_cell_inches}in`
+      } else if ((m.open_cell_inches || 0) > 0) {
+        insulationKey = `${m.insulation_type}-${m.open_cell_inches}in`
+      } else if (m.r_value) {
+        insulationKey = `${m.insulation_type}-R${m.r_value}`
+      }
+      const key = `${baseRoomName}-${m.area_type}-${insulationKey}`
+      if (!acc[key]) {
+        acc[key] = {
+          room_name: baseRoomName,
+          area_type: m.area_type || 'exterior_walls',
+          measurements: [],
+          total_square_feet: 0,
+          insulation_type: m.insulation_type,
+          r_value: m.r_value,
+          framing_size: m.framing_size || null,
+          is_hybrid_system: m.is_hybrid_system || false,
+          closed_cell_inches: m.closed_cell_inches || 0,
+          open_cell_inches: m.open_cell_inches || 0,
+          wall_count: 0
+        }
+      }
+      acc[key].measurements.push(m)
+      acc[key].total_square_feet += (m.square_feet || 0)
+      acc[key].wall_count += 1
+      return acc
+    }, {} as Record<string, any>)
+    return groups
+  })()
+
+  const groupedSource = data.groupedMeasurements && Object.keys(data.groupedMeasurements).length > 0
+    ? data.groupedMeasurements
+    : (derivedGrouped || {})
+  const overrideSource = data.groupOverrides || {}
+
+  if (Object.keys(groupedSource).length > 0) {
     // Use grouped measurements with override pricing
-    Object.entries(data.groupedMeasurements).forEach(([groupKey, group]: [string, any], index) => {
+    Object.entries(groupedSource).forEach(([groupKey, group]: [string, any], index) => {
       // Check if we need a new page
       const rowHeight = group.is_hybrid_system && group.insulation_type === 'hybrid' ? 22 : 10
       if (yPosition > pageHeight - 50 || (itemCount > 0 && itemCount % itemsPerPage === 0)) {
@@ -347,17 +462,18 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
         pdf.setGState(pdf.GState({opacity: 1})) // Reset opacity
         
         pdf.text('Description', margin + 2, yPosition)
-        pdf.text('Insulation Type', margin + 70, yPosition)
-        pdf.text('Inches', margin + 115, yPosition)
-        pdf.text('R-Value', margin + 140, yPosition)
-        pdf.text('Total', margin + 155, yPosition) // Moved left to give more space
+        pdf.text('Frame Size', margin + 70, yPosition)
+        pdf.text('Insulation Type', margin + 95, yPosition)
+        pdf.text('Inches', margin + 135, yPosition)
+        pdf.text('R-Value', margin + 160, yPosition)
+        pdf.text('Total', margin + 180, yPosition)
         
         yPosition += 8
         pdf.setFont('helvetica', 'normal')
       }
 
       // Get override prices from UI or database
-      const uiOverride = data.groupOverrides[groupKey] || {}
+      const uiOverride = overrideSource?.[groupKey] || {}
       const persistedUnit = (group.measurements[0] as any)?.override_unit_price as number | undefined
       const persistedSqft = (group.measurements[0] as any)?.override_group_sqft as number | undefined
 
@@ -386,7 +502,8 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
           const pricing = calculateMeasurementPrice(
             effectiveSqft,
             group.insulation_type as InsulationType,
-            Number(group.r_value) || 0
+            Number(group.r_value) || 0,
+            group.area_type
           )
           unitPrice = pricing?.pricePerSqft || 0
         }
@@ -394,48 +511,30 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
 
       totalPrice = effectiveSqft * unitPrice
 
-      // Format insulation display
+      // Format insulation display (cleaner, without inches here)
       let insulationDisplay = 'N/A'
       if (group.is_hybrid_system && group.insulation_type === 'hybrid') {
         insulationDisplay = 'Hybrid System'
       } else {
-        const framingToInches: Record<string, number> = {
-          '2x4': 4, '2x6': 6, '2x8': 8, '2x10': 10, '2x12': 12
-        }
-        
-        let insulationName = ''
-        let inchesDisplay = ''
-        
         switch (group.insulation_type) {
           case 'closed_cell':
-            insulationName = 'Closed Cell'
-            const ccInches = group.closed_cell_inches || 0
-            if (ccInches > 0) {
-              inchesDisplay = ` - ${ccInches}"`
-            }
+            insulationDisplay = 'Closed Cell Foam'
             break
           case 'open_cell':
-            insulationName = 'Open Cell'
-            const ocInches = group.open_cell_inches || 0
-            if (ocInches > 0) {
-              inchesDisplay = ` - ${ocInches}"`
-            }
+            insulationDisplay = 'Open Cell Foam'
             break
           case 'batt':
-            insulationName = 'Fiberglass Batt'
-            const battInches = framingToInches[group.framing_size] || 0
-            if (battInches > 0) {
-              inchesDisplay = ` - ${battInches}"`
-            }
+            insulationDisplay = 'Fiberglass Batt'
+            break
+          case 'mineral_wool':
+            insulationDisplay = 'Mineral Wool Batt'
             break
           case 'blown_in':
-            insulationName = 'Fiberglass Blown-in'
+            insulationDisplay = 'Blown-in Fiberglass'
             break
           default:
-            insulationName = group.insulation_type || 'N/A'
+            insulationDisplay = group.insulation_type || 'Insulation'
         }
-        
-        insulationDisplay = insulationName + inchesDisplay
       }
 
       // Light green background for all rows
@@ -447,57 +546,86 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
       pdf.setFontSize(8)
       
       // Enhanced multi-line description
-      let primaryDescription = group.room_name
+      let primaryDescription = ''
       
-      // Add area type if available
-      if (group.area_type) {
-        primaryDescription += ` - ${group.area_type}`
+      // Build a meaningful description
+      if (group.room_name) {
+        primaryDescription = group.room_name
+      } else {
+        primaryDescription = 'Insulation Work'
+      }
+      
+      // Add area type if available  
+      if (group.area_type && group.area_type !== 'other') {
+        primaryDescription += ` - ${formatAreaType(group.area_type)}`
+      }
+      
+      // Add floor level if available
+      if (group.floor_level && group.floor_level !== 'other') {
+        primaryDescription += ` (${group.floor_level})`
+      }
+
+      // Add framing size if available
+      if (group.framing_size) {
+        primaryDescription += ` - ${group.framing_size}`
       }
       
       // Create second line with technical details
       let secondLineDetails = ''
-      if (group.framing_size) {
-        secondLineDetails += `${group.framing_size} Framing`
-      }
       
-      if (effectiveSqft) {
-        if (secondLineDetails) secondLineDetails += ' • '
-        secondLineDetails += `${effectiveSqft} sq ft`
-      }
+      // Display primary description (centered)
+      pdf.text(primaryDescription, descPos + descWidth/2, yPosition, { align: 'center' })
       
-      // Display primary description
-      pdf.text(primaryDescription, margin + 2, yPosition)
-      
-      // Display insulation type
-      pdf.text(insulationDisplay, margin + 70, yPosition)
+      // Display insulation type (centered)
+      pdf.text(insulationDisplay, insulPos + insulWidth/2, yPosition, { align: 'center' })
       
       // Create inches display for dedicated column
-      let inchesDisplay = ''
+      let inchesDisplay = 'N/A'
       if (group.is_hybrid_system && group.insulation_type === 'hybrid') {
-        const closedInches = group.closed_cell_inches || 0
-        const openInches = group.open_cell_inches || 0
-        if (closedInches > 0 && openInches > 0) {
-          inchesDisplay = `${closedInches}" CC + ${openInches}" OC`
-        }
+        inchesDisplay = formatInchesForHybrid(group.closed_cell_inches, group.open_cell_inches)
       } else {
         // Regular insulation types
-        const inches = group.closed_cell_inches || group.open_cell_inches || 0
+        let inches = 0
+        
+        switch (group.insulation_type) {
+          case 'closed_cell':
+            inches = Number(group.closed_cell_inches) || 0
+            break
+          case 'open_cell':
+            inches = Number(group.open_cell_inches) || 0
+            break
+          case 'batt':
+            // For batt insulation, use framing size
+            const framingToInches: Record<string, number> = {
+              '2x4': 3.5, '2x6': 5.5, '2x8': 7.25, '2x10': 9.25, '2x12': 11.25
+            }
+            inches = group.framing_size ? (framingToInches[group.framing_size] || 0) : 0
+            break
+          case 'mineral_wool':
+            inches = mapMineralWoolInchesFromR(group.r_value)
+            break
+          case 'blown_in':
+            // For blown-in, check if there's a custom thickness
+            inches = Number(group.blown_in_inches) || Number(group.closed_cell_inches) || Number(group.open_cell_inches) || 0
+            break
+        }
+        
         if (inches > 0) {
           inchesDisplay = `${inches}"`
         }
       }
       
-      // Display inches in dedicated column
-      pdf.text(inchesDisplay, margin + 115, yPosition)
+      // Display inches (centered)
+      pdf.text(inchesDisplay, inchesPos + inchesWidth/2, yPosition, { align: 'center' })
       
-      // R-Value display with approximation
+      // R-Value display with approximation (centered)
       let rValueDisplay = 'N/A'
       if (group.r_value) {
         const rValue = typeof group.r_value === 'string' ? parseFloat(group.r_value) : group.r_value
         const approximatedRValue = approximateRValue(rValue)
         rValueDisplay = `R-${approximatedRValue}`
       }
-      pdf.text(rValueDisplay, margin + 140, yPosition)
+      pdf.text(rValueDisplay, rValuePos + rValueWidth/2, yPosition, { align: 'center' })
       
       // Calculate proper line positioning to avoid overlaps
       let nextLineY = yPosition + 4
@@ -512,37 +640,27 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
         nextLineY += 4 // Move down for next line
       }
       
-      // Hybrid system breakdown (on separate lines with proper spacing)
+      // Hybrid system breakdown (on separate, centered lines within Description)
       if (group.is_hybrid_system && group.insulation_type === 'hybrid' && 
           (group.closed_cell_inches || 0) > 0 && (group.open_cell_inches || 0) > 0) {
         pdf.setFontSize(7)
         pdf.setTextColor(100, 100, 100)
-        const hybridCalc = calculateHybridRValue(
-          group.closed_cell_inches || 0, 
+        // Center text within description column
+        const centerX = descPos + descWidth / 2
+        drawHybridBreakdownCentered(
+          pdf,
+          centerX,
+          nextLineY,
+          group.closed_cell_inches || 0,
           group.open_cell_inches || 0
         )
-        
-        // Show each component on separate lines with proper spacing
-        if (hybridCalc.closedCellInches > 0) {
-          const closedCellText = `• ${hybridCalc.closedCellInches}" Closed Cell (R-${approximateRValue(hybridCalc.closedCellRValue)})`
-          pdf.text(closedCellText, margin + 2, nextLineY)
-          nextLineY += 4 // More spacing between lines
-        }
-        
-        if (hybridCalc.openCellInches > 0) {
-          const openCellText = `• ${hybridCalc.openCellInches}" Open Cell (R-${approximateRValue(hybridCalc.openCellRValue)})`
-          pdf.text(openCellText, margin + 2, nextLineY)
-        }
-        
-        pdf.setTextColor(0, 0, 0)
-        pdf.setFontSize(8)
       }
       
       if (totalPrice > 0) {
-        pdf.text(formatCurrencyWhole(totalPrice), margin + 155, yPosition, { align: 'left' })
+        pdf.text(formatCurrencyWhole(totalPrice), totalPos + totalWidth/2, yPosition, { align: 'right' })
         subtotal += totalPrice
       } else {
-        pdf.text('TBD', margin + 155, yPosition)
+        pdf.text('TBD', totalPos + totalWidth/2, yPosition, { align: 'right' })
       }
 
       // Adjust spacing for hybrid systems
@@ -572,10 +690,11 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
         pdf.setGState(pdf.GState({opacity: 1})) // Reset opacity
         
         pdf.text('Description', margin + 2, yPosition)
-        pdf.text('Insulation Type', margin + 70, yPosition)
-        pdf.text('Inches', margin + 115, yPosition)
-        pdf.text('R-Value', margin + 140, yPosition)
-        pdf.text('Total', margin + 155, yPosition) // Moved left to give more space
+        pdf.text('Frame Size', margin + 70, yPosition)
+        pdf.text('Insulation Type', margin + 95, yPosition)
+        pdf.text('Inches', margin + 135, yPosition)
+        pdf.text('R-Value', margin + 160, yPosition)
+        pdf.text('Total', margin + 180, yPosition)
         
         yPosition += 8
         pdf.setFont('helvetica', 'normal')
@@ -605,44 +724,26 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
         )
         totalPrice = pricing?.totalPrice || 0
         
-        // Format insulation display to match UI
-        const framingToInches: Record<string, number> = {
-          '2x4': 4, '2x6': 6, '2x8': 8, '2x10': 10, '2x12': 12
-        }
-        
-        let insulationName = ''
-        let inchesDisplay = ''
-        
+        // Format insulation display (cleaner)
         switch (measurement.insulation_type) {
           case 'closed_cell':
-            insulationName = 'Closed Cell'
-            const ccInches = measurement.closed_cell_inches || 0
-            if (ccInches > 0) {
-              inchesDisplay = ` - ${ccInches}"`
-            }
+            insulationDisplay = 'Closed Cell Foam'
             break
           case 'open_cell':
-            insulationName = 'Open Cell'
-            const ocInches = measurement.open_cell_inches || 0
-            if (ocInches > 0) {
-              inchesDisplay = ` - ${ocInches}"`
-            }
+            insulationDisplay = 'Open Cell Foam'
             break
           case 'batt':
-            insulationName = 'Fiberglass Batt'
-            const battInches = framingToInches[measurement.framing_size] || 0
-            if (battInches > 0) {
-              inchesDisplay = ` - ${battInches}"`
-            }
+            insulationDisplay = 'Fiberglass Batt'
+            break
+          case 'mineral_wool':
+            insulationDisplay = 'Mineral Wool Batt'
             break
           case 'blown_in':
-            insulationName = 'Fiberglass Blown-in'
+            insulationDisplay = 'Blown-in Fiberglass'
             break
           default:
-            insulationName = measurement.insulation_type || 'N/A'
+            insulationDisplay = measurement.insulation_type || 'Insulation'
         }
-        
-        insulationDisplay = insulationName + inchesDisplay
       }
 
       // Light green background for all rows
@@ -654,28 +755,28 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
       pdf.setFontSize(8)
       
       // Enhanced multi-line description
-      let primaryDescription = measurement.room_name
+      let primaryDescription = ''
       
-      // Add area type if available
-      if (measurement.area_type) {
-        primaryDescription += ` - ${measurement.area_type}`
+      // Build a meaningful description
+      if (measurement.room_name) {
+        primaryDescription = measurement.room_name
+      } else {
+        primaryDescription = 'Insulation Work'
+      }
+      
+      // Add area type if available  
+      if (measurement.area_type && measurement.area_type !== 'other') {
+        primaryDescription += ` - ${formatAreaType(measurement.area_type)}`
       }
       
       // Add floor level if available
-      if (measurement.floor_level) {
+      if (measurement.floor_level && measurement.floor_level !== 'other') {
         primaryDescription += ` (${measurement.floor_level})`
       }
       
-      // Create second line with technical details
+      // Create second line with technical details (removed sq ft and framing details)
       let secondLineDetails = ''
-      if (measurement.framing_size) {
-        secondLineDetails += `${measurement.framing_size} Framing`
-      }
-      
-      if (measurement.square_feet) {
-        if (secondLineDetails) secondLineDetails += ' • '
-        secondLineDetails += `${measurement.square_feet} sq ft`
-      }
+      // Removed framing and sq ft details as requested
       
       // Display primary description
       pdf.text(primaryDescription, margin + 2, yPosition)
@@ -684,16 +785,36 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
       pdf.text(insulationDisplay, margin + 70, yPosition)
       
       // Create inches display for dedicated column
-      let inchesDisplay = ''
+      let inchesDisplay = 'N/A'
       if (measurement.is_hybrid_system && measurement.insulation_type === 'hybrid') {
-        const closedInches = measurement.closed_cell_inches || 0
-        const openInches = measurement.open_cell_inches || 0
-        if (closedInches > 0 && openInches > 0) {
-          inchesDisplay = `${closedInches}" CC + ${openInches}" OC`
-        }
+        inchesDisplay = formatInchesForHybrid(measurement.closed_cell_inches, measurement.open_cell_inches)
       } else {
         // Regular insulation types
-        const inches = measurement.closed_cell_inches || measurement.open_cell_inches || 0
+        let inches = 0
+        
+        switch (measurement.insulation_type) {
+          case 'closed_cell':
+            inches = Number(measurement.closed_cell_inches) || 0
+            break
+          case 'open_cell':
+            inches = Number(measurement.open_cell_inches) || 0
+            break
+          case 'batt':
+            // For batt insulation, use framing size
+            const framingToInches: Record<string, number> = {
+              '2x4': 3.5, '2x6': 5.5, '2x8': 7.25, '2x10': 9.25, '2x12': 11.25
+            }
+            inches = measurement.framing_size ? (framingToInches[measurement.framing_size] || 0) : 0
+            break
+          case 'mineral_wool':
+            inches = mapMineralWoolInchesFromR(measurement.r_value)
+            break
+          case 'blown_in':
+            // For blown-in, check if there's a custom thickness
+            inches = Number(measurement.blown_in_inches) || Number(measurement.closed_cell_inches) || Number(measurement.open_cell_inches) || 0
+            break
+        }
+        
         if (inches > 0) {
           inchesDisplay = `${inches}"`
         }
@@ -724,37 +845,27 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
         nextLineY += 4 // Move down for next line
       }
       
-      // Hybrid system breakdown (on separate lines with proper spacing)
+      // Hybrid system breakdown (on separate, centered lines within Description)
       if (measurement.is_hybrid_system && measurement.insulation_type === 'hybrid' && 
           (measurement.closed_cell_inches || 0) > 0 && (measurement.open_cell_inches || 0) > 0) {
         pdf.setFontSize(7)
         pdf.setTextColor(100, 100, 100)
-        const hybridCalc = calculateHybridRValue(
-          measurement.closed_cell_inches || 0, 
+        // Center text within description column of fallback table
+        const centerX = margin + 2 + (descWidth) / 2
+        drawHybridBreakdownCentered(
+          pdf,
+          centerX,
+          nextLineY,
+          measurement.closed_cell_inches || 0,
           measurement.open_cell_inches || 0
         )
-        
-        // Show each component on separate lines with proper spacing
-        if (hybridCalc.closedCellInches > 0) {
-          const closedCellText = `• ${hybridCalc.closedCellInches}" Closed Cell (R-${approximateRValue(hybridCalc.closedCellRValue)})`
-          pdf.text(closedCellText, margin + 2, nextLineY)
-          nextLineY += 4 // More spacing between lines
-        }
-        
-        if (hybridCalc.openCellInches > 0) {
-          const openCellText = `• ${hybridCalc.openCellInches}" Open Cell (R-${approximateRValue(hybridCalc.openCellRValue)})`
-          pdf.text(openCellText, margin + 2, nextLineY)
-        }
-        
-        pdf.setTextColor(0, 0, 0)
-        pdf.setFontSize(8)
       }
       
       if (totalPrice > 0) {
-        pdf.text(formatCurrencyWhole(totalPrice), margin + 155, yPosition, { align: 'left' })
+        pdf.text(formatCurrencyWhole(totalPrice), totalPos + totalWidth/2, yPosition, { align: 'right' })
         subtotal += totalPrice
       } else {
-        pdf.text('TBD', margin + 155, yPosition)
+        pdf.text('TBD', totalPos + totalWidth/2, yPosition, { align: 'right' })
       }
 
       // Adjust spacing for hybrid systems
@@ -797,17 +908,17 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
   const termsText = 'After 15 days of the date above, this estimate is subject to revision and also to readjustment due to manufacturers prices increases. All materials are guaranteed to be as specified. The job will be performed according to drawings and specifications provided.'
   
   // Calculate box dimensions
-  const boxPadding = 8
+  const boxPadding = 3 // Even slimmer padding
   const boxWidth = pageWidth - (margin * 2)
   const textWidth = boxWidth - (boxPadding * 2)
   
   // Split text to fit within box
-  pdf.setFontSize(9)
+  pdf.setFontSize(7) // Even smaller font size
   pdf.setFont('helvetica', 'normal')
   const termsLines = pdf.splitTextToSize(termsText, textWidth)
   
   // Calculate box height
-  const lineHeight = 4.5
+  const lineHeight = 3.0 // Even tighter line height
   const boxHeight = (termsLines.length * lineHeight) + (boxPadding * 2)
   
   // Check if we need a new page for the box
@@ -817,22 +928,22 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
   }
   
   // Draw box border
-  pdf.setDrawColor(220, 20, 20) // Red border
-  pdf.setLineWidth(1)
+  pdf.setDrawColor(200, 50, 50) // Lighter red border
+  pdf.setLineWidth(0.5) // Thinner border
   pdf.rect(margin, yPosition, boxWidth, boxHeight)
   
-  // Optional: Add light red background
-  pdf.setFillColor(255, 245, 245) // Very light red background
+  // Optional: Add very light red background
+  pdf.setFillColor(255, 250, 250) // Even lighter red background
   pdf.rect(margin, yPosition, boxWidth, boxHeight, 'F')
   
   // Redraw border on top of background
-  pdf.setDrawColor(220, 20, 20)
+  pdf.setDrawColor(200, 50, 50) // Lighter red border
   pdf.rect(margin, yPosition, boxWidth, boxHeight)
   
   // Add text inside the box
-  pdf.setTextColor(220, 20, 20) // Red text color
+  pdf.setTextColor(200, 50, 50) // Lighter red text color
   
-  let textY = yPosition + boxPadding + 4 // Start position for text
+  let textY = yPosition + boxPadding + 3 // Adjusted start position for text
   termsLines.forEach((line: string) => {
     pdf.text(line, margin + boxPadding, textY)
     textY += lineHeight
@@ -880,8 +991,8 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
   const terms = [
     {
       number: '1.',
-      text: 'It is the customer\'s responsibility to ensure that the following condition is met before work begins: The work area must be free of debris, tools, equipment, storage, and obstructions. ABT is not responsible for any type of damage on personal belongings that remained in the working area.',
-      subtext: 'a. There will be a fee of $100/hour if ABT workers need to clean the area before work begins. There will also be a fee of $200 to remove material, equipment, and/or objects that are blocking the workspace.'
+      text: 'It is the customer\'s responsibility to ensure that the following condition is met before work begins: The work area must be free of debris, tools, equipment, storage, and obstructions. Econova is not responsible for any type of damage on personal belongings that remained in the working area.',
+      subtext: 'a. There will be a fee of $100/hour if Econova workers need to clean the area before work begins. There will also be a fee of $200 to remove material, equipment, and/or objects that are blocking the workspace.'
     },
     {
       number: '2.',
@@ -889,7 +1000,7 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
     },
     {
       number: '3.',
-      text: 'The electrical wire must be installed tightly so that there is no risk of expanding with the foam. Wires not installed correctly have the risk of being cut when foam excess is being trimmed, which will not be covered by the ABT\'s warranty.'
+      text: 'The electrical wire must be installed tightly so that there is no risk of expanding with the foam. Wires not installed correctly have the risk of being cut when foam excess is being trimmed, which will not be covered by the Econova\'s warranty.'
     },
     {
       number: '4.',
@@ -905,16 +1016,16 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
     },
     {
       number: '7.',
-      text: 'Job sites must have at least one electric power switch, one water switch, and heat. If not, there will be a change in the cost of the work, negotiated between ABT and the client before the beginning of the labor.'
+      text: 'Job sites must have at least one electric power switch, one water switch, and heat. If not, there will be a change in the cost of the work, negotiated between Econova and the client before the beginning of the labor.'
     },
     {
       number: '8.',
-      text: 'When the carpentry structure is crooked or with structural problems, ABT is not responsible for the perfect alignment of the plaster in the lines of the walls, ceiling, and floor.'
+      text: 'When the carpentry structure is crooked or with structural problems, Econova is not responsible for the perfect alignment of the plaster in the lines of the walls, ceiling, and floor.'
     },
     {
       number: '9.',
       text: 'When doing blown-in cellulose, certain areas of the siding, drilling holes, and blowing in the insulation could result in some damage to the siding or to the aesthetics of the paint. Interior drill and blow require holes to be drilled on the wall or ceiling and can be a very intrusive and dusty process. For this job to go smoothly, the homeowner must make sure that all furniture and any clothing located in adjacent areas to the exterior walls, ceiling, or slopes (that are being treated) must be moved away from those areas and covered with plastic prior to the beginning of the job.',
-      subtext: 'a. Once the insulation is blown in, ABT\'s responsibility will be to plug the access holes and treat the surface with an initial application of a filler. The Customer is responsible for any additional work to those areas, including cleaning, dusting, and painting to achieve the desired finish conditions.'
+      subtext: 'a. Once the insulation is blown in, Econova\'s responsibility will be to plug the access holes and treat the surface with an initial application of a filler. The Customer is responsible for any additional work to those areas, including cleaning, dusting, and painting to achieve the desired finish conditions.'
     },
     {
       number: '10.',
@@ -926,7 +1037,7 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
     },
     {
       number: '12.',
-      text: 'ABT cannot be responsible for the chemical quality of the applied product but is committed to using products of excellent quality and origin, distributed by structured companies of insulation products.'
+      text: 'Econova cannot be responsible for the chemical quality of the applied product but is committed to using products of excellent quality and origin, distributed by structured companies of insulation products.'
     },
     {
       number: '13.',
@@ -940,12 +1051,12 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
     {
       number: '15.',
       text: 'Late Payment Fees:',
-      subtext: 'a. 1.5% monthly or 18% yearly will be applied in case of late payments; There is also a fee of $40 for bounced checks.\nb. The customer will be responsible for all charges and fees resulting from breach of contract or delay/failure to pay.\nc. When this estimate is approved (by email, phone message, or phone call), it automatically becomes a work order, and everything contained therein is now part of a Service/Work Agreement between the CUSTOMER and ABT.'
+      subtext: 'a. 1.5% monthly or 18% yearly will be applied in case of late payments; There is also a fee of $40 for bounced checks.\nb. The customer will be responsible for all charges and fees resulting from breach of contract or delay/failure to pay.\nc. When this estimate is approved (by email, phone message, or phone call), it automatically becomes a work order, and everything contained therein is now part of a Service/Work Agreement between the CUSTOMER and Econova.'
     },
     {
       number: '16.',
       text: 'Warranty:',
-      subtext: 'ABT offers a one-year warranty after the project\'s completion date. ABT\'s warranty covers installation errors as well as additional warranties imposed by law. The product manufacturer\'s warranty is also applied. ABT\'s sole responsibility for this warranty will be to correct any problem resulting from an error in the application of the product if such error is reported to ABT within the warranty period. Any claim for damages must be limited to the amount paid for the services of this contract and does not include accidental or consequential damages. Each part of this contract will be valid and enforceable to the maximum extent permitted by law. This agreement must be interpreted and enforced under the laws of The Commonwealth of Massachusetts.'
+      subtext: 'Econova offers a one-year warranty after the project\'s completion date. Econova\'s warranty covers installation errors as well as additional warranties imposed by law. The product manufacturer\'s warranty is also applied. Econova\'s sole responsibility for this warranty will be to correct any problem resulting from an error in the application of the product if such error is reported to Econova within the warranty period. Any claim for damages must be limited to the amount paid for the services of this contract and does not include accidental or consequential damages. Each part of this contract will be valid and enforceable to the maximum extent permitted by law. This agreement must be interpreted and enforced under the laws of The Commonwealth of Massachusetts.'
     }
   ]
 

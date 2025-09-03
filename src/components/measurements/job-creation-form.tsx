@@ -41,7 +41,7 @@ const jobSchema = z.object({
   project_state: z.string().min(1, "State is required"),
   project_zip_code: z.string().min(5, "ZIP code is required").max(10, "ZIP code too long"),
   // Project type fields (required)
-  project_type: z.enum(["new_construction", "remodel"]),
+  construction_type: z.enum(["new", "remodel"]),
   // Service-specific optional fields
   // HVAC fields
   system_type: z.enum(["central_air", "heat_pump", "furnace"]).optional(),
@@ -85,7 +85,7 @@ export function JobCreationForm({
       project_city: "",
       project_state: "MA",
       project_zip_code: "",
-      project_type: "new_construction",
+      construction_type: "new",
       system_type: "central_air",
       install_type: "new_install",
       tonnage_estimate: "",
@@ -463,7 +463,7 @@ export function JobCreationForm({
             {buildingType === 'residential' && (
               <FormField
                 control={form.control}
-                name="project_type"
+                name="construction_type"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="flex items-center gap-2">
@@ -477,7 +477,7 @@ export function JobCreationForm({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="new_construction">New Construction</SelectItem>
+                        <SelectItem value="new">New Construction</SelectItem>
                         <SelectItem value="remodel">Remodeling</SelectItem>
                       </SelectContent>
                     </Select>

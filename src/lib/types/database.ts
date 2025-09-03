@@ -109,7 +109,7 @@ export type Database = {
           measurement_type: 'field' | 'drawings'
           service_type: 'insulation' | 'hvac' | 'plaster'
           building_type: 'residential' | 'commercial' | 'industrial'
-          project_type: 'new_construction' | 'remodel' | null
+          construction_type: 'new' | 'remodel' | null
           total_square_feet: number
           structural_framing: '2x4' | '2x6' | '2x8' | '2x10' | '2x12' | null
           roof_rafters: '2x4' | '2x6' | '2x8' | '2x10' | '2x12' | null
@@ -199,7 +199,7 @@ export type Database = {
           height: number
           width: number
           square_feet: number | null
-          insulation_type: 'closed_cell' | 'open_cell' | 'batt' | 'blown_in' | 'hybrid' | null
+          insulation_type: 'closed_cell' | 'open_cell' | 'batt' | 'blown_in' | 'hybrid' | 'mineral_wool' | null
           r_value: string | null
           closed_cell_inches: number | null
           open_cell_inches: number | null
