@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
 export async function POST(
@@ -11,32 +10,6 @@ export async function POST(
   try {
     const supabase = await createClient()
     
-    // Get the authenticated user
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    
-    if (authError || !user) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      )
-    }
-
-    console.log(`✅ Approving estimate ${id} by user ${user.id}`)
-
-    // Check if user is a manager
-    const { data: userProfile } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    if (userProfile?.role !== 'manager') {
-      return NextResponse.json(
-        { success: false, error: 'Only managers can approve estimates' },
-        { status: 403 }
-      )
-    }
-
     // Get estimate with job details first
     const { data: estimate, error: estimateError } = await supabase
       .from('estimates')
