@@ -419,64 +419,124 @@ export class AnalyticsService {
         }
       }
 
-      const now = new Date()
-      const startOfCurrentMonth = startOfMonth(now)
-
-      // Simplified queries with individual error handling
-      let totalJobs = 0
-      let commissions = 0
-      let conversionRate = 0
-      let pipelineValue = 0
-      let estimatesSent = 0
-      let estimatesSentLastMonth = 0
+      console.log('📊 Starting dashboard stats fetch...')
       
-      try {
-        console.log('Fetching total jobs...')
-        const jobsResult = await Promise.race([
-          this.supabase.from('jobs').select('id', { count: 'exact' }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Jobs query timeout')), 3000))
-        ])
-        totalJobs = (jobsResult as any)?.count || 0
-        console.log('Jobs count:', totalJobs)
-      } catch (error) {
-        console.warn('Failed to fetch jobs count:', error)
-      }
+      // Add timeout wrapper for the entire stats operation
+      const timeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Dashboard stats timeout')), 15000)
+      )
+      
+      const statsOperation = async () => {
+        const now = new Date()
+        const startOfCurrentMonth = startOfMonth(now)
 
-      // Calculate commissions from closed won jobs (assuming 10% commission rate)
-      const COMMISSION_RATE = 0.10 // 10% commission
-      try {
-        console.log('Fetching commission data...')
-        const commissionResult = await Promise.race([
-          this.supabase
+        // Simplified queries with individual error handling
+        let totalJobs = 0
+        let commissions = 0
+        let conversionRate = 0
+        let pipelineValue = 0
+        let estimatesSent = 0
+        let estimatesSentLastMonth = 0
+        
+        try {
+          console.log('Fetching total jobs...')
+          // Simplified query without timeout for better performance
+          const { data: jobsData, error: jobsError } = await this.supabase
             .from('jobs')
-            .select('quote_amount, leads!lead_id(status)')
-            .eq('leads.status', 'closed_won')
+            .select('id', { count: 'exact' })
+          
+          if (jobsError) {
+            console.warn('Jobs query error:', jobsError)
+            totalJobs = 0
+          } else {
+            totalJobs = jobsData?.length || 0
+          }
+          console.log('Jobs count:', totalJobs)
+        } catch (error) {
+          console.warn('Failed to fetch jobs count:', error)
+        }
+
+        // Calculate commissions from closed won jobs (assuming 10% commission rate)
+        const COMMISSION_RATE = 0.10 // 10% commission
+        try {
+          console.log('Fetching commission data...')
+          // Simplified query without joins to improve performance
+          const { data: jobsData, error } = await this.supabase
+            .from('jobs')
+            .select('quote_amount, lead_id')
             .not('quote_amount', 'is', null)
-            .gte('updated_at', startOfCurrentMonth.toISOString()),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Commission query timeout')), 3000))
-        ])
-        const totalRevenue = (commissionResult as any)?.data?.reduce((sum: number, job: any) => sum + (job.quote_amount || 0), 0) || 0
-        commissions = totalRevenue * COMMISSION_RATE
-        console.log('Commissions calculated:', commissions)
-      } catch (error) {
-        console.warn('Failed to fetch commission data:', error)
+            .gte('updated_at', startOfCurrentMonth.toISOString())
+          
+          if (error) {
+            console.warn('Commission query error:', error)
+          } else {
+            // Get closed won leads separately
+            const leadIds = jobsData?.map(job => job.lead_id).filter(Boolean) || []
+            
+            if (leadIds.length > 0) {
+              const { data: leadsData } = await this.supabase
+                .from('leads')
+                .select('id')
+                .in('id', leadIds)
+                .eq('status', 'closed_won')
+              
+              const closedWonLeadIds = new Set(leadsData?.map(lead => lead.id) || [])
+              
+              const totalRevenue = jobsData
+                ?.filter(job => closedWonLeadIds.has(job.lead_id))
+                ?.reduce((sum, job) => sum + (job.quote_amount || 0), 0) || 0
+              
+              commissions = totalRevenue * COMMISSION_RATE
+            }
+          }
+          console.log('Commissions calculated:', commissions)
+        } catch (error) {
+          console.warn('Failed to fetch commission data:', error)
+        }
+        
+        return {
+          commissions,
+          totalJobs,
+          conversionRate,
+          pipelineValue,
+          estimatesSent,
+          estimatesSentLastMonth
+        }
+      }
+      
+      const result = await Promise.race([statsOperation(), timeout])
+      
+      console.log('✅ Dashboard stats fetch completed')
+      
+      return {
+        success: true,
+        data: {
+          commissions: result.commissions,
+          totalJobs: result.totalJobs,
+          conversionRate: result.conversionRate,
+          pipelineValue: result.pipelineValue,
+          estimatesSent: result.estimatesSent,
+          estimatesSentLastMonth: result.estimatesSentLastMonth,
+          growth: {
+            commissions: 0, // TODO: Calculate month-over-month growth
+            jobs: 0,
+            estimates: result.estimatesSentLastMonth > 0 
+              ? ((result.estimatesSent - result.estimatesSentLastMonth) / result.estimatesSentLastMonth) * 100 
+              : 0
+          }
+        }
       }
 
       // Calculate conversion rate (closed won / total leads)
       try {
         console.log('Calculating conversion rate...')
-        const [totalLeadsResult, closedWonResult] = await Promise.all([
-          Promise.race([
-            this.supabase.from('leads').select('id', { count: 'exact' }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Total leads query timeout')), 2000))
-          ]),
-          Promise.race([
-            this.supabase.from('leads').select('id', { count: 'exact' }).eq('status', 'closed_won'),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Closed won query timeout')), 2000))
-          ])
+        const [{ data: totalLeadsData }, { data: closedWonData }] = await Promise.all([
+          this.supabase.from('leads').select('id', { count: 'exact' }),
+          this.supabase.from('leads').select('id', { count: 'exact' }).eq('status', 'closed_won')
         ])
-        const totalLeads = (totalLeadsResult as any)?.count || 0
-        const closedWon = (closedWonResult as any)?.count || 0
+        
+        const totalLeads = totalLeadsData?.length || 0
+        const closedWon = closedWonData?.length || 0
         conversionRate = totalLeads > 0 ? (closedWon / totalLeads) * 100 : 0
         console.log('Conversion rate:', conversionRate)
       } catch (error) {
@@ -489,28 +549,22 @@ export class AnalyticsService {
         const startOfLastMonth = startOfMonth(subDays(startOfCurrentMonth, 1))
         const endOfLastMonth = endOfMonth(subDays(startOfCurrentMonth, 1))
         
-        const [thisMonthEstimates, lastMonthEstimates] = await Promise.all([
-          Promise.race([
-            this.supabase
-              .from('jobs')
-              .select('id', { count: 'exact' })
-              .not('quote_amount', 'is', null)
-              .gte('quote_sent_at', startOfCurrentMonth.toISOString()),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('This month estimates timeout')), 2000))
-          ]),
-          Promise.race([
-            this.supabase
-              .from('jobs')
-              .select('id', { count: 'exact' })
-              .not('quote_amount', 'is', null)
-              .gte('quote_sent_at', startOfLastMonth.toISOString())
-              .lte('quote_sent_at', endOfLastMonth.toISOString()),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Last month estimates timeout')), 2000))
-          ])
+        const [{ data: thisMonthData }, { data: lastMonthData }] = await Promise.all([
+          this.supabase
+            .from('jobs')
+            .select('id', { count: 'exact' })
+            .not('quote_amount', 'is', null)
+            .gte('quote_sent_at', startOfCurrentMonth.toISOString()),
+          this.supabase
+            .from('jobs')
+            .select('id', { count: 'exact' })
+            .not('quote_amount', 'is', null)
+            .gte('quote_sent_at', startOfLastMonth.toISOString())
+            .lte('quote_sent_at', endOfLastMonth.toISOString())
         ])
         
-        estimatesSent = (thisMonthEstimates as any)?.count || 0
-        estimatesSentLastMonth = (lastMonthEstimates as any)?.count || 0
+        estimatesSent = thisMonthData?.length || 0
+        estimatesSentLastMonth = lastMonthData?.length || 0
         console.log('Estimates sent:', estimatesSent, 'Last month:', estimatesSentLastMonth)
       } catch (error) {
         console.warn('Failed to fetch estimates sent:', error)
@@ -519,15 +573,32 @@ export class AnalyticsService {
       // Calculate pipeline value (all pending estimates - not closed won or lost)
       try {
         console.log('Fetching pipeline value...')
-        const pipelineResult = await Promise.race([
-          this.supabase
-            .from('jobs')
-            .select('quote_amount, leads!lead_id(status)')
-            .not('quote_amount', 'is', null)
-            .not('leads.status', 'in', '("closed_won","closed_lost")'),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Pipeline query timeout')), 3000))
-        ])
-        pipelineValue = (pipelineResult as any)?.data?.reduce((sum: number, job: any) => sum + (job.quote_amount || 0), 0) || 0
+        // Simplified query without joins
+        const { data: jobsData, error } = await this.supabase
+          .from('jobs')
+          .select('quote_amount, lead_id')
+          .not('quote_amount', 'is', null)
+        
+        if (error) {
+          console.warn('Pipeline query error:', error)
+        } else {
+          // Get leads that are not closed
+          const leadIds = jobsData?.map(job => job.lead_id).filter(Boolean) || []
+          
+          if (leadIds.length > 0) {
+            const { data: leadsData } = await this.supabase
+              .from('leads')
+              .select('id')
+              .in('id', leadIds)
+              .not('status', 'in', '("closed_won","closed_lost")')
+            
+            const activeleadIds = new Set(leadsData?.map(lead => lead.id) || [])
+            
+            pipelineValue = jobsData
+              ?.filter(job => activeleadIds.has(job.lead_id))
+              ?.reduce((sum, job) => sum + (job.quote_amount || 0), 0) || 0
+          }
+        }
         console.log('Pipeline value:', pipelineValue)
       } catch (error) {
         console.warn('Failed to fetch pipeline value:', error)
@@ -596,15 +667,17 @@ export class AnalyticsService {
 
       try {
         console.log('Fetching recent communications...')
-        const commsResult = await Promise.race([
-          this.supabase
-            .from('communications')
-            .select('id, type, direction, created_at')
-            .order('created_at', { ascending: false })
-            .limit(Math.min(limit, 5)),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Communications query timeout')), 2000))
-        ])
-        recentComms = (commsResult as any)?.data || []
+        const { data: commsData, error: commsError } = await this.supabase
+          .from('communications')
+          .select('id, type, direction, created_at')
+          .order('created_at', { ascending: false })
+          .limit(Math.min(limit, 5))
+        
+        if (commsError) {
+          console.warn('Communications query error:', commsError)
+        } else {
+          recentComms = commsData || []
+        }
         console.log('Communications fetched:', recentComms.length)
       } catch (error) {
         console.warn('Failed to fetch communications:', error)
@@ -612,15 +685,17 @@ export class AnalyticsService {
 
       try {
         console.log('Fetching recent leads...')
-        const leadsResult = await Promise.race([
-          this.supabase
-            .from('leads')
-            .select('id, name, status, created_at')
-            .order('created_at', { ascending: false })
-            .limit(Math.min(limit, 5)),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Leads query timeout')), 2000))
-        ])
-        recentLeads = (leadsResult as any)?.data || []
+        const { data: leadsData, error: leadsError } = await this.supabase
+          .from('leads')
+          .select('id, name, status, created_at')
+          .order('created_at', { ascending: false })
+          .limit(Math.min(limit, 5))
+        
+        if (leadsError) {
+          console.warn('Leads query error:', leadsError)
+        } else {
+          recentLeads = leadsData || []
+        }
         console.log('Leads fetched:', recentLeads.length)
       } catch (error) {
         console.warn('Failed to fetch leads:', error)
@@ -628,15 +703,17 @@ export class AnalyticsService {
 
       try {
         console.log('Fetching recent jobs...')
-        const jobsResult = await Promise.race([
-          this.supabase
-            .from('jobs')
-            .select('id, job_name, total_square_feet, created_at')
-            .order('created_at', { ascending: false })
-            .limit(Math.min(limit, 5)),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Jobs query timeout')), 2000))
-        ])
-        recentJobs = (jobsResult as any)?.data || []
+        const { data: jobsData, error: jobsError } = await this.supabase
+          .from('jobs')
+          .select('id, job_name, total_square_feet, created_at')
+          .order('created_at', { ascending: false })
+          .limit(Math.min(limit, 5))
+        
+        if (jobsError) {
+          console.warn('Jobs query error:', jobsError)
+        } else {
+          recentJobs = jobsData || []
+        }
         console.log('Jobs fetched:', recentJobs.length)
       } catch (error) {
         console.warn('Failed to fetch jobs:', error)

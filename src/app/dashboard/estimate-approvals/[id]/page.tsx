@@ -137,20 +137,24 @@ export default function EstimateDetailPage({ params }: { params: Promise<{ id: s
     }
 
     try {
-      const response = await fetch(`/api/estimates/${estimateId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          status: 'approved',
-          approved_at: new Date().toISOString()
-        })
+      const response = await fetch(`/api/estimates/${estimateId}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
       })
 
-      if (response.ok) {
+      const result = await response.json()
+      if (result.success) {
         toast.success('Estimate approved successfully')
         loadEstimateDetail(estimateId)
+        // Trigger event for other components to refresh
+        window.dispatchEvent(new CustomEvent('estimateUpdated', { 
+          detail: { estimateId, status: 'approved' } 
+        }))
+      } else {
+        toast.error(result.error || 'Failed to approve estimate')
       }
     } catch (error) {
+      console.error('Error approving estimate:', error)
       toast.error('Failed to approve estimate')
     }
   }
@@ -162,17 +166,24 @@ export default function EstimateDetailPage({ params }: { params: Promise<{ id: s
     }
 
     try {
-      const response = await fetch(`/api/estimates/${estimateId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'rejected' })
+      const response = await fetch(`/api/estimates/${estimateId}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
       })
 
-      if (response.ok) {
+      const result = await response.json()
+      if (result.success) {
         toast.success('Estimate rejected')
         loadEstimateDetail(estimateId)
+        // Trigger event for other components to refresh
+        window.dispatchEvent(new CustomEvent('estimateUpdated', { 
+          detail: { estimateId, status: 'rejected' } 
+        }))
+      } else {
+        toast.error(result.error || 'Failed to reject estimate')
       }
     } catch (error) {
+      console.error('Error rejecting estimate:', error)
       toast.error('Failed to reject estimate')
     }
   }

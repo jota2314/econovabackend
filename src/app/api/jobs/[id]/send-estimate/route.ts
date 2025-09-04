@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { Resend } from 'resend'
 import { env } from '@/lib/config/env'
+import emailService from '@/lib/services/business/email-service'
 
 export async function POST(
   request: NextRequest,
@@ -59,141 +60,82 @@ export async function POST(
       pdfFileName = job.latest_estimate_pdf_name || pdfFileName
       console.log('[Email API] Using saved PDF, size:', pdfBuffer.length)
     } else {
-      // No PDF exists, generate one
+      // No PDF exists, generate one directly using the PDF generator
       console.log('[Email API] No PDF exists, generating new one...')
-      const pdfGenerationResponse = await fetch(`${request.url.split('/send-estimate')[0]}/generate-pdf`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          measurements: job.measurements || [],
+      
+      try {
+        // Import and use the PDF generation function directly
+        const { generateEstimatePDF } = await import('@/lib/utils/estimate-pdf-generator')
+        
+        // Create the estimate data structure
+        const estimateData = {
           jobName: job.job_name || 'Spray Foam Estimate',
           customerName: job.lead?.name || 'Valued Customer',
+          customerPhone: job.lead?.phone || '',
+          customerEmail: job.lead?.email || '',
+          projectAddress: (job as any).project_address || '',
+          projectCity: (job as any).project_city || '',
+          projectState: (job as any).project_state || '',
+          projectZipCode: (job as any).project_zip_code || '',
+          salespersonName: 'Manager',
+          salespersonEmail: 'jorge@EconovaEnergySavings.com',
+          salespersonPhone: '617-596-2476',
+          companyWebsite: 'EconovaEnergySavings.com',
+          measurements: job.measurements || [],
           jobPhotos: [],
-          additionalData: {
-            customerPhone: job.lead?.phone || '',
-            customerEmail: job.lead?.email || '',
-            projectAddress: (job as any).project_address || '',
-            projectCity: (job as any).project_city || '',
-            projectState: (job as any).project_state || '',
-            projectZipCode: (job as any).project_zip_code || '',
-            salespersonName: 'Manager',
-            salespersonEmail: 'jorge@EconovaEnergySavings.com',
-            salespersonPhone: '617-596-2476',
-            companyWebsite: 'EconovaEnergySavings.com'
-          }
-        })
-      })
-      
-      const pdfResult = await pdfGenerationResponse.json()
-      if (pdfResult.success) {
-        // The PDF is now returned as a data URL, convert to buffer
-        const base64Data = pdfResult.pdfUrl.split(',')[1]
-        pdfBuffer = Buffer.from(base64Data, 'base64')
-        pdfFileName = pdfResult.fileName
+          generatedDate: new Date(),
+          validUntil: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000), // 15 days from now
+          returnBuffer: true // Return buffer instead of downloading
+        }
+        
+        // Generate PDF buffer
+        pdfBuffer = await generateEstimatePDF(estimateData)
         console.log('[Email API] Generated new PDF, size:', pdfBuffer.length)
-      } else {
-        throw new Error('Failed to generate PDF: ' + pdfResult.error)
+        
+        // Update job with PDF info (optional - for caching)
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+        pdfFileName = `estimate_${job.job_name.replace(/[^a-z0-9]/gi, '_')}_${timestamp}.pdf`
+        
+      } catch (pdfError) {
+        console.error('[Email API] Direct PDF generation error:', pdfError)
+        throw new Error('Failed to generate PDF: ' + (pdfError instanceof Error ? pdfError.message : 'Unknown error'))
       }
     }
 
-    // Create email content
+    // Prepare email data
     const customerName = job.lead?.name || 'Valued Customer'
-    const firstName = customerName.split(' ')[0]
     const projectAddress = (job as any).project_address || 'your property'
-    
-    const emailSubject = `Your Spray Foam Insulation Estimate - ${projectAddress}`
-    
-    const emailHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background-color: #f8f9fa; padding: 20px; text-align: center;">
-          <h1 style="color: #28a745; margin: 0;">ECONOVA ENERGY SAVINGS</h1>
-          <p style="color: #666; margin: 5px 0;">Professional Spray Foam Insulation</p>
-        </div>
-        
-        <div style="padding: 30px 20px;">
-          <h2 style="color: #333;">Hello ${firstName},</h2>
-          
-          <p style="line-height: 1.6; color: #555;">
-            Thank you for your interest in our spray foam insulation services! 
-            We're excited to help you improve your property's energy efficiency.
-          </p>
-          
-          <p style="line-height: 1.6; color: #555;">
-            Please find attached your personalized estimate for the spray foam insulation 
-            project at <strong>${projectAddress}</strong>.
-          </p>
-          
-          <div style="background-color: #e8f5e8; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <h3 style="color: #28a745; margin-top: 0;">What's Next?</h3>
-            <ul style="color: #555; line-height: 1.6;">
-              <li>Review the attached detailed estimate</li>
-              <li>Feel free to call us with any questions</li>
-              <li>We can schedule a site visit if needed</li>
-              <li>This estimate is valid for 30 days</li>
-            </ul>
-          </div>
-          
-          <p style="line-height: 1.6; color: #555;">
-            We pride ourselves on providing high-quality insulation services that will 
-            help reduce your energy costs and improve your home's comfort year-round.
-          </p>
-          
-          <p style="line-height: 1.6; color: #555;">
-            If you have any questions or would like to discuss the estimate, 
-            please don't hesitate to reach out to us at <strong>617-596-2476</strong> 
-            or reply to this email.
-          </p>
-          
-          <p style="line-height: 1.6; color: #555;">
-            Thank you for choosing Econova Energy Savings!
-          </p>
-          
-          <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
-            <p style="margin: 0; color: #666;"><strong>Manager</strong></p>
-            <p style="margin: 5px 0; color: #666;">Econova Energy Savings</p>
-            <p style="margin: 0; color: #666;">Phone: 617-596-2476</p>
-            <p style="margin: 0; color: #666;">Email: jorge@EconovaEnergySavings.com</p>
-            <p style="margin: 0; color: #666;">Website: EconovaEnergySavings.com</p>
-          </div>
-        </div>
-      </div>
-    `
 
-    // Initialize Resend client at runtime when environment variables are available
-    const resend = new Resend(env.RESEND_API_KEY)
+    // Send email using business service
+    console.log('[Email API] Sending estimate email using business service')
+    console.log('[Email API] Service status:', emailService.getServiceStatus())
 
-    // Send email with PDF attachment
-    console.log('[Email API] Sending email to:', job.lead.email)
-    console.log('[Email API] From email:', env.FROM_EMAIL || 'estimates@econovaenergysavings.com')
-    console.log('[Email API] PDF attachment size:', pdfBuffer.length, 'bytes')
-    console.log('[Email API] PDF filename:', pdfFileName)
-    console.log('[Email API] Resend API key configured:', !!env.RESEND_API_KEY)
-    
-    const emailResult = await resend.emails.send({
-      from: env.FROM_EMAIL || 'onboarding@resend.dev',
-      to: job.lead.email,
-      subject: emailSubject,
-      html: emailHtml,
-      attachments: [
-        {
-          filename: pdfFileName,
-          content: pdfBuffer instanceof Buffer ? pdfBuffer.toString('base64') : Buffer.from(pdfBuffer).toString('base64'),
-          type: 'application/pdf',
-        },
-      ],
+    const emailResult = await emailService.sendEstimateEmail({
+      customerEmail: job.lead.email,
+      customerName,
+      projectAddress,
+      pdfBuffer: Buffer.from(pdfBuffer),
+      pdfFileName
     })
 
-    if (emailResult.error) {
-      console.error('[Email API] Email send error:', emailResult.error)
-      console.error('[Email API] Email result:', emailResult)
+    if (!emailResult.success) {
+      console.error('[Email API] Email service error details:')
+      console.error('[Email API] Error message:', emailResult.error)
+      console.error('[Email API] Service status:', emailService.getServiceStatus())
+      console.error('[Email API] Customer email:', job.lead.email)
+      console.error('[Email API] PDF size:', pdfBuffer.length)
+      
       return NextResponse.json({ 
-        error: 'Failed to send email', 
-        details: emailResult.error,
-        fullError: emailResult
+        error: emailResult.error || 'Failed to send email',
+        details: {
+          serviceStatus: emailService.getServiceStatus(),
+          customerEmail: job.lead.email,
+          pdfSize: pdfBuffer.length
+        }
       }, { status: 500 })
     }
 
-    console.log('[Email API] Email sent successfully:', emailResult.data?.id)
+    console.log('[Email API] Email sent successfully via business service:', emailResult.data?.emailId)
 
     // Update job workflow status to sent
     const { error: updateError } = await supabase
@@ -212,9 +154,9 @@ export async function POST(
     return NextResponse.json({
       success: true,
       message: `Estimate sent successfully to ${job.lead.email}`,
-      emailId: emailResult.data?.id,
-      customerName: customerName,
-      customerEmail: job.lead.email
+      emailId: emailResult.data?.emailId,
+      customerName: emailResult.data?.customerName,
+      customerEmail: emailResult.data?.customerEmail
     })
 
   } catch (error) {

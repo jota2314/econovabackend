@@ -1,7 +1,7 @@
 'use client'
 
-import { createContext, useContext, ReactNode } from 'react'
-import { useAuth } from '@/hooks/use-auth'
+import { createContext, useContext, ReactNode, useEffect } from 'react'
+import { useAuthStore, initializeAuthListener } from '@/stores/auth-store'
 import { User as SupabaseUser, Session } from '@supabase/supabase-js'
 import { User } from '@/lib/types/database'
 
@@ -21,10 +21,40 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const auth = useAuth()
+  // Initialize auth listener once
+  useEffect(() => {
+    initializeAuthListener()
+  }, [])
+
+  // Get auth state from Zustand store
+  const {
+    user,
+    profile,
+    session,
+    loading,
+    signIn,
+    signUp,
+    signOut,
+    resetPassword,
+    updatePassword,
+    updateProfile,
+  } = useAuthStore()
+
+  const contextValue: AuthContextType = {
+    user,
+    profile,
+    session,
+    loading,
+    signIn,
+    signUp,
+    signOut,
+    resetPassword,
+    updatePassword,
+    updateProfile,
+  }
 
   return (
-    <AuthContext.Provider value={auth}>
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   )

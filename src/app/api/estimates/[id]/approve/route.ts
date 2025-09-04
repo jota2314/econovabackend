@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
 export async function POST(
@@ -36,6 +37,27 @@ export async function POST(
       )
     }
 
+    // Get estimate with job details first
+    const { data: estimate, error: estimateError } = await supabase
+      .from('estimates')
+      .select(`
+        *,
+        jobs!inner (
+          id,
+          job_name,
+          service_type
+        )
+      `)
+      .eq('id', id)
+      .single()
+
+    if (estimateError || !estimate) {
+      return NextResponse.json(
+        { success: false, error: 'Estimate not found' },
+        { status: 404 }
+      )
+    }
+
     // Update estimate status to approved
     const { data: updatedEstimate, error: updateError } = await supabase
       .from('estimates')
@@ -56,12 +78,25 @@ export async function POST(
       )
     }
 
+    // Update job workflow status to allow workflow progression
+    const { error: jobUpdateError } = await supabase
+      .from('jobs')
+      .update({
+        workflow_status: 'send_to_customer'
+      })
+      .eq('id', estimate.jobs.id)
+
+    if (jobUpdateError) {
+      console.warn('Warning: Failed to update job workflow status:', jobUpdateError)
+    }
+
     console.log(`✅ Estimate ${id} approved successfully`)
 
     return NextResponse.json({
       success: true,
       message: 'Estimate approved successfully',
-      estimate: updatedEstimate
+      estimate: updatedEstimate,
+      job_workflow_updated: !jobUpdateError
     })
 
   } catch (error) {

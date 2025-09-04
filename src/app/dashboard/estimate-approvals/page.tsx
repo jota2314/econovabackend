@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -25,167 +25,60 @@ import {
   TrendingUp,
   FileText,
   Timer,
-  Calculator
+  Calculator,
+  RefreshCw
 } from "lucide-react"
 import { toast } from "sonner"
-import { createClient } from "@/lib/supabase/client"
+import { useEstimates } from "@/hooks/business/use-estimates"
 
 
-interface Estimate {
-  id: string
-  estimate_number: string
-  subtotal: number
-  total_amount: number
-  status: string
-  created_at: string
-  jobs: {
-    id: string
-    job_name: string
-    service_type: string
-    lead_id: string
-    lead?: {
-      name: string
-    }
-  }
-  created_by_user: {
-    id: string
-    full_name: string
-    email: string
-  }
-}
-
-interface User {
-  id: string
-  full_name: string
-  email: string
-  role: string
-}
+// Types are now imported from the custom hook - no need for local definitions
 
 export default function EstimateApprovalsPage() {
-  const [estimates, setEstimates] = useState<Estimate[]>([])
-  const [loading, setLoading] = useState(true)
-  const [user, setUser] = useState<User | null>(null)
-  const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState("pending_approval")
-  const [serviceFilter, setServiceFilter] = useState("all")
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards')
-
+  // Enhanced custom hook - replaces all useState hooks!
+  const {
+    // Data
+    estimates,
+    filteredEstimates,
+    selectedEstimate,
+    user,
+    loading,
+    error,
+    lastRefresh,
+    
+    // UI State
+    searchTerm,
+    statusFilter,
+    serviceFilter,
+    viewMode,
+    
+    // Computed metrics
+    pendingValue,
+    approvedValue,
+    totalValue,
+    pendingCount,
+    approvedCount,
+    totalCount,
+    
+    // Actions
+    refetch,
+    approveEstimate,
+    rejectEstimate,
+    updateEstimate,
+    
+    // UI Actions
+    setSearchTerm,
+    setStatusFilter,
+    setServiceFilter,
+    setViewMode,
+    selectEstimate
+  } = useEstimates({
+    autoFetch: true,
+    enableCaching: true,
+    refetchInterval: 5 * 60 * 1000 // 5 minutes
+  })
 
   const router = useRouter()
-  const supabase = createClient()
-
-  const loadUser = async () => {
-    try {
-      const { data: { user: authUser } } = await supabase.auth.getUser()
-      if (authUser) {
-        const { data: profile } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', authUser.id)
-          .single()
-        
-        if (profile) {
-          setUser(profile)
-        }
-      }
-    } catch (error) {
-      console.error('Error loading user:', error)
-    }
-  }
-
-  const loadEstimates = useCallback(async () => {
-    try {
-      setLoading(true)
-      
-      const params = new URLSearchParams()
-      if (statusFilter !== 'all') params.append('status', statusFilter)
-      if (serviceFilter !== 'all') params.append('service_type', serviceFilter)
-      
-      const response = await fetch(`/api/estimates?${params.toString()}`)
-      const result = await response.json()
-
-      if (result.success) {
-        setEstimates(result.data.estimates || [])
-      } else {
-        toast.error('Failed to load estimates')
-      }
-    } catch (error) {
-      console.error('Error loading estimates:', error)
-      toast.error('Failed to load estimates')
-    } finally {
-      setLoading(false)
-    }
-  }, [statusFilter, serviceFilter])
-
-  useEffect(() => {
-    loadUser()
-    loadEstimates()
-  }, [loadEstimates])
-
-  // Listen for estimate updates from other parts of the app (jobs page)
-  useEffect(() => {
-    const handleEstimateUpdate = (event: CustomEvent) => {
-      console.log('🔄 Estimate updated from jobs page, refreshing estimate approvals...', event.detail)
-      // Use the existing loadEstimates function to maintain consistency
-      loadEstimates()
-    }
-    
-    window.addEventListener('estimateUpdated', handleEstimateUpdate as EventListener)
-    
-    return () => {
-      window.removeEventListener('estimateUpdated', handleEstimateUpdate as EventListener)
-    }
-  }, [loadEstimates]) // Include loadEstimates in dependencies
-
-  const approveEstimate = async (estimateId: string) => {
-    if (user?.role !== 'manager') {
-      toast.error('Only managers can approve estimates')
-      return
-    }
-
-    try {
-      const response = await fetch(`/api/estimates/${estimateId}/approve`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' }
-      })
-
-      const result = await response.json()
-      if (result.success) {
-        toast.success('Estimate approved successfully')
-        loadEstimates()
-      } else {
-        toast.error('Failed to approve estimate')
-      }
-    } catch (error) {
-      console.error('Error approving estimate:', error)
-      toast.error('Failed to approve estimate')
-    }
-  }
-
-  const rejectEstimate = async (estimateId: string) => {
-    if (user?.role !== 'manager') {
-      toast.error('Only managers can reject estimates')
-      return
-    }
-
-    try {
-      const response = await fetch(`/api/estimates/${estimateId}/approve`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' }
-      })
-
-      const result = await response.json()
-      if (result.success) {
-        toast.success('Estimate rejected')
-        loadEstimates()
-      } else {
-        toast.error('Failed to reject estimate')
-      }
-    } catch (error) {
-      console.error('Error rejecting estimate:', error)
-      toast.error('Failed to reject estimate')
-    }
-  }
 
   const getStatusBadge = (status: string) => {
     const statusConfig = {
@@ -220,15 +113,8 @@ export default function EstimateApprovalsPage() {
     )
   }
 
-  const filteredEstimates = estimates.filter(estimate => {
-    const matchesSearch = searchTerm === "" || 
-      estimate.jobs.job_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      estimate.jobs.lead?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      estimate.created_by_user.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      estimate.estimate_number.toLowerCase().includes(searchTerm.toLowerCase())
-    
-    return matchesSearch
-  })
+  // All filtering and metrics are now handled by the custom hook!
+  // No need for local filtering - use filteredEstimates from hook
 
   // Check if user is manager for functionality
   const isManager = user?.role === 'manager'
@@ -242,34 +128,8 @@ export default function EstimateApprovalsPage() {
 
   // Update function removed - editing happens in the detail page
 
-  // Calculate dashboard metrics
-  const calculateMetrics = () => {
-    const pendingValue = estimates
-      .filter(est => est.status === 'pending_approval')
-      .reduce((sum, est) => sum + (est.total_amount || est.subtotal || 0), 0)
-    
-    const approvedValue = estimates
-      .filter(est => est.status === 'approved')
-      .reduce((sum, est) => sum + (est.total_amount || est.subtotal || 0), 0)
-    
-    const totalValue = estimates
-      .reduce((sum, est) => sum + (est.total_amount || est.subtotal || 0), 0)
-
-    const pendingCount = estimates.filter(est => est.status === 'pending_approval').length
-    const approvedCount = estimates.filter(est => est.status === 'approved').length
-    const totalCount = estimates.length
-
-    return {
-      pendingValue,
-      approvedValue,
-      totalValue,
-      pendingCount,
-      approvedCount,
-      totalCount
-    }
-  }
-
-  const metrics = calculateMetrics()
+  // All metrics calculations are now handled by the custom hook!
+  // Use: pendingValue, approvedValue, totalValue, pendingCount, approvedCount, totalCount
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -291,6 +151,24 @@ export default function EstimateApprovalsPage() {
     )
   }
 
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center max-w-md">
+          <div className="text-red-500 text-6xl mb-4">⚠️</div>
+          <h3 className="text-lg font-semibold text-slate-900 mb-2">Failed to Load Estimates</h3>
+          <p className="text-slate-600 mb-4">{error}</p>
+          <Button 
+            onClick={() => refetch(true)} 
+            className="bg-orange-600 hover:bg-orange-700"
+          >
+            Retry Loading
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -302,14 +180,30 @@ export default function EstimateApprovalsPage() {
           </p>
         </div>
         
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => refetch(true)}
+            variant="outline"
+            size="sm"
+            disabled={loading}
+            className="flex items-center gap-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          
+          {lastRefresh && (
+            <span className="text-xs text-slate-500">
+              Last updated: {lastRefresh.toLocaleTimeString()}
+            </span>
+          )}
+        </div>
         {!isManager && (
           <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 text-blue-700 rounded-lg">
             <AlertCircle className="h-4 w-4" />
             <span className="text-sm">Manager approval required for estimates</span>
           </div>
         )}
-        
-
       </div>
 
       {/* Dashboard Metrics */}
@@ -320,11 +214,11 @@ export default function EstimateApprovalsPage() {
             <Timer className="h-8 w-8 text-yellow-600 mr-4" />
             <div>
               <p className="text-2xl font-bold text-slate-900">
-                {loading ? '...' : formatCurrency(metrics.pendingValue)}
+                {loading ? '...' : formatCurrency(pendingValue)}
               </p>
               <p className="text-sm text-slate-600">Pending Estimates</p>
               <p className="text-xs text-slate-400">
-                {metrics.pendingCount} estimate{metrics.pendingCount !== 1 ? 's' : ''} awaiting approval
+                {pendingCount} estimate{pendingCount !== 1 ? 's' : ''} awaiting approval
               </p>
             </div>
           </CardContent>
@@ -336,11 +230,11 @@ export default function EstimateApprovalsPage() {
             <CheckCircle2 className="h-8 w-8 text-green-600 mr-4" />
             <div>
               <p className="text-2xl font-bold text-slate-900">
-                {loading ? '...' : formatCurrency(metrics.approvedValue)}
+                {loading ? '...' : formatCurrency(approvedValue)}
               </p>
               <p className="text-sm text-slate-600">Approved Estimates</p>
               <p className="text-xs text-slate-400">
-                {metrics.approvedCount} estimate{metrics.approvedCount !== 1 ? 's' : ''} approved
+                {approvedCount} estimate{approvedCount !== 1 ? 's' : ''} approved
               </p>
             </div>
           </CardContent>
@@ -352,11 +246,11 @@ export default function EstimateApprovalsPage() {
             <TrendingUp className="h-8 w-8 text-blue-600 mr-4" />
             <div>
               <p className="text-2xl font-bold text-slate-900">
-                {loading ? '...' : formatCurrency(metrics.totalValue)}
+                {loading ? '...' : formatCurrency(totalValue)}
               </p>
               <p className="text-sm text-slate-600">Total Estimates</p>
               <p className="text-xs text-slate-400">
-                {metrics.totalCount} total estimate{metrics.totalCount !== 1 ? 's' : ''}
+                {totalCount} total estimate{totalCount !== 1 ? 's' : ''}
               </p>
             </div>
           </CardContent>
@@ -368,12 +262,12 @@ export default function EstimateApprovalsPage() {
             <FileText className="h-8 w-8 text-purple-600 mr-4" />
             <div>
               <p className="text-2xl font-bold text-slate-900">
-                {loading ? '...' : formatCurrency(metrics.totalCount > 0 ? metrics.totalValue / metrics.totalCount : 0)}
+                {loading ? '...' : formatCurrency(totalCount > 0 ? totalValue / totalCount : 0)}
               </p>
               <p className="text-sm text-slate-600">Average Value</p>
               <p className="text-xs text-slate-400">
-                {metrics.approvedCount > 0 ? 
-                  `${((metrics.approvedCount / metrics.totalCount) * 100).toFixed(1)}% approval rate` : 
+                {approvedCount > 0 ? 
+                  `${((approvedCount / totalCount) * 100).toFixed(1)}% approval rate` : 
                   'No approved estimates yet'
                 }
               </p>
@@ -477,12 +371,12 @@ export default function EstimateApprovalsPage() {
                     <div className="flex items-center gap-2 mt-2">
                       <DollarSign className="h-4 w-4 text-green-600" />
                       <span className="text-lg font-semibold text-green-600">
-                        ${estimate.total_amount?.toLocaleString() || estimate.subtotal.toLocaleString()}
+                        ${estimate.total_amount?.toLocaleString() || estimate.subtotal?.toLocaleString() || '0'}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 mt-2 flex-wrap">
                       {getStatusBadge(estimate.status)}
-                      {getServiceBadge(estimate.jobs.service_type)}
+                      {getServiceBadge(estimate.jobs.service_type || 'general')}
                     </div>
                   </div>
                   
@@ -588,10 +482,10 @@ export default function EstimateApprovalsPage() {
                     </td>
                     <td className="p-3 sm:p-4">
                       <span className="font-semibold text-green-600 whitespace-nowrap">
-                        ${estimate.total_amount?.toLocaleString() || estimate.subtotal.toLocaleString()}
+                        ${estimate.total_amount?.toLocaleString() || estimate.subtotal?.toLocaleString() || '0'}
                       </span>
                     </td>
-                    <td className="p-3 sm:p-4">{getServiceBadge(estimate.jobs.service_type)}</td>
+                    <td className="p-3 sm:p-4">{getServiceBadge(estimate.jobs.service_type || 'general')}</td>
                     <td className="p-3 sm:p-4">{getStatusBadge(estimate.status)}</td>
                     <td className="p-3 sm:p-4 text-sm text-slate-500">
                       {new Date(estimate.created_at).toLocaleDateString()}

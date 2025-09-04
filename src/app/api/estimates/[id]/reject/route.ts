@@ -20,7 +20,7 @@ export async function POST(
       )
     }
 
-    console.log(`❌ Rejecting estimate ${id} by user ${user.id}`)
+    console.log(`✅ Rejecting estimate ${id} by user ${user.id}`)
 
     // Check if user is a manager
     const { data: userProfile } = await supabase
@@ -56,7 +56,7 @@ export async function POST(
       )
     }
 
-    console.log(`❌ Estimate ${id} rejected successfully`)
+    console.log(`✅ Estimate ${id} rejected successfully`)
 
     return NextResponse.json({
       success: true,

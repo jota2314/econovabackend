@@ -704,7 +704,6 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             total_amount: total,
             subtotal: total,
             status: 'pending_approval',
-            service_type: job.service_type,
             line_items: lineItems
           })
         })

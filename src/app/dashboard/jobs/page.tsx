@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -27,8 +27,7 @@ import React from "react"
 import { MeasurementInterface } from "@/components/measurements/measurement-interface"
 import { EnhancedJobCards } from "@/components/jobs/enhanced-job-cards"
 import { Lead, Job as DatabaseJob } from "@/lib/types/database"
-import { createClient } from "@/lib/supabase/client"
-import { leadsService } from "@/lib/services/leads"
+import { useJobs } from "@/hooks/business/use-jobs"
 import { toast } from "sonner"
 import { 
   Plus, 
@@ -67,11 +66,18 @@ interface Job extends DatabaseJob {
     phone: string
     address?: string
   }
+  estimates?: Array<{
+    id: string
+    status?: string
+    total_amount?: number
+    subtotal?: number
+  }>
+  measurements?: Array<any>
 }
 
 interface User {
   id: string
-  full_name: string
+  full_name: string | null
   email: string
   role: string
 }
@@ -110,106 +116,54 @@ const columnLabels: Record<ColumnKey, string> = {
 }
 
 export default function JobsPage() {
-  const [jobs, setJobs] = useState<Job[]>([])
-  const [leads, setLeads] = useState<Lead[]>([])
-  const [loading, setLoading] = useState(true)
-  const [user, setUser] = useState<User | null>(null)
-  const [searchTerm, setSearchTerm] = useState("")
-  const [localWorkflowStatus, setLocalWorkflowStatus] = useState<Record<string, string>>({})
-  const [selectedLead, setSelectedLead] = useState<string>("all")
-  const [selectedService, setSelectedService] = useState<string>("all")
-  const [activeTrade, setActiveTrade] = useState<TradeType>('all')
-  const [showJobForm, setShowJobForm] = useState(false)
-  const [selectedJob, setSelectedJob] = useState<Job | null>(null)
-  const [showMeasurementInterface, setShowMeasurementInterface] = useState(false)
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards')
-  const [visibleColumns, setVisibleColumns] = useState<Record<ColumnKey, boolean>>(defaultColumns)
-
-  const supabase = createClient()
-
-  // Load jobs and leads
-  useEffect(() => {
-    loadUser()
-    loadJobs()
-    loadLeads()
+  // Enhanced custom hook - replaces all useState hooks!
+  const {
+    // Data
+    jobs,
+    leads,
+    filteredJobs,
+    selectedJob,
+    user,
+    loading,
+    error,
+    lastRefresh,
     
-    // Listen for estimate updates to refresh job data
-    const handleEstimateUpdate = (event: CustomEvent) => {
-      console.log('🔄 Estimate updated, refreshing jobs data...', event.detail)
-      loadJobs() // Refresh jobs to show updated estimate totals
-    }
+    // UI State
+    searchTerm,
+    selectedLead,
+    selectedService,
+    activeTrade,
+    showJobForm,
+    showMeasurementInterface,
+    viewMode,
+    visibleColumns,
+    localWorkflowStatus,
     
-    window.addEventListener('estimateUpdated', handleEstimateUpdate as EventListener)
+    // Actions
+    refetch,
+    refetchLeads,
+    createJob,
+    updateJob,
+    deleteJob,
     
-    return () => {
-      window.removeEventListener('estimateUpdated', handleEstimateUpdate as EventListener)
-    }
-  }, [])
+    // UI Actions
+    setSearchTerm,
+    setSelectedLead,
+    setSelectedService,
+    setActiveTrade,
+    setShowJobForm,
+    setShowMeasurementInterface,
+    setViewMode,
+    setVisibleColumns,
+    setLocalWorkflowStatus,
+    selectJob
+  } = useJobs({
+    autoFetch: true,
+    enableCaching: true,
+    refetchInterval: 5 * 60 * 1000 // 5 minutes
+  })
 
-  const loadUser = async () => {
-    try {
-      const { data: { user: authUser } } = await supabase.auth.getUser()
-      if (authUser) {
-        const { data: profile } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', authUser.id)
-          .single()
-        
-        if (profile) {
-          setUser(profile)
-        }
-      }
-    } catch (error) {
-      console.error('Error loading user:', error)
-    }
-  }
-
-  const loadJobs = async () => {
-    try {
-      setLoading(true)
-      console.log('🔄 Loading jobs...')
-      
-      const response = await fetch('/api/jobs')
-      console.log('Jobs API response status:', response.status)
-      
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error('Jobs API error:', errorText)
-        toast.error(`Failed to load jobs: ${response.status}`)
-        return
-      }
-      
-      const result = await response.json()
-      console.log('Jobs API result:', result)
-
-      if (result.success) {
-        console.log(`✅ Loaded ${result.data?.length || 0} jobs`)
-        setJobs(result.data || [])
-      } else {
-        console.error('Jobs API returned error:', result.error)
-        toast.error(`Failed to load jobs: ${result.error || 'Unknown error'}`)
-      }
-    } catch (error) {
-      console.error('❌ Error loading jobs:', error)
-      toast.error('Failed to load jobs - please check console for details')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const loadLeads = async () => {
-    try {
-      console.log('🔄 Loading leads with role-based filtering...')
-      const leads = await leadsService.getLeads()
-      console.log(`✅ Loaded ${leads.length} leads for current user`)
-      setLeads(leads)
-    } catch (error) {
-      console.error('Error loading leads:', error)
-      toast.error('Failed to load leads')
-    }
-  }
-
+  // Enhanced job creation handler
   const handleJobCreated = async (jobId: string) => {
     console.log('Job created, ID:', jobId)
     
@@ -220,66 +174,48 @@ export default function JobsPage() {
       
       if (result.success && result.data) {
         console.log('Job loaded successfully:', result.data)
-        setSelectedJob(result.data)
+        selectJob(result.data)
         setShowMeasurementInterface(true)
         // Refresh the jobs list
-        await loadJobs()
+        await refetch(true)
       } else {
         console.error('Failed to load job:', result.error)
         toast.error('Job created but failed to open measurement interface')
         // Still refresh the jobs list
-        await loadJobs()
+        await refetch(true)
       }
     } catch (error) {
       console.error('Error loading new job:', error)
       toast.error('Job created but failed to open measurement interface')
       // Still refresh the jobs list
-      await loadJobs()
+      await refetch(true)
     }
   }
 
   const handleJobUpdate = (updatedJob: Job) => {
-    setJobs(prev => prev.map(job => 
-      job.id === updatedJob.id ? updatedJob : job
-    ))
+    updateJob(updatedJob.id, updatedJob)
   }
 
-  const deleteJob = async (jobId: string) => {
+  const handleDeleteJob = async (jobId: string) => {
     if (!confirm('Are you sure you want to delete this job? All measurements will be lost.')) {
       return
     }
 
     try {
-      console.log(`Deleting job: ${jobId}`)
-      const response = await fetch(`/api/jobs/${jobId}`, {
-        method: 'DELETE'
-      })
-
-      console.log(`Delete response status: ${response.status}`)
-      const result = await response.json()
-      console.log(`Delete response:`, result)
-
-      if (result.success) {
-        setJobs(prev => prev.filter(job => job.id !== jobId))
-        toast.success('Job deleted successfully')
-      } else {
-        console.error('Delete failed:', result)
-        toast.error(`Failed to delete job: ${result.error || 'Unknown error'}`)
-      }
+      await deleteJob(jobId)
     } catch (error) {
-      console.error('Error deleting job:', error)
-      toast.error(`Failed to delete job: ${error instanceof Error ? error.message : 'Network error'}`)
+      // Error handling is done in the custom hook
     }
   }
 
   const openMeasurementInterface = (job: Job) => {
-    setSelectedJob(job)
+    selectJob(job)
     setShowMeasurementInterface(true)
   }
 
   // Column visibility functions
   const toggleColumn = (column: ColumnKey) => {
-    setVisibleColumns(prev => ({
+    setVisibleColumns((prev: Record<ColumnKey, boolean>) => ({
       ...prev,
       [column]: !prev[column]
     }))
@@ -305,7 +241,8 @@ export default function JobsPage() {
     })
   }
 
-  const filteredJobs = getTradeJobs(activeTrade).filter(job => {
+  // Local filtered jobs with search and filters applied
+  const localFilteredJobs = getTradeJobs(activeTrade).filter(job => {
     const matchesSearch = searchTerm === "" || 
       job.job_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       job.lead?.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -444,12 +381,12 @@ export default function JobsPage() {
     )
   }
 
-  // Trade counts for badges
+  // Trade counts for badges - using localFilteredJobs for consistent filtering
   const tradeCounts = {
-    all: jobs.length,
-    insulation: jobs.filter(job => job.service_type === 'insulation').length,
-    hvac: jobs.filter(job => job.service_type === 'hvac').length,
-    plaster: jobs.filter(job => job.service_type === 'plaster').length
+    all: localFilteredJobs.length,
+    insulation: localFilteredJobs.filter(job => job.service_type === 'insulation').length,
+    hvac: localFilteredJobs.filter(job => job.service_type === 'hvac').length,
+    plaster: localFilteredJobs.filter(job => job.service_type === 'plaster').length
   }
 
   // Trade colors
@@ -483,7 +420,7 @@ export default function JobsPage() {
       rejected: { color: "bg-red-100 text-red-800", icon: XCircle, text: "Rejected" }
     }
     
-    const config = statusConfig[latestEstimate.status as keyof typeof statusConfig] || statusConfig.draft
+    const config = statusConfig[(latestEstimate.status as keyof typeof statusConfig) || 'draft'] || statusConfig.draft
     const IconComponent = config.icon
 
     return (
@@ -497,7 +434,7 @@ export default function JobsPage() {
   // Get workflow dropdown
   const getWorkflowDropdown = (job: Job) => {
     const hasEstimate = job.estimates && job.estimates.length > 0
-    const latestEstimate = hasEstimate ? job.estimates[job.estimates.length - 1] : null
+    const latestEstimate = hasEstimate && job.estimates ? job.estimates[job.estimates.length - 1] : null
     const isApproved = latestEstimate?.status === 'approved'
     
     // Only show dropdown if user is manager or if estimate is approved
@@ -548,10 +485,11 @@ export default function JobsPage() {
   // Handle workflow changes
   const handleWorkflowChange = async (jobId: string, workflowStatus: string) => {
     // Update local state immediately for UI responsiveness
-    setLocalWorkflowStatus(prev => ({
-      ...prev,
-      [jobId]: workflowStatus
-    }))
+    setLocalWorkflowStatus((prev: Record<string, string>) => {
+      const newState = { ...prev }
+      newState[jobId] = workflowStatus
+      return newState
+    })
     
     try {
       // Special handling for "Send to Customer"
@@ -589,10 +527,13 @@ export default function JobsPage() {
             </div>
           )
           // Reset the workflow status on failure
-          setLocalWorkflowStatus(prev => ({
-            ...prev,
-            [jobId]: prev[jobId] || undefined
-          }))
+          setLocalWorkflowStatus((prev: Record<string, string>) => {
+            const newState = { ...prev }
+            if (prev[jobId]) {
+              newState[jobId] = prev[jobId]
+            }
+            return newState
+          })
           return
         }
       } else {
@@ -611,17 +552,20 @@ export default function JobsPage() {
         }
       }
       
-      loadJobs() // Reload to get updated data
+      refetch(true) // Reload to get updated data using enhanced hook
       
     } catch (error) {
       console.error('Error updating workflow:', error)
       toast.error('Failed to update workflow. Please try again.')
       
       // Reset the local state on error
-      setLocalWorkflowStatus(prev => ({
-        ...prev,
-        [jobId]: prev[jobId] || undefined
-      }))
+      setLocalWorkflowStatus((prev: Record<string, string>) => {
+        const newState = { ...prev }
+        if (prev[jobId]) {
+          newState[jobId] = prev[jobId]
+        }
+        return newState
+      })
     }
   }
 
@@ -996,7 +940,7 @@ export default function JobsPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => deleteJob(job.id)}
+                          onClick={() => handleDeleteJob(job.id)}
                           className="text-red-600 hover:text-red-700 hover:bg-red-50"
                         >
                           <Trash2 className="h-4 w-4" />

@@ -88,8 +88,10 @@ async function handleApprovalAction(
     )
   }
 
-  // Handle measurement locking
+  // Handle measurement locking and job workflow status
   let measurementUpdate = null
+  let jobUpdate = null
+  
   if (action === 'approve') {
     // Lock measurements when estimate is approved
     measurementUpdate = await supabase
@@ -100,6 +102,15 @@ async function handleApprovalAction(
         locked_at: new Date().toISOString()
       })
       .eq('job_id', estimate.jobs.id)
+
+    // Update job workflow status to allow workflow progression
+    jobUpdate = await supabase
+      .from('jobs')
+      .update({
+        workflow_status: 'send_to_customer'
+      })
+      .eq('id', estimate.jobs.id)
+      
   } else {
     // Unlock measurements when estimate is rejected
     measurementUpdate = await supabase
@@ -111,6 +122,14 @@ async function handleApprovalAction(
       })
       .eq('job_id', estimate.jobs.id)
       .eq('locked_by_estimate_id', id)
+
+    // Reset job workflow status when estimate is rejected
+    jobUpdate = await supabase
+      .from('jobs')
+      .update({
+        workflow_status: null
+      })
+      .eq('id', estimate.jobs.id)
   }
 
   return NextResponse.json({
@@ -118,7 +137,8 @@ async function handleApprovalAction(
     data: {
       estimate: updatedEstimate,
       measurements_locked: action === 'approve',
-      measurements_updated: measurementUpdate?.count || 0
+      measurements_updated: measurementUpdate?.count || 0,
+      job_workflow_updated: !!jobUpdate && !jobUpdate.error
     },
     message: `Estimate ${action}d successfully`
   })

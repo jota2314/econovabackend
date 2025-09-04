@@ -9,7 +9,7 @@ export interface LeadWithAssignee extends Lead {
     id: string
     full_name: string | null
     email: string
-  }
+  } | null
 }
 
 export interface LeadFilters {

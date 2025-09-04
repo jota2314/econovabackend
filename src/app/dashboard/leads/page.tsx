@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -43,149 +43,70 @@ import { SMSModal } from "@/components/communications/sms-modal"
 import { CommunicationHistorySidebar } from "@/components/communications/communication-history-sidebar"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Lead, TablesInsert } from "@/lib/types/database"
-import { leadsService } from "@/lib/services/leads"
+import { leadsService } from "@/lib/services/business/leads-service"
 import { useAuthContext } from "@/providers/auth-provider"
+import { useLeads } from "@/hooks/business/use-leads"
 import { toast } from "sonner"
 
-type ViewMode = 'communication' | 'table' | 'enhanced' | 'pipeline' | 'map'
+// Types moved to store
+type ViewMode = 'table' | 'cards' | 'pipeline' | 'map' | 'enhanced'
 type QuickFilter = 'all' | 'active' | 'recent' | 'assigned_to_me' | 'unassigned'
 
-interface LeadsCache {
-  data: Lead[]
-  timestamp: number
-  userRole: string
-}
-
-const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
-const MAX_RETRY_ATTEMPTS = 2
-
 export default function LeadsPage() {
-  // Core state
-  const [leads, setLeads] = useState<Lead[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
-  
-  // UI state
-  const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
-  const [selectedLeads, setSelectedLeads] = useState<string[]>([])
-  const [showAddDialog, setShowAddDialog] = useState(false)
-  const [showImportDialog, setShowImportDialog] = useState(false)
-  const [viewMode, setViewMode] = useState<ViewMode>('communication')
-  
-  // Filter states
-  const [searchTerm, setSearchTerm] = useState('')
-  const [quickFilter, setQuickFilter] = useState<QuickFilter>('all')
-  const [serviceFilter, setServiceFilter] = useState<'all' | 'insulation' | 'hvac' | 'plaster'>('all')
-  const [statusFilter, setStatusFilter] = useState<'all' | Lead['status']>('all')
-  
-  // Communication states
-  const [smsModalOpen, setSmsModalOpen] = useState(false)
-  const [historyModalOpen, setHistoryModalOpen] = useState(false)
-  const [selectedLeadForComms, setSelectedLeadForComms] = useState<Lead | null>(null)
-
   const { user } = useAuthContext()
-
-  // Cache management
-  const getCacheKey = useCallback(() => `leads_cache_${user?.id || 'anonymous'}`, [user?.id])
   
-  const getFromCache = useCallback(() => {
-    try {
-      const cached = localStorage.getItem(getCacheKey())
-      if (!cached) return null
-      
-      const parsedCache = JSON.parse(cached)
-      const isExpired = Date.now() - parsedCache.timestamp > CACHE_DURATION
-      
-      if (isExpired) {
-        localStorage.removeItem(getCacheKey())
-        return null
-      }
-      
-      return parsedCache.data
-    } catch {
-      return null
-    }
-  }, [getCacheKey])
-  
-  const setCache = useCallback((data: Lead[]) => {
-    try {
-      const cache = {
-        data,
-        timestamp: Date.now()
-      }
-      localStorage.setItem(getCacheKey(), JSON.stringify(cache))
-    } catch (error) {
-      console.warn('Failed to cache leads data:', error)
-    }
-  }, [getCacheKey])
-
-  // Improved load leads function with caching
-  const loadLeads = useCallback(async (forceRefresh = false, retryCount = 0) => {
-    if (!user) {
-      console.log('⚠️ No user, skipping load')
-      return
-    }
-    try {
-      setLoading(true)
-      setError(null)
-      
-      // Check cache first (unless force refresh)
-      if (!forceRefresh) {
-        const cached = getFromCache()
-        if (cached) {
-          console.log('✅ Using cached leads data')
-          setLeads(cached)
-          setLastRefresh(new Date())
-          setLoading(false)
-          return
-        }
-      }
-      
-      console.log(`🔄 Loading leads from API... (attempt ${retryCount + 1})`)
-      const data = await leadsService.getLeads()
-      console.log('✅ Successfully loaded', data?.length || 0, 'leads')
-      setLeads(data || [])
-      setLastRefresh(new Date())
-      
-      // Cache the results
-      setCache(data || [])
-      
-    } catch (error) {
-      console.error('❌ Exception loading leads:', error)
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      
-      // Retry logic for network/timeout errors
-      if ((errorMessage.includes('timeout') || errorMessage.includes('network')) && retryCount < MAX_RETRY_ATTEMPTS) {
-        console.log(`🔄 Retrying leads query in ${(retryCount + 1) * 2} seconds...`)
-        setTimeout(() => {
-          loadLeads(forceRefresh, retryCount + 1)
-        }, (retryCount + 1) * 2000)
-        return
-      }
-      
-      // Handle specific errors
-      if (errorMessage.includes('Database tables not found') || errorMessage.includes('does not exist')) {
-        setError('Database setup required: Please create the leads table in Supabase first.')
-        toast.error('Database setup required')
-      } else if (errorMessage.includes('Authentication error')) {
-        setError('Authentication error. Please refresh the page.')
-        toast.error('Please refresh the page to re-authenticate.')
-      } else if (errorMessage.includes('timeout')) {
-        setError('Query timeout. Click "Retry" to try again.')
-        toast.error('Query timeout. Please try again.')
-      } else {
-        setError('Failed to load leads. Please try refreshing the page.')
-        toast.error(errorMessage)
-      }
-      
-      // Set empty array on error so UI can still function
-      setLeads([])
-      
-    } finally {
-      setLoading(false)
-    }
-  }, [user, getFromCache, setCache])
+  // Enhanced custom hooks - replaces all useState and Zustand!
+  const {
+    // Data
+    leads,
+    filteredLeads,
+    selectedLead,
+    selectedLeads,
+    loading,
+    error,
+    lastRefresh,
+    
+    // UI State
+    viewMode,
+    searchTerm,
+    quickFilter,
+    serviceFilter,
+    statusFilter,
+    showAddDialog,
+    showImportDialog,
+    smsModalOpen,
+    historyModalOpen,
+    selectedLeadForComms,
+    
+    // Actions
+    refetch,
+    createLead,
+    updateLeadStatus,
+    updateLead,
+    deleteLead,
+    
+    // UI Actions
+    setViewMode,
+    setSearchTerm,
+    setQuickFilter,
+    setServiceFilter,
+    setStatusFilter,
+    selectLead,
+    toggleLeadSelection,
+    clearSelection,
+    openAddDialog,
+    closeAddDialog,
+    openImportDialog,
+    closeImportDialog,
+    openSmsModal,
+    closeSmsModal,
+    openHistoryModal,
+    closeHistoryModal,
+  } = useLeads({
+    autoFetch: true,
+    enableCaching: true,
+    refetchInterval: 5 * 60 * 1000 // 5 minutes
+  })
 
   // Add or update lead
   const handleSubmitLead = async (leadData: TablesInsert<'leads'>) => {
@@ -193,27 +114,30 @@ export default function LeadsPage() {
       if (selectedLead) {
         // Update existing lead
         const updatedLead = await leadsService.updateLead(selectedLead.id, leadData)
-        
-        setLeads(prev => prev.map(lead => 
-          lead.id === selectedLead.id ? updatedLead : lead
-        ))
-        toast.success('Lead updated successfully')
+        if (updatedLead.success) {
+          updateLead(selectedLead.id, updatedLead.data)
+          toast.success('Lead updated successfully')
+        } else {
+          throw new Error(updatedLead.error || 'Failed to update lead')
+        }
       } else {
-        // Add new lead
+        // Create new lead  
         const insertData = {
           ...leadData,
-          assigned_to: user?.id || null // Auto-assign to the current user creating the lead
+          assigned_to: user?.id || null
         }
         
         console.log('Attempting to insert lead data:', insertData)
-        
-        const newLead = await leadsService.createLead(insertData)
-        
-        setLeads(prev => [newLead, ...prev])
-        toast.success('Lead added successfully')
+        const response = await createLead(insertData)
+        if (response.success) {
+          toast.success('Lead added successfully')
+        } else {
+          throw new Error(response.error || 'Failed to create lead')
+        }
       }
 
-      setSelectedLead(null)
+      selectLead(null)
+      closeAddDialog()
     } catch (error) {
       console.error('Error saving lead:', error)
       const errorMsg = error instanceof Error ? error.message : 'Unknown error'
@@ -234,10 +158,12 @@ export default function LeadsPage() {
         assigned_to: user?.id || null
       }))
 
-      const newLeads = await leadsService.createMultipleLeads(leadsWithUser)
-
-      setLeads(prev => [...newLeads, ...prev])
-      toast.success(`Successfully imported ${newLeads.length} leads`)
+      const results = await Promise.all(
+        leadsWithUser.map(leadData => createLead(leadData))
+      )
+      
+      const successful = results.filter(r => r.success)
+      toast.success(`Successfully imported ${successful.length} leads`)
     } catch (error) {
       console.error('Error importing leads:', error)
       toast.error('Failed to import leads')
@@ -248,12 +174,12 @@ export default function LeadsPage() {
   // Update lead status
   const handleUpdateStatus = async (leadId: string, status: Lead['status']) => {
     try {
-      const updatedLead = await leadsService.updateLeadStatus(leadId, status)
-      
-      setLeads(prev => prev.map(lead => 
-        lead.id === leadId ? updatedLead : lead
-      ))
-      toast.success('Lead status updated')
+      const response = await updateLeadStatus(leadId, status)
+      if (response.success) {
+        toast.success('Lead status updated')
+      } else {
+        throw new Error(response.error || 'Failed to update status')
+      }
     } catch (error) {
       console.error('Error updating lead status:', error)
       toast.error('Failed to update lead status')
@@ -267,9 +193,7 @@ export default function LeadsPage() {
     }
 
     try {
-      await leadsService.deleteLead(leadId)
-      
-      setLeads(prev => prev.filter(lead => lead.id !== leadId))
+      await deleteLead(leadId)
       toast.success('Lead deleted successfully')
     } catch (error) {
       console.error('Error deleting lead:', error)
@@ -279,8 +203,8 @@ export default function LeadsPage() {
 
   // Edit lead
   const handleEditLead = (lead: Lead) => {
-    setSelectedLead(lead)
-    setShowAddDialog(true)
+    selectLead(lead)
+    openAddDialog()
   }
 
   // Communication handlers
@@ -339,20 +263,14 @@ export default function LeadsPage() {
   }
 
   const handleSMSLead = (lead: Lead) => {
-    setSelectedLeadForComms(lead)
-    setSmsModalOpen(true)
+    openSmsModal(lead)
   }
 
   const handleViewHistory = (lead: Lead) => {
-    setSelectedLeadForComms(lead)
-    setHistoryModalOpen(true)
+    openHistoryModal(lead)
   }
 
   const handleSMSSent = () => {
-    // Reload the history if it's open
-    if (historyModalOpen) {
-      // The history component will handle its own refresh
-    }
     // Update lead status to contacted if it's currently "new"
     if (selectedLeadForComms?.status === 'new') {
       handleUpdateStatus(selectedLeadForComms.id, 'contacted')
@@ -364,35 +282,35 @@ export default function LeadsPage() {
   // Bulk actions
   const handleSelectAll = (selected: boolean) => {
     if (selected) {
-      setSelectedLeads(filteredLeads.map(lead => lead.id))
+      // Select all filtered leads
+      filteredLeads.forEach(lead => {
+        if (!selectedLeads.includes(lead.id)) {
+          toggleLeadSelection(lead.id)
+        }
+      })
     } else {
-      setSelectedLeads([])
+      clearSelection()
     }
   }
 
   const handleSelectLead = (leadId: string, selected: boolean) => {
-    if (selected) {
-      setSelectedLeads(prev => [...prev, leadId])
-    } else {
-      setSelectedLeads(prev => prev.filter(id => id !== leadId))
-    }
+    toggleLeadSelection(leadId)
   }
 
   const handleBulkAssign = async (userId: string) => {
     try {
       await Promise.all(
-        selectedLeads.map(leadId =>
-          leadsService.updateLead(leadId, { assigned_to: userId })
-        )
+        selectedLeads.map(async leadId => {
+          const response = await leadsService.updateLead(leadId, { assigned_to: userId })
+          if (response.success) {
+            // Update each lead in local state
+            updateLead(leadId, { assigned_to: userId })
+          }
+          return response
+        })
       )
       
-      setLeads(prev => prev.map(lead =>
-        selectedLeads.includes(lead.id)
-          ? { ...lead, assigned_to: userId }
-          : lead
-      ))
-      
-      setSelectedLeads([])
+      clearSelection()
       toast.success(`${selectedLeads.length} leads assigned successfully`)
     } catch (error) {
       console.error('Error bulk assigning leads:', error)
@@ -408,13 +326,12 @@ export default function LeadsPage() {
         )
       )
       
-      setLeads(prev => prev.map(lead =>
-        selectedLeads.includes(lead.id)
-          ? { ...lead, status }
-          : lead
-      ))
+      // Update each lead in local state
+      selectedLeads.forEach(leadId => {
+        updateLead(leadId, { status })
+      })
       
-      setSelectedLeads([])
+      clearSelection()
       toast.success(`${selectedLeads.length} leads updated successfully`)
     } catch (error) {
       console.error('Error bulk updating leads:', error)
@@ -422,70 +339,18 @@ export default function LeadsPage() {
     }
   }
 
-  // Optimized filtering with memoization
-  const filteredLeads = useMemo(() => {
-    if (!leads.length) return []
-    
-    return leads.filter(lead => {
-      // Search term filter
-      if (searchTerm) {
-        const searchLower = searchTerm.toLowerCase()
-        const matchesSearch = 
-          lead.name.toLowerCase().includes(searchLower) ||
-          lead.email?.toLowerCase().includes(searchLower) ||
-          lead.phone?.includes(searchTerm) ||
-          lead.company?.toLowerCase().includes(searchLower) ||
-          lead.address?.toLowerCase().includes(searchLower)
-        
-        if (!matchesSearch) return false
-      }
-      
-      // Quick filter
-      if (quickFilter !== 'all') {
-        switch (quickFilter) {
-          case 'active':
-            if (['closed_won', 'closed_lost'].includes(lead.status)) return false
-            break
-          case 'recent':
-            const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-            if (new Date(lead.created_at) < weekAgo) return false
-            break
-          case 'assigned_to_me':
-            if (lead.assigned_to !== user?.id) return false
-            break
-          case 'unassigned':
-            if (lead.assigned_to) return false
-            break
-        }
-      }
-      
-      // Status filter
-      if (statusFilter !== 'all' && lead.status !== statusFilter) {
-        return false
-      }
-      
-      // Service filter (if lead has service_type property)
-      if (serviceFilter !== 'all' && (lead as any).service_type && (lead as any).service_type !== serviceFilter) {
-        return false
-      }
-      
-      return true
-    })
-  }, [leads, searchTerm, quickFilter, statusFilter, serviceFilter, user?.id])
-
-  // Refresh handler
-  const handleRefresh = useCallback(() => {
-    loadLeads(true) // Force refresh
-  }, [loadLeads])
-
-  // Load leads on component mount when user is authenticated
+  // Auto-fetch when user is available
   useEffect(() => {
     if (user) {
-      loadLeads()
-    } else {
-      console.log('⚠️ Waiting for authentication...')
+      // The useLeads hook handles auto-fetching
+      console.log('✅ User authenticated, leads will auto-fetch')
     }
   }, [user])
+
+  // Refresh handler
+  const handleRefresh = () => {
+    refetch(true) // Force refresh
+  }
 
   if (!user) {
     return (
@@ -517,7 +382,7 @@ export default function LeadsPage() {
           <h3 className="text-lg font-semibold text-slate-900 mb-2">Failed to Load Leads</h3>
           <p className="text-slate-600 mb-4">{error}</p>
           <Button 
-            onClick={() => loadLeads()} 
+            onClick={() => refetch(true)} 
             className="bg-orange-600 hover:bg-orange-700"
           >
             Retry Loading
@@ -560,7 +425,7 @@ export default function LeadsPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setShowImportDialog(true)}
+            onClick={() => openImportDialog()}
           >
             <Upload className="h-4 w-4 mr-2" />
             Import CSV
@@ -568,8 +433,8 @@ export default function LeadsPage() {
           
           <Button
             onClick={() => {
-              setSelectedLead(null)
-              setShowAddDialog(true)
+              selectLead(null)
+              openAddDialog()
             }}
             className=""
           >
@@ -589,16 +454,16 @@ export default function LeadsPage() {
             className="transition-all"
           >
             <List className="h-4 w-4 mr-2" />
-            List View
+            Table View
           </Button>
           <Button
-            variant={viewMode === 'communication' ? 'default' : 'outline'}
+            variant={viewMode === 'cards' ? 'default' : 'outline'}
             size="sm"
-            onClick={() => setViewMode('communication')}
+            onClick={() => setViewMode('cards')}
             className="transition-all"
           >
-            <MessageCircle className="h-4 w-4 mr-2" />
-            Communication View
+            <LayoutGrid className="h-4 w-4 mr-2" />
+            Card View
           </Button>
           <Button
             variant={viewMode === 'pipeline' ? 'default' : 'outline'}
@@ -606,7 +471,7 @@ export default function LeadsPage() {
             onClick={() => setViewMode('pipeline')}
             className="transition-all"
           >
-            <LayoutGrid className="h-4 w-4 mr-2" />
+            <MessageCircle className="h-4 w-4 mr-2" />
             Pipeline View
           </Button>
           <Button
@@ -645,11 +510,8 @@ export default function LeadsPage() {
           <div className="flex gap-1 flex-wrap">
             {[
               { key: 'all', label: 'All Leads', icon: Users },
-              { key: 'hot', label: 'Hot Leads', icon: TrendingUp },
-              { key: 'follow-up-today', label: 'Follow-up Today', icon: Calendar },
-              { key: 'no-contact-7days', label: 'No Contact >7 Days', icon: Clock },
-              { key: 'my-leads', label: 'My Leads', icon: Users },
-              { key: 'unassigned', label: 'Unassigned', icon: Users },
+              { key: 'active', label: 'Active Leads', icon: TrendingUp },
+              { key: 'recent', label: 'Recent Leads', icon: Calendar },
             ].map(filter => (
               <Button
                 key={filter.key}
@@ -721,7 +583,7 @@ export default function LeadsPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setSelectedLeads([])}
+              onClick={() => clearSelection()}
             >
               Clear Selection
             </Button>
@@ -746,7 +608,7 @@ export default function LeadsPage() {
           />
         )}
 
-        {viewMode === 'communication' && (
+        {viewMode === 'cards' && (
           <LeadCommunicationView
             leads={filteredLeads}
             onCallLead={handleCallLead}
@@ -769,8 +631,8 @@ export default function LeadsPage() {
           <LeadMapView
             leads={filteredLeads}
             onSelectLead={(lead) => {
-              setSelectedLead(lead)
-              setShowAddDialog(true)
+              selectLead(lead)
+              openAddDialog()
             }}
           />
         )}
@@ -783,28 +645,28 @@ export default function LeadsPage() {
       {/* Dialogs */}
       <LeadFormDialog
         open={showAddDialog}
-        onOpenChange={setShowAddDialog}
+        onOpenChange={closeAddDialog}
         lead={selectedLead}
         onSubmit={handleSubmitLead}
       />
 
       <CsvImportDialog
         open={showImportDialog}
-        onOpenChange={setShowImportDialog}
+        onOpenChange={closeImportDialog}
         onImport={handleImportLeads}
       />
 
       {/* Communication Modals */}
       <SMSModal
         open={smsModalOpen}
-        onOpenChange={setSmsModalOpen}
+        onOpenChange={closeSmsModal}
         lead={selectedLeadForComms}
         onSMSSent={handleSMSSent}
       />
 
       <CommunicationHistorySidebar
         open={historyModalOpen}
-        onOpenChange={setHistoryModalOpen}
+        onOpenChange={closeHistoryModal}
         lead={selectedLeadForComms}
       />
     </div>

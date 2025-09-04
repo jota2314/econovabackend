@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { leadsService } from "@/lib/services/leads"
+import { leadsService } from "@/lib/services/business/leads-service"
 import { AnalyticsService } from "@/lib/services/analytics"
 import { Lead } from "@/lib/types/database"
 import {
@@ -61,7 +61,8 @@ export function DashboardContent() {
         console.log('🔄 Starting dashboard data fetch...')
         const startTime = Date.now()
         
-        const [leadStats, recent, dashStats, activityResponse] = await Promise.all([
+        // Reduce concurrent requests by batching related data
+        const [leadStats, recent] = await Promise.all([
           leadsService.getLeadStats()
             .then(result => { 
               console.log('✅ Lead stats completed'); 
@@ -80,12 +81,17 @@ export function DashboardContent() {
           leadsService.getLeads({ limit: 5 })
             .then(result => { 
               console.log('✅ Recent leads completed'); 
-              return result 
+              // Handle new business service API response format
+              return result.success ? result.data : []
             })
             .catch(err => {
               console.error('❌ Recent leads failed:', err)
               return []
-            }),
+            })
+        ])
+        
+        // Fetch analytics data separately to avoid overwhelming the database
+        const [dashStats, activityResponse] = await Promise.all([
           analytics.getDashboardStats()
             .then(result => { 
               console.log('✅ Dashboard stats completed'); 

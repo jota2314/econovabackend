@@ -170,14 +170,6 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
   const margin = 20
   let yPosition = margin
 
-  // Company Header - Very Subtle Green Gradient (Extremely Transparent)
-  pdf.setFillColor(251, 255, 251) // Super light green tint - barely visible
-  pdf.rect(0, 0, pageWidth, 40, 'F')
-  
-  // Add even more subtle green accent strip at top (whisper of green)
-  pdf.setFillColor(248, 253, 248) // Slightly more green but still extremely subtle
-  pdf.rect(0, 0, pageWidth, 8, 'F')
-  
   // Add company logo
   try {
     const logoWidth = 50
@@ -219,9 +211,9 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
   
   // Header right side - Estimate number and date (BOLD)
   pdf.text(`Estimate #: ${estimateNumber}`, pageWidth - 70, 20)
-  pdf.text(`Generated: ${data.generatedDate.toLocaleDateString()}`, pageWidth - 70, 30)
+  pdf.text(`Generated: ${data.generatedDate.toLocaleDateString()}`, pageWidth - 70, 25)
 
-  yPosition = 50
+  yPosition = 40
 
   // Reset text color for body
   pdf.setTextColor(0, 0, 0)
@@ -299,16 +291,11 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
   }
   
   // Move yPosition past the boxes
-  yPosition += infoBoxHeight + 10
+  yPosition += infoBoxHeight + 5
   
-  // Add Project Address below the boxes
-  pdf.setFontSize(10)
-  pdf.setFont('helvetica', 'bold')
-  pdf.text('PROJECT ADDRESS:', margin, yPosition)
-  yPosition += 6
-  
-  pdf.setFontSize(9)
-  pdf.setFont('helvetica', 'normal')
+  // Project Address Box (green box like info boxes)
+  const projectBoxWidth = pageWidth - (margin * 2)
+  const projectBoxHeight = 18 // Compact size
   
   // Build full project address
   let fullProjectAddress = ''
@@ -322,30 +309,81 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
     fullProjectAddress = [data.projectCity, data.projectState, data.projectZipCode].filter(Boolean).join(', ')
   }
   
-  if (fullProjectAddress) {
-    pdf.text(fullProjectAddress, margin, yPosition)
-    yPosition += 8
-  } else {
-    pdf.text('Project Address Not Specified', margin, yPosition)
-    yPosition += 8
+  if (!fullProjectAddress) {
+    fullProjectAddress = 'Project Address Not Specified'
   }
   
-  // Spacer
-  yPosition += 8
+  // Green header
+  pdf.setFillColor(34, 139, 34) // Dark green header
+  pdf.rect(margin, yPosition, projectBoxWidth, 6, 'F')
   
-  // Add Insurance and Licensing Statement
-  pdf.setFontSize(9)
+  // Light green background
+  pdf.setFillColor(144, 238, 144) // Light green background
+  pdf.setGState(pdf.GState({opacity: 0.1}))
+  pdf.rect(margin, yPosition + 6, projectBoxWidth, projectBoxHeight - 6, 'F')
+  pdf.setGState(pdf.GState({opacity: 1})) // Reset opacity
+  
+  // Border
+  pdf.setDrawColor(34, 139, 34)
+  pdf.setLineWidth(0.5)
+  pdf.rect(margin, yPosition, projectBoxWidth, projectBoxHeight, 'S')
+  
+  // Header text
+  pdf.setTextColor(255, 255, 255) // White text
+  pdf.setFontSize(8)
+  pdf.setFont('helvetica', 'bold')
+  pdf.text('PROJECT ADDRESS', margin + 2, yPosition + 4)
+  
+  // Content text
+  pdf.setTextColor(0, 0, 0) // Black text
+  pdf.setFontSize(8)
   pdf.setFont('helvetica', 'normal')
+  
+  // Position address text within the box
+  pdf.text(fullProjectAddress, margin + 4, yPosition + 12)
+  
+  yPosition += projectBoxHeight + 2
+  
+  // Reduced spacing before insurance statement
+  yPosition += 2
+  
+  // Insurance and Licensing Statement Box (green box without header/title)
   const insuranceStatement = 'Econova Energy Savings is fully licensed and insured. All work will be performed in accordance with OSHA safety regulations. Local building codes will be followed to ensure the highest standards of quality and safety.'
   
-  // Split text to fit page width
-  const statementLines = pdf.splitTextToSize(insuranceStatement, pageWidth - (margin * 2))
-  statementLines.forEach((line: string) => {
-    pdf.text(line, margin, yPosition)
-    yPosition += 5
+  // Calculate box dimensions
+  const insuranceBoxWidth = pageWidth - (margin * 2)
+  const insuranceBoxHeight = 14 // Made slimmer
+  
+  // Light green background
+  pdf.setFillColor(144, 238, 144) // Light green background
+  pdf.setGState(pdf.GState({opacity: 0.1}))
+  pdf.rect(margin, yPosition, insuranceBoxWidth, insuranceBoxHeight, 'F')
+  pdf.setGState(pdf.GState({opacity: 1})) // Reset opacity
+  
+  // Border
+  pdf.setDrawColor(34, 139, 34)
+  pdf.setLineWidth(0.5)
+  pdf.rect(margin, yPosition, insuranceBoxWidth, insuranceBoxHeight, 'S')
+  
+  // Content text (no header)
+  pdf.setTextColor(0, 0, 0) // Black text
+  pdf.setFontSize(8)
+  pdf.setFont('helvetica', 'normal')
+  
+  // Split text to fit box width with proper margins
+  const boxContentWidth = insuranceBoxWidth - 8 // 4px margin on each side
+  const statementLines = pdf.splitTextToSize(insuranceStatement, boxContentWidth)
+  
+  // Position text lines within the box (starting from top since no header)
+  let insuranceTextY = yPosition + 6 // Start closer to top
+  statementLines.forEach((line: string, index: number) => {
+    if (insuranceTextY < yPosition + insuranceBoxHeight - 2) { // Ensure text fits within box
+      pdf.text(line, margin + 4, insuranceTextY)
+      insuranceTextY += 3.5
+    }
   })
   
-  yPosition += 10
+  yPosition += insuranceBoxHeight + 8
   
   // Reset drawing color and text color for rest of PDF
   pdf.setDrawColor(0, 0, 0)

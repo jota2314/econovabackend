@@ -21,10 +21,12 @@ import {
   Settings,
   ChevronDown,
   ChevronUp,
-  Camera
+  Camera,
+  RefreshCw
 } from "lucide-react"
 import { toast } from "sonner"
 import { createClient } from "@/lib/supabase/client"
+import estimatesService, { type EstimateDetail } from "@/lib/services/business/estimates-service"
 
 interface EstimateDetail {
   id: string
@@ -100,13 +102,14 @@ export default function EstimateSummaryPage({ params }: { params: Promise<{ id: 
   const loadEstimateSummary = async (id: string) => {
     try {
       setLoading(true)
+      console.log('🔍 Loading estimate summary for ID:', id)
       
-      // Use the optimized API endpoint that fetches all data in one query
-      const response = await fetch(`/api/estimates/${id}`)
-      const result = await response.json()
+      // Use the business service layer for consistent API response handling
+      const result = await estimatesService.getEstimate(id)
+      console.log('📡 Business Service Result:', result)
 
       if (!result.success) {
-        console.error('Error loading estimate:', result.error)
+        console.error('❌ Error loading estimate:', result.error)
         toast.error('Failed to load estimate: ' + result.error)
         return
       }
@@ -135,21 +138,13 @@ export default function EstimateSummaryPage({ params }: { params: Promise<{ id: 
 
   const approveEstimate = async () => {
     try {
-      const response = await fetch(`/api/estimates/${estimateId}/approval`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ action: 'approve' })
-      })
-      
-      const result = await response.json()
+      const result = await estimatesService.approveEstimate(estimateId)
       
       if (result.success) {
         toast.success('Estimate approved successfully!')
         router.push('/dashboard/estimate-approvals')
       } else {
-        toast.error('Failed to approve estimate: ' + (result.error || 'Unknown error'))
+        toast.error('Failed to approve estimate: ' + result.error)
       }
     } catch (error) {
       console.error('Error approving estimate:', error)
@@ -159,21 +154,13 @@ export default function EstimateSummaryPage({ params }: { params: Promise<{ id: 
 
   const rejectEstimate = async () => {
     try {
-      const response = await fetch(`/api/estimates/${estimateId}/approval`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ action: 'reject' })
-      })
-      
-      const result = await response.json()
+      const result = await estimatesService.rejectEstimate(estimateId)
       
       if (result.success) {
         toast.success('Estimate rejected successfully!')
         router.push('/dashboard/estimate-approvals')
       } else {
-        toast.error('Failed to reject estimate: ' + (result.error || 'Unknown error'))
+        toast.error('Failed to reject estimate: ' + result.error)
       }
     } catch (error) {
       console.error('Error rejecting estimate:', error)
@@ -287,14 +274,25 @@ export default function EstimateSummaryPage({ params }: { params: Promise<{ id: 
         console.log('📝 Updating line items:', updates)
         
         for (const update of updates) {
-          const lineTotal = update.quantity * update.unit_price
-          console.log(`Updating item ${update.id}: ${update.quantity} × ${update.unit_price} = ${lineTotal}`)
+          // Get the original item to fill in missing values
+          const originalItem = estimate?.estimate_line_items.find(item => item.id === update.id)
+          if (!originalItem) {
+            console.error(`Original item not found for ${update.id}`)
+            continue
+          }
+          
+          // Use edited values or fall back to original values
+          const quantity = update.quantity ?? originalItem.quantity
+          const unitPrice = update.unit_price ?? originalItem.unit_price
+          const lineTotal = quantity * unitPrice
+          
+          console.log(`Updating item ${update.id}: ${quantity} × ${unitPrice} = ${lineTotal}`)
           
           const { error } = await supabase
             .from('estimate_line_items')
             .update({
-              quantity: update.quantity,
-              unit_price: update.unit_price,
+              quantity: quantity,
+              unit_price: unitPrice,
               line_total: lineTotal
             })
             .eq('id', update.id)
@@ -575,12 +573,32 @@ export default function EstimateSummaryPage({ params }: { params: Promise<{ id: 
   if (!estimate) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-center">
+        <div className="text-center max-w-md mx-auto p-6">
+          <div className="text-red-500 text-6xl mb-4">⚠️</div>
           <h2 className="text-2xl font-bold text-slate-900 mb-4">Estimate Not Found</h2>
-          <Button onClick={() => router.push('/dashboard/estimate-approvals')}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Estimates
-          </Button>
+          <p className="text-slate-600 mb-6">
+            The estimate you're looking for doesn't exist or you don't have permission to view it.
+            <br /><br />
+            <strong>Estimate ID:</strong> {estimateId}
+          </p>
+          <div className="space-y-3">
+            <Button onClick={() => router.push('/dashboard/estimate-approvals')} className="w-full">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Estimates
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                console.log('🔄 Retrying to load estimate:', estimateId)
+                if (estimateId) {
+                  loadEstimateSummary(estimateId)
+                }
+              }}
+              className="w-full"
+            >
+              Try Again
+            </Button>
+          </div>
         </div>
       </div>
     )

@@ -30,13 +30,14 @@ interface PDFGenerationRequest {
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  console.log('[PDF API] Starting PDF generation for job:', params.id)
+  const { id } = await params
+  console.log('[PDF API] Starting PDF generation for job:', id)
   
   try {
     const supabase = await createClient()
-    const jobId = params.id
+    const jobId = id
 
     // Get current user
     const { data: { user }, error: authError } = await supabase.auth.getUser()

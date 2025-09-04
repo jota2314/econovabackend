@@ -3,7 +3,7 @@
  * Handles lead management, status transitions, and business logic
  */
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/supabase/client'
 import { canTransitionTo, getWorkflowProgress } from '@/lib/business/workflows/lead-workflow'
 import type { 
   Lead, 
@@ -197,6 +197,32 @@ export class LeadsService {
     } catch (error) {
       console.error('Error updating lead status:', error)
       return { success: false, error: 'Failed to update lead status' }
+    }
+  }
+
+  /**
+   * Updates a lead with partial data
+   */
+  async updateLead(id: string, updates: TablesUpdate<'leads'>): Promise<ApiResponse<Lead>> {
+    try {
+      const { data, error } = await this.supabase
+        .from('leads')
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single()
+
+      if (error) {
+        return { success: false, error: error.message }
+      }
+
+      return { success: true, data }
+    } catch (error) {
+      console.error('Error updating lead:', error)
+      return { success: false, error: 'Failed to update lead' }
     }
   }
 
@@ -402,6 +428,88 @@ export class LeadsService {
       .limit(1)
 
     return salespeople?.[0]?.id || null
+  }
+
+  /**
+   * Gets lead statistics for dashboard
+   */
+  async getLeadStats(): Promise<{
+    totalLeads: number
+    activeLeads: number
+    thisMonthLeads: number
+    lastMonthLeads: number
+    statusBreakdown: Record<string, number>
+  }> {
+    try {
+      console.log('📊 Fetching lead stats...')
+      
+      // Simplified query for better performance
+      const { data: leads, error } = await this.supabase
+        .from('leads')
+        .select('status, created_at')
+        .limit(1000) // Reasonable limit for performance
+      
+      if (error) {
+        console.error('❌ Error fetching lead stats:', error)
+        return this.getDefaultStats()
+      }
+      
+      // Calculate stats efficiently
+      const now = new Date()
+      const currentMonth = now.getMonth()
+      const currentYear = now.getFullYear()
+      const lastMonthDate = new Date(currentYear, currentMonth - 1)
+      
+      let totalLeads = 0
+      let activeLeads = 0
+      let thisMonthLeads = 0
+      let lastMonthLeads = 0
+      const statusBreakdown: Record<string, number> = {}
+      
+      // Single pass through the data for efficiency
+      leads?.forEach(lead => {
+        totalLeads++
+        
+        // Count active leads
+        if (!['closed_won', 'closed_lost'].includes(lead.status)) {
+          activeLeads++
+        }
+        
+        // Count by month
+        const leadDate = new Date(lead.created_at)
+        if (leadDate.getMonth() === currentMonth && leadDate.getFullYear() === currentYear) {
+          thisMonthLeads++
+        } else if (leadDate.getMonth() === lastMonthDate.getMonth() && leadDate.getFullYear() === lastMonthDate.getFullYear()) {
+          lastMonthLeads++
+        }
+        
+        // Status breakdown
+        statusBreakdown[lead.status] = (statusBreakdown[lead.status] || 0) + 1
+      })
+      
+      console.log(`✅ Calculated stats for ${totalLeads} leads`)
+      
+      return {
+        totalLeads,
+        activeLeads,
+        thisMonthLeads,
+        lastMonthLeads,
+        statusBreakdown
+      }
+    } catch (error) {
+      console.error('💥 Error in getLeadStats:', error)
+      return this.getDefaultStats()
+    }
+  }
+  
+  private getDefaultStats() {
+    return {
+      totalLeads: 0,
+      activeLeads: 0,
+      thisMonthLeads: 0,
+      lastMonthLeads: 0,
+      statusBreakdown: {}
+    }
   }
 
   private calculateAverageResponseTime(leads: any[]): number {

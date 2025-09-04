@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -15,7 +15,8 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Bell, Search, User, LogOut, Settings, HelpCircle } from "lucide-react"
 import { MobileSidebar } from "./mobile-sidebar"
-import { notificationsService, type Notification } from "@/lib/services/notifications"
+import { useNotificationsStore } from "@/stores/notifications-store"
+import { notificationsService } from "@/lib/services/notifications"
 
 interface HeaderProps {
   title?: string
@@ -32,8 +33,15 @@ export function Header({
   user
 }: HeaderProps) {
   const router = useRouter()
-  const [notifications, setNotifications] = useState<Notification[]>([])
-  const [loading, setLoading] = useState(true)
+  
+  // Zustand notifications store - replaces useState!
+  const {
+    notifications,
+    loading,
+    fetchNotifications,
+    startPolling,
+    stopPolling
+  } = useNotificationsStore()
   
   // Ensure we always have user data for consistent rendering
   const userData = user || {
@@ -42,24 +50,14 @@ export function Header({
     role: "salesperson"
   }
   
-  // Load real notifications
+  // Load notifications and start polling
   useEffect(() => {
-    loadNotifications()
-    // Refresh notifications every 30 seconds
-    const interval = setInterval(loadNotifications, 30000)
-    return () => clearInterval(interval)
+    startPolling()
+    return () => stopPolling() // Cleanup on unmount
   }, [])
 
-  const loadNotifications = async () => {
-    try {
-      setLoading(true)
-      const realNotifications = await notificationsService.getRecentNotifications(10)
-      setNotifications(realNotifications)
-    } catch (error) {
-      console.error('Error loading notifications:', error)
-    } finally {
-      setLoading(false)
-    }
+  const handleRefreshNotifications = () => {
+    fetchNotifications(true) // Force refresh
   }
   
   const handleLogout = async () => {
@@ -72,13 +70,13 @@ export function Header({
     alert('Search functionality coming soon!')
   }
 
-  const handleNotificationClick = (notification: Notification) => {
+  const handleNotificationClick = (notification: any) => {
     // Navigate to relevant page based on notification type
-    if (notification.relatedType === 'lead') {
+    if (notification.metadata?.relatedType === 'lead') {
       router.push('/dashboard/leads')
-    } else if (notification.relatedType === 'job') {
+    } else if (notification.metadata?.relatedType === 'job') {
       router.push('/dashboard/jobs')
-    } else if (notification.relatedType === 'estimate') {
+    } else if (notification.metadata?.relatedType === 'estimate') {
       router.push('/dashboard/estimate-approvals')
     }
   }
@@ -133,7 +131,7 @@ export function Header({
                         size="sm"
                         onClick={(e) => {
                           e.stopPropagation()
-                          loadNotifications()
+                          handleRefreshNotifications()
                         }}
                         disabled={loading}
                         className="h-6 w-6 p-0"
@@ -169,17 +167,17 @@ export function Header({
                       >
                         <div className="flex-shrink-0 mr-3 mt-0.5">
                           <span className="text-lg">
-                            {notificationsService.getNotificationIcon(notification.type)}
+                            {notification.type === 'info' ? '📝' :
+                             notification.type === 'success' ? '✅' :
+                             notification.type === 'warning' ? '⚠️' : '❌'}
                           </span>
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className={`text-sm font-medium ${
-                            notificationsService.getNotificationColor(notification.type)
-                          }`}>
+                          <div className="text-sm font-medium text-slate-700">
                             {notification.message}
                           </div>
                           <div className="text-xs text-slate-500 mt-1">
-                            {notification.time}
+                            {new Date(notification.created_at).toLocaleString()}
                           </div>
                           {!notification.read && (
                             <div className="w-2 h-2 bg-blue-500 rounded-full mt-1"></div>

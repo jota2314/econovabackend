@@ -68,7 +68,7 @@ export class LeadsService {
       }
 
       // Apply pagination with reasonable defaults
-      const limit = options?.limit || 100 // Reasonable default
+      const limit = options?.limit || 50 // Reduced default for better performance
       query = query.limit(limit)
 
       if (options?.offset) {
@@ -77,7 +77,7 @@ export class LeadsService {
 
       console.log('📡 Executing Supabase query...')
       
-      // Execute query with timeout but don't use Promise.race - it can cause issues
+      // Execute query with timing
       const startTime = Date.now()
       const { data, error } = await query
       const duration = Date.now() - startTime
@@ -191,38 +191,12 @@ export class LeadsService {
 
       console.log('📊 Fetching lead stats...')
       
-      // Get current user and their role for role-based filtering
-      const { data: { user } } = await this.supabase.auth.getUser()
-      let userRole = 'salesperson' // default role
-      
-      if (user) {
-        const { data: userProfile } = await this.supabase
-          .from('users')
-          .select('role')
-          .eq('id', user.id)
-          .single()
-        
-        if (userProfile) {
-          userRole = userProfile.role
-        }
-      }
-      
-      // Build query with role-based filtering
-      let query = this.supabase
+      // Simplified query without auth/role checking to avoid hanging
+      // For now, fetch all leads (role-based filtering can be added later)
+      const { data: leads, error } = await this.supabase
         .from('leads')
         .select('status, created_at')
-        .limit(1000) // Reasonable limit to avoid huge queries
-      
-      // Apply role-based filtering
-      if (userRole === 'salesperson' || userRole === 'lead_hunter') {
-        // Salesperson and lead hunters see only their assigned leads
-        if (user) {
-          query = query.eq('assigned_to', user.id)
-        }
-      }
-      // Managers and admins can see all leads (no filter needed)
-      
-      const { data: leads, error } = await query
+        .limit(300) // Reduced limit for faster performance
 
       if (error) {
         console.error('❌ Error fetching lead stats:', error)

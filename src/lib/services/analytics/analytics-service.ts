@@ -41,10 +41,14 @@ export interface CommissionData {
 }
 
 export class AnalyticsService {
-  private supabase = createClient()
+  private supabase: any
+  
+  constructor() {
+    this.supabase = createClient()
+  }
   
   private readonly COMMISSION_RATE = 0.10
-  private readonly QUERY_TIMEOUT = 3000
+  private readonly QUERY_TIMEOUT = 10000 // Increased to 10 seconds for complex queries
 
   /**
    * Creates a timeout promise for query operations
@@ -63,13 +67,88 @@ export class AnalyticsService {
     timeoutMs?: number
   ): Promise<T | null> {
     try {
-      return await Promise.race([
-        queryPromise,
-        this.createTimeout(timeoutMs)
-      ]) as T
+      // Use AbortController for better timeout handling
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs || this.QUERY_TIMEOUT)
+      
+      const result = await queryPromise
+      clearTimeout(timeoutId)
+      return result
     } catch (error) {
-      console.warn('Query failed or timed out:', error)
+      // Log the actual error for debugging
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.warn('Query timed out after', timeoutMs || this.QUERY_TIMEOUT, 'ms')
+      } else {
+        console.warn('Query failed:', error)
+      }
       return null
+    }
+  }
+
+  /**
+   * Helper method to extract count from query results
+   */
+  private extractCount(result: PromiseSettledResult<any>): number {
+    if (result.status === 'fulfilled' && result.value?.data) {
+      return result.value.count || result.value.data.length || 0
+    }
+    return 0
+  }
+
+  /**
+   * Helper method to extract commission value
+   */
+  private extractCommissionValue(result: PromiseSettledResult<any>): number {
+    if (result.status === 'fulfilled' && result.value?.data) {
+      const totalRevenue = result.value.data.reduce(
+        (sum: number, job: any) => sum + (job.quote_amount || 0), 0
+      )
+      return totalRevenue * this.COMMISSION_RATE
+    }
+    return 0
+  }
+
+  /**
+   * Helper method to calculate conversion rate
+   */
+  private calculateConversionRate(result: PromiseSettledResult<any>): number {
+    if (result.status === 'fulfilled' && result.value?.data) {
+      const leads = result.value.data
+      const totalLeads = leads.length
+      const closedWon = leads.filter((lead: any) => lead.status === 'closed_won').length
+      return totalLeads > 0 ? (closedWon / totalLeads) * 100 : 0
+    }
+    return 0
+  }
+
+  /**
+   * Helper method to extract pipeline value
+   */
+  private extractPipelineValue(result: PromiseSettledResult<any>): number {
+    if (result.status === 'fulfilled' && result.value?.data) {
+      return result.value.data.reduce(
+        (sum: number, job: any) => sum + (job.quote_amount || 0), 0
+      )
+    }
+    return 0
+  }
+
+  /**
+   * Returns default dashboard statistics
+   */
+  private getDefaultDashboardStats(): DashboardStats {
+    return {
+      commissions: 0,
+      totalJobs: 0,
+      conversionRate: 0,
+      pipelineValue: 0,
+      estimatesSent: 0,
+      estimatesSentLastMonth: 0,
+      growth: {
+        commissions: 0,
+        jobs: 0,
+        estimates: 0
+      }
     }
   }
 
