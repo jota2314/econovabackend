@@ -1,10 +1,11 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { useLeadsStore } from "@/stores/leads-store"
 import { leadsService } from "@/lib/services/business/leads-service"
 import { AnalyticsService } from "@/lib/services/analytics"
 import { Lead } from "@/lib/types/database"
@@ -26,13 +27,45 @@ import { EstimateCard } from "@/components/dashboard/estimate-card"
 
 export function DashboardContent() {
   const router = useRouter()
-  const [stats, setStats] = useState({
-    totalLeads: 0,
-    activeLeads: 0,
-    thisMonthLeads: 0,
-    lastMonthLeads: 0,
-    statusBreakdown: {} as Record<string, number>
-  })
+  
+  // Get leads data from store
+  const { leads, totalLeads, leadsByStatus, fetchLeads } = useLeadsStore()
+  
+  // Calculate lead stats from store data
+  const stats = useMemo(() => {
+    const now = new Date()
+    const thisMonth = now.getMonth()
+    const thisYear = now.getFullYear()
+    const lastMonth = thisMonth === 0 ? 11 : thisMonth - 1
+    const lastMonthYear = thisMonth === 0 ? thisYear - 1 : thisYear
+    
+    const thisMonthLeads = leads.filter(lead => {
+      const created = new Date(lead.created_at)
+      return created.getMonth() === thisMonth && created.getFullYear() === thisYear
+    }).length
+    
+    const lastMonthLeads = leads.filter(lead => {
+      const created = new Date(lead.created_at)
+      return created.getMonth() === lastMonth && created.getFullYear() === lastMonthYear
+    }).length
+    
+    const activeLeads = leads.filter(lead => 
+      !['closed_won', 'closed_lost'].includes(lead.status)
+    ).length
+    
+    const statusBreakdown = Object.entries(leadsByStatus).reduce((acc, [status, leadsArray]) => {
+      acc[status] = leadsArray.length
+      return acc
+    }, {} as Record<string, number>)
+    
+    return {
+      totalLeads,
+      activeLeads,
+      thisMonthLeads,
+      lastMonthLeads,
+      statusBreakdown
+    }
+  }, [leads, totalLeads, leadsByStatus])
   const [dashboardStats, setDashboardStats] = useState({
     commissions: 0,
     totalJobs: 0,
@@ -46,7 +79,10 @@ export function DashboardContent() {
       estimates: 0
     }
   })
-  const [recentLeads, setRecentLeads] = useState<Lead[]>([])
+  // Get recent leads from store
+  const recentLeads = useMemo(() => {
+    return leads.slice(0, 5)
+  }, [leads])
   const [recentActivity, setRecentActivity] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -61,34 +97,8 @@ export function DashboardContent() {
         console.log('🔄 Starting dashboard data fetch...')
         const startTime = Date.now()
         
-        // Reduce concurrent requests by batching related data
-        const [leadStats, recent] = await Promise.all([
-          leadsService.getLeadStats()
-            .then(result => { 
-              console.log('✅ Lead stats completed'); 
-              return result 
-            })
-            .catch(err => {
-              console.error('❌ Lead stats failed:', err)
-              return {
-                totalLeads: 0,
-                activeLeads: 0,
-                thisMonthLeads: 0,
-                lastMonthLeads: 0,
-                statusBreakdown: {}
-              }
-            }),
-          leadsService.getLeads({ limit: 5 })
-            .then(result => { 
-              console.log('✅ Recent leads completed'); 
-              // Handle new business service API response format
-              return result.success ? result.data : []
-            })
-            .catch(err => {
-              console.error('❌ Recent leads failed:', err)
-              return []
-            })
-        ])
+        // Fetch leads - store handles deduplication
+        await fetchLeads()
         
         // Fetch analytics data separately to avoid overwhelming the database
         const [dashStats, activityResponse] = await Promise.all([
@@ -123,9 +133,7 @@ export function DashboardContent() {
         const duration = Date.now() - startTime
         console.log(`✅ Dashboard data fetch completed in ${duration}ms`)
         
-        // Set the data (defaults are already handled in individual catch blocks)
-        setStats(leadStats)
-        setRecentLeads(recent)
+        // Set dashboard stats only
         setDashboardStats(dashStats)
         
         // Process activity response
@@ -157,21 +165,8 @@ export function DashboardContent() {
       } catch (error) {
         console.error('💥 Dashboard data fetch failed:', error)
         
-        // Individual services already handle their own errors and provide defaults
-        // This catch is for any unexpected errors in the processing logic
-        
-        // Set default empty states only if they haven't been set by individual catches
-        setStats(prevStats => prevStats.totalLeads === undefined ? {
-          totalLeads: 0,
-          activeLeads: 0,
-          thisMonthLeads: 0,
-          lastMonthLeads: 0,
-          statusBreakdown: {}
-        } : prevStats)
-        
-        setRecentLeads(prevLeads => prevLeads.length === 0 ? [] : prevLeads)
-        
-        setDashboardStats(prevDashStats => prevDashStats.totalJobs === undefined ? {
+        // Set default dashboard stats on error
+        setDashboardStats({
           commissions: 0,
           totalJobs: 0,
           conversionRate: 0,
@@ -179,7 +174,7 @@ export function DashboardContent() {
           estimatesSent: 0,
           estimatesSentLastMonth: 0,
           growth: { commissions: 0, jobs: 0, estimates: 0 }
-        } : prevDashStats)
+        })
         setRecentActivity([])
       } finally {
         setLoading(false)
@@ -235,18 +230,18 @@ export function DashboardContent() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Good morning!</h1>
-        <p className="text-slate-600">Here&apos;s what&apos;s happening with your spray foam business today.</p>
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Good morning!</h1>
+        <p className="text-sm sm:text-base text-slate-600">Here&apos;s what&apos;s happening with your spray foam business today.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="p-6 bg-white border-slate-200 hover:shadow-md transition-shadow">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <Card className="p-4 sm:p-6 bg-white border-slate-200 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-slate-600">Commissions</p>
-              <p className="text-3xl font-bold text-slate-900">${(dashboardStats?.commissions || 0).toLocaleString()}</p>
+              <p className="text-2xl sm:text-3xl font-bold text-slate-900">${(dashboardStats?.commissions || 0).toLocaleString()}</p>
               <p className="text-xs text-slate-500">This Month</p>
               <p className={`text-sm font-medium mt-1 ${
                 (dashboardStats?.growth?.commissions || 0) >= 0 ? 'text-green-600' : 'text-red-600'
@@ -260,11 +255,11 @@ export function DashboardContent() {
           </div>
         </Card>
 
-        <Card className="p-6 bg-white border-slate-200 hover:shadow-md transition-shadow">
+        <Card className="p-4 sm:p-6 bg-white border-slate-200 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-slate-600">Total Jobs</p>
-              <p className="text-3xl font-bold text-slate-900">{dashboardStats?.totalJobs || 0}</p>
+              <p className="text-2xl sm:text-3xl font-bold text-slate-900">{dashboardStats?.totalJobs || 0}</p>
               <p className={`text-sm font-medium ${
                 (dashboardStats?.growth?.jobs || 0) >= 0 ? 'text-green-600' : 'text-red-600'
               }`}>
@@ -277,11 +272,11 @@ export function DashboardContent() {
           </div>
         </Card>
 
-        <Card className="p-6 bg-white border-slate-200 hover:shadow-md transition-shadow">
+        <Card className="p-4 sm:p-6 bg-white border-slate-200 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-slate-600">Conversion Rate</p>
-              <p className="text-3xl font-bold text-slate-900">{(dashboardStats?.conversionRate || 0).toFixed(1)}%</p>
+              <p className="text-2xl sm:text-3xl font-bold text-slate-900">{(dashboardStats?.conversionRate || 0).toFixed(1)}%</p>
               <p className="text-xs text-slate-500">Lead to Close</p>
             </div>
             <div className="p-3 bg-purple-50 rounded-lg">
@@ -290,11 +285,11 @@ export function DashboardContent() {
           </div>
         </Card>
 
-        <Card className="p-6 bg-white border-slate-200 hover:shadow-md transition-shadow">
+        <Card className="p-4 sm:p-6 bg-white border-slate-200 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-slate-600">Total Leads</p>
-              <p className="text-3xl font-bold text-slate-900">{stats?.totalLeads || 0}</p>
+              <p className="text-2xl sm:text-3xl font-bold text-slate-900">{stats?.totalLeads || 0}</p>
               <p className="text-sm text-green-600 font-medium">
                 {getChangePercentage(stats?.thisMonthLeads || 0, stats?.lastMonthLeads || 0)} from last month
               </p>
@@ -307,43 +302,43 @@ export function DashboardContent() {
       </div>
 
       {/* Enhanced Metrics Row */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <Card className="p-4 bg-gradient-to-r from-red-50 to-red-100 border-red-200">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 sm:gap-4">
+        <Card className="p-3 sm:p-4 bg-gradient-to-r from-red-50 to-red-100 border-red-200">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-red-600 rounded-lg">
               <TrendingUp className="h-4 w-4 text-white" />
             </div>
             <div>
               <p className="text-sm font-medium text-red-900">Hot Leads</p>
-              <p className="text-xl font-bold text-red-900">
+              <p className="text-lg sm:text-xl font-bold text-red-900">
                 {recentLeads.filter(lead => lead.temperature === 'hot').length || 0}
               </p>
             </div>
           </div>
         </Card>
         
-        <Card className="p-4 bg-gradient-to-r from-yellow-50 to-yellow-100 border-yellow-200">
+        <Card className="p-3 sm:p-4 bg-gradient-to-r from-yellow-50 to-yellow-100 border-yellow-200">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-yellow-600 rounded-lg">
               <Calendar className="h-4 w-4 text-white" />
             </div>
             <div>
               <p className="text-sm font-medium text-yellow-900">This Week</p>
-              <p className="text-xl font-bold text-yellow-900">
+              <p className="text-lg sm:text-xl font-bold text-yellow-900">
                 ${((dashboardStats?.commissions || 0) * 4).toLocaleString()}
               </p>
             </div>
           </div>
         </Card>
         
-        <Card className="p-4 bg-gradient-to-r from-indigo-50 to-indigo-100 border-indigo-200">
+        <Card className="p-3 sm:p-4 bg-gradient-to-r from-indigo-50 to-indigo-100 border-indigo-200">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-indigo-600 rounded-lg">
               <Calculator className="h-4 w-4 text-white" />
             </div>
             <div>
               <p className="text-sm font-medium text-indigo-900">Avg Deal Size</p>
-              <p className="text-xl font-bold text-indigo-900">
+              <p className="text-lg sm:text-xl font-bold text-indigo-900">
                 ${dashboardStats?.pipelineValue && dashboardStats?.totalJobs > 0 
                   ? Math.round(dashboardStats.pipelineValue / dashboardStats.totalJobs).toLocaleString()
                   : '4,396'}
@@ -352,14 +347,14 @@ export function DashboardContent() {
           </div>
         </Card>
         
-        <Card className="p-4 bg-gradient-to-r from-emerald-50 to-emerald-100 border-emerald-200">
+        <Card className="p-3 sm:p-4 bg-gradient-to-r from-emerald-50 to-emerald-100 border-emerald-200">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-emerald-600 rounded-lg">
               <Target className="h-4 w-4 text-white" />
             </div>
             <div>
               <p className="text-sm font-medium text-emerald-900">Win Rate</p>
-              <p className="text-xl font-bold text-emerald-900">
+              <p className="text-lg sm:text-xl font-bold text-emerald-900">
                 {stats?.statusBreakdown?.closed_won && stats?.totalLeads 
                   ? Math.round((stats.statusBreakdown.closed_won / stats.totalLeads) * 100)
                   : 23}%
@@ -368,53 +363,53 @@ export function DashboardContent() {
           </div>
         </Card>
         
-        <Card className="p-4 bg-gradient-to-r from-purple-50 to-purple-100 border-purple-200">
+        <Card className="p-3 sm:p-4 bg-gradient-to-r from-purple-50 to-purple-100 border-purple-200">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-purple-600 rounded-lg">
               <Clock className="h-4 w-4 text-white" />
             </div>
             <div>
               <p className="text-sm font-medium text-purple-900">Avg Close Time</p>
-              <p className="text-xl font-bold text-purple-900">12d</p>
+              <p className="text-lg sm:text-xl font-bold text-purple-900">12d</p>
             </div>
           </div>
         </Card>
       </div>
 
       {/* Secondary Stats Row */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="p-4 bg-gradient-to-r from-purple-50 to-purple-100 border-purple-200">
+      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+        <Card className="p-3 sm:p-4 bg-gradient-to-r from-purple-50 to-purple-100 border-purple-200">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-purple-600 rounded-lg">
               <Users className="h-4 w-4 text-white" />
             </div>
             <div>
               <p className="text-sm font-medium text-purple-900">Active Leads</p>
-              <p className="text-xl font-bold text-purple-900">{stats?.activeLeads || 0}</p>
+              <p className="text-lg sm:text-xl font-bold text-purple-900">{stats?.activeLeads || 0}</p>
             </div>
           </div>
         </Card>
         
-        <Card className="p-4 bg-gradient-to-r from-green-50 to-green-100 border-green-200">
+        <Card className="p-3 sm:p-4 bg-gradient-to-r from-green-50 to-green-100 border-green-200">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-green-600 rounded-lg">
               <Briefcase className="h-4 w-4 text-white" />
             </div>
             <div>
               <p className="text-sm font-medium text-green-900">Closed Won</p>
-              <p className="text-xl font-bold text-green-900">{stats?.statusBreakdown?.closed_won || 0}</p>
+              <p className="text-lg sm:text-xl font-bold text-green-900">{stats?.statusBreakdown?.closed_won || 0}</p>
             </div>
           </div>
         </Card>
         
-        <Card className="p-4 bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200">
+        <Card className="p-3 sm:p-4 bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-600 rounded-lg">
               <FileText className="h-4 w-4 text-white" />
             </div>
             <div>
               <p className="text-sm font-medium text-blue-900">Estimates Sent</p>
-              <p className="text-xl font-bold text-blue-900">{dashboardStats?.estimatesSent || 0}</p>
+              <p className="text-lg sm:text-xl font-bold text-blue-900">{dashboardStats?.estimatesSent || 0}</p>
               <p className="text-xs text-blue-700">
                 {dashboardStats?.estimatesSent > dashboardStats?.estimatesSentLastMonth ? '↑' : '↓'} vs last month
               </p>
@@ -422,7 +417,7 @@ export function DashboardContent() {
           </div>
         </Card>
         
-        <Card className={`p-4 bg-gradient-to-r ${
+        <Card className={`p-3 sm:p-4 bg-gradient-to-r ${
           (dashboardStats?.pipelineValue || 0) >= 100000 
             ? 'from-green-50 to-green-100 border-green-200' 
             : (dashboardStats?.pipelineValue || 0) >= 50000
@@ -447,7 +442,7 @@ export function DashboardContent() {
                   ? 'text-yellow-900'
                   : 'text-red-900'
               }`}>Pipeline Value</p>
-              <p className={`text-xl font-bold ${
+              <p className={`text-lg sm:text-xl font-bold ${
                 (dashboardStats?.pipelineValue || 0) >= 100000 
                   ? 'text-green-900' 
                   : (dashboardStats?.pipelineValue || 0) >= 50000
@@ -464,8 +459,8 @@ export function DashboardContent() {
         <EstimateCard title="Total Estimate Value" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="p-6 bg-white border-slate-200">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+        <Card className="p-4 sm:p-6 bg-white border-slate-200">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-slate-900">Recent Activity</h3>
             <Button 
@@ -501,7 +496,7 @@ export function DashboardContent() {
           </div>
         </Card>
 
-        <Card className="p-6 bg-white border-slate-200">
+        <Card className="p-4 sm:p-6 bg-white border-slate-200">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-slate-900">Recent Leads</h3>
             <Button 
@@ -521,7 +516,7 @@ export function DashboardContent() {
               </div>
             ) : (
               recentLeads.slice(0, 4).map((lead) => (
-                <div key={lead.id} className="flex items-start justify-between p-3 border border-slate-100 rounded-lg">
+                <div key={lead.id} className="flex items-start justify-between p-3 border border-slate-100 rounded-lg mobile-hover mobile-active cursor-pointer" onClick={() => router.push(`/dashboard/leads`)}>
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <h4 className="font-medium text-slate-900">{lead.name}</h4>
@@ -544,8 +539,8 @@ export function DashboardContent() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="p-6 bg-white border-slate-200">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+        <Card className="p-4 sm:p-6 bg-white border-slate-200">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-slate-900">Lead Status Breakdown</h3>
           </div>
@@ -579,10 +574,10 @@ export function DashboardContent() {
               <h3 className="text-lg font-semibold text-secondary-foreground">Quick Actions</h3>
               <p className="text-secondary-foreground/80">Common tasks for field operations</p>
             </div>
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex gap-2 flex-wrap mt-2 sm:mt-0">
               <Button 
                 size="sm" 
-                className=""
+                className="min-h-[44px] px-3 text-xs sm:text-sm"
                 onClick={() => router.push('/dashboard/leads')}
               >
                 Add New Lead
@@ -590,7 +585,7 @@ export function DashboardContent() {
               <Button 
                 variant="outline" 
                 size="sm" 
-                className=""
+                className="min-h-[44px] px-3 text-xs sm:text-sm"
                 onClick={() => router.push('/dashboard/jobs')}
               >
                 Schedule Measurement
@@ -598,7 +593,7 @@ export function DashboardContent() {
               <Button 
                 variant="outline" 
                 size="sm" 
-                className=""
+                className="min-h-[44px] px-3 text-xs sm:text-sm"
                 onClick={() => router.push('/dashboard/jobs')}
               >
                 Update Job Status
@@ -606,7 +601,7 @@ export function DashboardContent() {
               <Button 
                 variant="outline" 
                 size="sm" 
-                className=""
+                className="min-h-[44px] px-3 text-xs sm:text-sm"
                 onClick={() => router.push('/dashboard/analytics')}
               >
                 View Analytics

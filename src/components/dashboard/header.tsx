@@ -50,9 +50,10 @@ export function Header({
     role: "salesperson"
   }
   
-  // Load notifications and start polling
+  // Load notifications but DON'T auto-start polling (performance optimization)
+  // Polling will start only when user opens notifications dropdown
   useEffect(() => {
-    startPolling()
+    fetchNotifications() // Just fetch once on mount
     return () => stopPolling() // Cleanup on unmount
   }, [])
 
@@ -84,12 +85,12 @@ export function Header({
   const unreadCount = notifications.filter(n => !n.read).length
   return (
     <header className="border-b bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60">
-      <div className="flex h-14 items-center px-4 lg:px-6">
+      <div className="flex h-14 items-center px-3 sm:px-4 lg:px-6">
         <MobileSidebar />
         
         <div className="flex-1 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <h1 className="text-lg font-semibold text-slate-900 hidden sm:block">
+            <h1 className="text-base sm:text-lg font-semibold text-slate-900 hidden sm:block">
               {title}
             </h1>
             <Badge variant="secondary" className="hidden lg:flex">
@@ -101,7 +102,7 @@ export function Header({
             <Button 
               variant="ghost" 
               size="icon" 
-              className="hidden sm:flex"
+              className="hidden sm:flex min-h-[44px] min-w-[44px]"
               onClick={handleSearch}
             >
               <Search className="h-4 w-4" />
@@ -109,7 +110,7 @@ export function Header({
             
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="relative">
+                <Button variant="ghost" size="icon" className="relative min-h-[44px] min-w-[44px]">
                   <Bell className="h-4 w-4" />
                   {unreadCount > 0 && (
                     <span className="absolute -top-1 -right-1 h-4 w-4 bg-destructive rounded-full text-[10px] text-destructive-foreground flex items-center justify-center">
@@ -202,7 +203,7 @@ export function Header({
             
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-8 w-8 rounded-full" suppressHydrationWarning>
+                <Button variant="ghost" className="relative h-9 w-9 sm:h-8 sm:w-8 rounded-full min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px]" suppressHydrationWarning>
                   <Avatar className="h-8 w-8">
                     <AvatarImage src={userData.avatar} alt={userData.name} />
                     <AvatarFallback className="bg-secondary text-secondary-foreground">

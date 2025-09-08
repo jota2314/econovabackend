@@ -116,6 +116,9 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html, body {
+    height: 100%;
+  }
   body {
     @apply bg-background text-foreground font-sans antialiased;
   }
@@ -136,5 +139,46 @@
   
   .econova-sidebar {
     @apply bg-sidebar border-r border-sidebar-border;
+  }
+  
+  /* Mobile-friendly touch targets */
+  .mobile-touch-target {
+    @apply min-h-[44px] min-w-[44px];
+  }
+  
+  /* Mobile-friendly text sizing */
+  .mobile-responsive-text {
+    @apply text-sm sm:text-base;
+  }
+  
+  .mobile-responsive-heading {
+    @apply text-lg sm:text-xl lg:text-2xl;
+  }
+  
+  /* Mobile-friendly spacing */
+  .mobile-responsive-padding {
+    @apply p-3 sm:p-4 lg:p-6;
+  }
+  
+  .mobile-responsive-gap {
+    @apply gap-3 sm:gap-4 lg:gap-6;
+  }
+  
+  /* Touch-friendly hover states for mobile */
+  @media (hover: hover) {
+    .mobile-hover:hover {
+      @apply bg-muted/50 transition-colors;
+    }
+  }
+  
+  /* Active states for touch */
+  .mobile-active:active {
+    @apply bg-muted transition-colors duration-75;
+  }
+  
+  /* Improved scrolling on mobile */
+  .mobile-scroll {
+    @apply overflow-y-auto;
+    -webkit-overflow-scrolling: touch;
   }
 }
