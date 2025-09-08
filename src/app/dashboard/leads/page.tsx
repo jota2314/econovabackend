@@ -320,9 +320,6 @@ export default function LeadsPage() {
               <TableRow key={lead.id} className="hover:bg-slate-50/50 transition-colors">
                 <TableCell className="font-medium">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
-                      {lead.name.charAt(0).toUpperCase()}
-                    </div>
                     <div>
                       <div className="font-medium text-slate-900">{lead.name}</div>
                       <div className="text-xs text-slate-500">Lead Score: {lead.lead_score || 50}/100</div>
