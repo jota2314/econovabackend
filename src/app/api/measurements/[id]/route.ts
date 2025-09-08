@@ -27,7 +27,7 @@ export async function PATCH(
     const body = await request.json()
     const { override_unit_price, override_group_sqft } = body
 
-    const update: Record<string, any> = {}
+    const update: Record<string, unknown> = {}
     if (override_unit_price !== undefined) update.override_unit_price = override_unit_price
     if (override_group_sqft !== undefined) update.override_group_sqft = override_group_sqft
 
@@ -43,7 +43,7 @@ export async function PATCH(
     }
 
     return NextResponse.json({ success: true, data })
-  } catch (e) {
+  } catch {
     return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 })
   }
 }

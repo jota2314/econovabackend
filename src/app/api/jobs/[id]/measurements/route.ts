@@ -27,17 +27,6 @@ export async function GET(
       )
     }
 
-    // Load current user's role for permission checks
-    let currentUserRole: 'manager' | 'salesperson' | null = null
-    if (user) {
-      const { data: profile } = await supabase
-        .from('users')
-        .select('role')
-        .eq('id', user.id)
-        .single()
-      currentUserRole = (profile?.role as any) ?? null
-    }
-
     // First get the job to determine the service type
     const { data: job, error: jobError } = await supabase
       .from('jobs')
@@ -122,15 +111,12 @@ export async function POST(
     }
 
     // Load current user's role for permission checks
-    let currentUserRole: 'manager' | 'salesperson' | null = null
-    if (user) {
-      const { data: profile } = await supabase
-        .from('users')
-        .select('role')
-        .eq('id', user.id)
-        .single()
-      currentUserRole = (profile?.role as any) ?? null
-    }
+    const { data: profile } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+    const currentUserRole = (profile?.role as 'manager' | 'salesperson') ?? null
 
     // Check if measurements are locked by an approved estimate
     const { data: lockedMeasurements } = await supabase
@@ -227,14 +213,14 @@ export async function POST(
         // Apply manager-only overrides if present
         if (currentUserRole === 'manager') {
           if (override_closed_cell_price_per_sqft !== undefined && override_closed_cell_price_per_sqft !== null && override_closed_cell_price_per_sqft !== '') {
-            (insertData as any).override_closed_cell_price_per_sqft = parseFloat(override_closed_cell_price_per_sqft)
-            ;(insertData as any).override_set_by = user!.id
-            ;(insertData as any).override_set_at = new Date().toISOString()
+            insertData.override_closed_cell_price_per_sqft = parseFloat(override_closed_cell_price_per_sqft)
+            insertData.override_set_by = user!.id
+            insertData.override_set_at = new Date().toISOString()
           }
           if (override_open_cell_price_per_sqft !== undefined && override_open_cell_price_per_sqft !== null && override_open_cell_price_per_sqft !== '') {
-            (insertData as any).override_open_cell_price_per_sqft = parseFloat(override_open_cell_price_per_sqft)
-            ;(insertData as any).override_set_by = user!.id
-            ;(insertData as any).override_set_at = new Date().toISOString()
+            insertData.override_open_cell_price_per_sqft = parseFloat(override_open_cell_price_per_sqft)
+            insertData.override_set_by = user!.id
+            insertData.override_set_at = new Date().toISOString()
           }
         }
         
@@ -326,31 +312,34 @@ export async function POST(
 
     // Insert measurement into the appropriate table
     try {
-      let result: any
+      let result: { data: any; error: any } = { data: null, error: null }
       if (job.service_type === 'insulation') {
         // Use the main measurements table for insulation
-        result = await supabase
+        const insertResult = await supabase
           .from('measurements')
           .insert(insertData)
           .select()
           .single()
+        result = insertResult
       } else if (job.service_type === 'hvac') {
-        result = await supabase
+        const insertResult = await supabase
           .from('hvac_measurements')
           .insert(insertData)
           .select()
           .single()
+        result = insertResult
       } else if (job.service_type === 'plaster') {
-        result = await supabase
+        const insertResult = await supabase
           .from('plaster_measurements')
           .insert(insertData)
           .select()
           .single()
+        result = insertResult
       }
       
       measurement = result?.data
       insertError = result?.error
-    } catch (tableError) {
+    } catch {
       console.warn(`Table ${tableName} not found`)
       return NextResponse.json(
         { success: false, error: `${tableName} table not available yet. Please contact administrator.` },
@@ -381,8 +370,8 @@ export async function POST(
     }
 
     console.log(`[POST /api/jobs/${id}/measurements] Success:`, { 
-      id: measurement.id,
-      ...(job.service_type === 'insulation' && 'square_feet' in measurement && { square_feet: measurement.square_feet })
+      id: (measurement as any)?.id,
+      ...(job.service_type === 'insulation' && 'square_feet' in (measurement as any) && { square_feet: (measurement as any).square_feet })
     })
 
     return NextResponse.json({

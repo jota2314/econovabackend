@@ -57,10 +57,9 @@ export async function GET(
         const parsed = JSON.parse(job.scope_of_work)
         enhancedJob = {
           ...job,
-          project_type: parsed.project_type || null,
           scope_of_work: parsed.description || job.scope_of_work
-        }
-      } catch (e) {
+        } as any
+      } catch {
         // If not JSON, keep original
       }
     }
@@ -111,7 +110,7 @@ export async function PATCH(
     console.log(`[PATCH /api/jobs/${id}] Request body:`, body)
 
     // Create a clean update object with only the fields we want to update
-    const jobUpdate: Record<string, any> = {}
+    const jobUpdate: Record<string, unknown> = {}
     if (total_square_feet !== undefined) {
       jobUpdate.total_square_feet = total_square_feet
     }
@@ -126,10 +125,10 @@ export async function PATCH(
     
     console.log(`[PATCH /api/jobs/${id}] Update data:`, jobUpdate)
 
-    // @ts-ignore
+    // Use type assertion to handle dynamic update objects with Supabase
     const { data: job, error } = await supabase
       .from('jobs')
-      .update(jobUpdate)
+      .update(jobUpdate as any)
       .eq('id', id)
       .select('*')
       .single()

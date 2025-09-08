@@ -1,8 +1,14 @@
-import { Tables } from '@/lib/types/database'
+import { Tables, TablesInsert } from '@/lib/types/database'
 
 export type Measurement = Tables<'measurements'>
 export type HvacMeasurement = Tables<'hvac_measurements'>
 export type PlasterMeasurement = Tables<'plaster_measurements'>
+
+export type MeasurementInsert = TablesInsert<'measurements'>
+export type HvacMeasurementInsert = TablesInsert<'hvac_measurements'>
+export type PlasterMeasurementInsert = TablesInsert<'plaster_measurements'>
+
+export type MeasurementInsertData = MeasurementInsert | HvacMeasurementInsert | PlasterMeasurementInsert
 
 export type SurfaceType = Measurement['surface_type']
 export type AreaType = Measurement['area_type']

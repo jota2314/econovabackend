@@ -41,10 +41,13 @@ export interface CommissionData {
 }
 
 export class AnalyticsService {
-  private supabase: any
   
   constructor() {
-    this.supabase = createClient()
+    // No client initialization here since server client is async
+  }
+
+  private async getClient() {
+    return await createClient()
   }
   
   private readonly COMMISSION_RATE = 0.10
@@ -157,6 +160,7 @@ export class AnalyticsService {
    */
   async getDashboardStats(): Promise<ApiResponse<DashboardStats>> {
     try {
+      const supabase = await this.getClient()
       const now = new Date()
       const startOfCurrentMonth = startOfMonth(now)
       const startOfLastMonth = startOfMonth(subMonths(now, 1))
@@ -172,10 +176,10 @@ export class AnalyticsService {
         pipelineJobsResult
       ] = await Promise.allSettled([
         this.executeWithTimeout(
-          this.supabase.from('jobs').select('id', { count: 'exact' })
+          supabase.from('jobs').select('id', { count: 'exact' })
         ),
         this.executeWithTimeout(
-          this.supabase
+          supabase
             .from('jobs')
             .select('quote_amount, leads!lead_id(status)')
             .eq('leads.status', 'closed_won')
@@ -183,20 +187,20 @@ export class AnalyticsService {
             .gte('updated_at', startOfCurrentMonth.toISOString())
         ),
         this.executeWithTimeout(
-          this.supabase
+          supabase
             .from('leads')
             .select('status')
             .in('status', ['closed_won', 'closed_lost'])
         ),
         this.executeWithTimeout(
-          this.supabase
+          supabase
             .from('jobs')
             .select('id', { count: 'exact' })
             .not('quote_amount', 'is', null)
             .gte('quote_sent_at', startOfCurrentMonth.toISOString())
         ),
         this.executeWithTimeout(
-          this.supabase
+          supabase
             .from('jobs')
             .select('id', { count: 'exact' })
             .not('quote_amount', 'is', null)
@@ -204,7 +208,7 @@ export class AnalyticsService {
             .lte('quote_sent_at', endOfLastMonth.toISOString())
         ),
         this.executeWithTimeout(
-          this.supabase
+          supabase
             .from('jobs')
             .select('quote_amount, leads!lead_id(status)')
             .not('quote_amount', 'is', null)
@@ -265,7 +269,8 @@ export class AnalyticsService {
       
       // First try optimized RPC function if available
       try {
-        const { data: performanceData, error } = await this.supabase.rpc(
+        const supabase = await this.getClient()
+        const { data: performanceData, error } = await supabase.rpc(
           'get_performance_leaderboard',
           { start_date: formatISO(startDate) }
         )
@@ -299,8 +304,9 @@ export class AnalyticsService {
   ): Promise<ApiResponse<{ commissions: CommissionData[], summary: any }>> {
     try {
       const startDate = this.getStartDateForTimeframe(period)
+      const supabase = await this.getClient()
 
-      const { data: commissionData, error } = await this.supabase
+      const { data: commissionData, error } = await supabase
         .from('jobs')
         .select(`
           quote_amount,
@@ -411,7 +417,8 @@ export class AnalyticsService {
   }
 
   private async getFallbackPerformanceData(startDate: Date): Promise<ApiResponse<PerformanceData[]>> {
-    const { data: users } = await this.supabase
+    const supabase = await this.getClient()
+    const { data: users } = await supabase
       .from('users')
       .select('id, full_name')
       .eq('role', 'salesperson')
@@ -424,7 +431,7 @@ export class AnalyticsService {
     const startDateISO = formatISO(startDate)
 
     const [callsResult, leadsResult, jobsResult] = await Promise.allSettled([
-      this.supabase
+      supabase
         .from('communications')
         .select('user_id')
         .in('user_id', userIds)
@@ -432,14 +439,14 @@ export class AnalyticsService {
         .eq('direction', 'outbound')
         .gte('created_at', startDateISO),
       
-      this.supabase
+      supabase
         .from('leads')
         .select('assigned_to')
         .in('assigned_to', userIds)
         .eq('status', 'closed_won')
         .gte('updated_at', startDateISO),
       
-      this.supabase
+      supabase
         .from('jobs')
         .select('quote_amount, leads!inner(assigned_to)')
         .in('leads.assigned_to', userIds)

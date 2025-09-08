@@ -3,6 +3,7 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import { createClient } from '@/lib/supabase/client'
+import { logger } from '@/lib/services/logger'
 
 export interface Notification {
   id: string
@@ -55,8 +56,8 @@ export type NotificationsStore = NotificationsState & NotificationsActions & Not
 
 // Cache configuration
 const CACHE_KEY = 'notifications_cache'
-const CACHE_DURATION = 2 * 60 * 1000 // 2 minutes
-const POLLING_INTERVAL = 2 * 60 * 1000 // 2 minutes (reduced from 30 seconds)
+const CACHE_DURATION = 10 * 60 * 1000 // 10 minutes
+const POLLING_INTERVAL = 10 * 60 * 1000 // 10 minutes (reduced for performance)
 
 let pollingTimer: NodeJS.Timeout | null = null
 
@@ -172,7 +173,7 @@ export const useNotificationsStore = create<NotificationsStore>()(
             timestamp: Date.now()
           }))
         } catch (error) {
-          console.warn('Failed to cache notifications:', error)
+          logger.warn('Failed to cache notifications', { error })
         }
       },
 
@@ -186,14 +187,14 @@ export const useNotificationsStore = create<NotificationsStore>()(
             const store = get()
             const cached = store._getFromCache()
             if (cached) {
-              console.log('✅ Using cached notifications data')
+              logger.debug('Using cached notifications data')
               store.setNotifications(cached)
               set({ loading: false })
               return
             }
           }
           
-          console.log('🔄 Fetching notifications from API...')
+          logger.debug('Fetching notifications from API')
           
           // For now, create mock notifications since notifications table doesn't exist
           const mockNotifications: Notification[] = [
@@ -223,10 +224,10 @@ export const useNotificationsStore = create<NotificationsStore>()(
           store.setNotifications(mockNotifications)
           store._setCache(mockNotifications)
           
-          console.log('✅ Fetched', mockNotifications.length, 'notifications (mock data)')
+          logger.debug('Fetched notifications (mock data)', { count: mockNotifications.length })
           
         } catch (error) {
-          console.error('❌ Error fetching notifications:', error)
+          logger.error('Error fetching notifications', error)
           const errorMessage = error instanceof Error ? error.message : 'Failed to fetch notifications'
           
           set({
@@ -242,7 +243,7 @@ export const useNotificationsStore = create<NotificationsStore>()(
         const state = get()
         if (state.isPolling) return
         
-        console.log('🔄 Starting notifications polling (every 2 minutes)')
+        logger.info('Starting notifications polling (every 2 minutes)')
         set({ isPolling: true }, false, 'startPolling')
         
         // Initial fetch
@@ -258,7 +259,7 @@ export const useNotificationsStore = create<NotificationsStore>()(
       },
 
       stopPolling: () => {
-        console.log('⏹️ Stopping notifications polling')
+        logger.info('Stopping notifications polling')
         set({ isPolling: false }, false, 'stopPolling')
         
         if (pollingTimer) {

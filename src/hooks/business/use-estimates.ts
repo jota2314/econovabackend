@@ -8,61 +8,34 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import estimatesService from '@/lib/services/business/estimates-service'
+import { 
+  estimatesService, 
+  type EstimateListItem, 
+  type EstimatesListResponse 
+} from '@/lib/services/business/estimates-service'
+import { logger } from '@/lib/services/logger'
+import { useAuth } from '@/hooks/use-auth'
 
 // Cache configuration
 const CACHE_DURATION = 2 * 60 * 1000 // 2 minutes
 const REQUEST_DEBOUNCE = 300 // 300ms debounce for rapid requests
 
-// Types
-interface Estimate {
-  id: string
-  estimate_number: string
-  status: 'draft' | 'pending_approval' | 'approved' | 'rejected'
-  total_amount?: number
-  subtotal?: number
-  created_at: string
-  jobs: {
-    id: string
-    job_name: string
-    service_type?: string
-    lead?: {
-      id: string
-      name: string
-      email?: string
-      phone?: string
-      address?: string
-      city?: string
-      state?: string
-    }
-  }
-  created_by_user: {
-    id: string
-    full_name: string
-    email: string
-  }
-}
-
-interface User {
-  id: string
-  full_name: string | null
-  email: string
-  role: string
-}
-
-interface EstimatesCache {
-  data: Estimate[]
-  timestamp: number
-  filters?: {
-    statusFilter?: string
-    serviceFilter?: string
-  }
-}
+// Type aliases for better compatibility
+type Estimate = EstimateListItem
+type EstimateStatus = 'draft' | 'pending_approval' | 'sent' | 'approved' | 'rejected' | 'all'
+type ServiceType = 'insulation' | 'hvac' | 'plaster' | 'all'
 
 interface UseEstimatesOptions {
+  status?: EstimateStatus
+  serviceType?: ServiceType
+  page?: number
+  limit?: number
+  autoRefresh?: boolean
+  refreshInterval?: number
+  // Legacy support for EstimateApprovalsPage
   autoFetch?: boolean
-  refetchInterval?: number
   enableCaching?: boolean
+  refetchInterval?: number
 }
 
 interface UseEstimatesReturn {
@@ -70,17 +43,20 @@ interface UseEstimatesReturn {
   estimates: Estimate[]
   filteredEstimates: Estimate[]
   selectedEstimate: Estimate | null
-  user: User | null
-  
-  // State
+  user: { role: string; full_name: string } | null
   loading: boolean
   error: string | null
+  total: number
+  page: number
+  limit: number
+  hasNextPage: boolean
+  hasPreviousPage: boolean
   lastRefresh: Date | null
   
   // UI State
   searchTerm: string
-  statusFilter: string
-  serviceFilter: string
+  statusFilter: EstimateStatus
+  serviceFilter: ServiceType
   viewMode: 'cards' | 'table'
   
   // Computed metrics
@@ -91,351 +67,408 @@ interface UseEstimatesReturn {
   approvedCount: number
   totalCount: number
   
+  // Cache info
+  lastFetch: Date | null
+  isStale: boolean
+  
   // Actions
-  refetch: (forceRefresh?: boolean) => Promise<void>
-  approveEstimate: (estimateId: string) => Promise<void>
-  rejectEstimate: (estimateId: string) => Promise<void>
-  updateEstimate: (id: string, updates: Partial<Estimate>) => void
+  refetch: (immediate?: boolean) => Promise<void>
+  refetchIfStale: () => Promise<void>
+  approveEstimate: (estimateId: string) => Promise<boolean>
+  rejectEstimate: (estimateId: string) => Promise<boolean>
+  updateEstimate?: (estimateId: string, data: any) => Promise<boolean>
+  goToPage: (page: number) => Promise<void>
+  setFilters: (filters: { status?: EstimateStatus; serviceType?: ServiceType }) => void
+  clearCache: () => void
   
   // UI Actions
   setSearchTerm: (term: string) => void
-  setStatusFilter: (status: string) => void
-  setServiceFilter: (service: string) => void
+  setStatusFilter: (status: EstimateStatus) => void
+  setServiceFilter: (service: ServiceType) => void
   setViewMode: (mode: 'cards' | 'table') => void
   selectEstimate: (estimate: Estimate | null) => void
 }
 
-/**
- * Enhanced custom hook for managing estimates with performance optimizations
- * 
- * @param options - Configuration options for the hook
- * @returns Object containing estimates data, loading state, and operations
- */
+// Cache management
+interface CacheEntry {
+  data: Estimate[]
+  total: number
+  timestamp: Date
+  key: string
+}
+
+const cache = new Map<string, CacheEntry>()
+
 export function useEstimates(options: UseEstimatesOptions = {}): UseEstimatesReturn {
-  const { 
-    autoFetch = true, 
-    refetchInterval,
-    enableCaching = true
+  const {
+    status = 'all',
+    serviceType = 'all',
+    page: initialPage = 1,
+    limit = 50,
+    autoRefresh = false,
+    refreshInterval = 30000, // 30 seconds
+    // Legacy support
+    autoFetch = false,
+    enableCaching = false,
+    refetchInterval
   } = options
 
-  // Core data state
+  // Use refetchInterval if provided, otherwise fall back to refreshInterval
+  const actualRefreshInterval = refetchInterval || refreshInterval
+  const actualAutoRefresh = autoRefresh || autoFetch
+
+  // State
   const [estimates, setEstimates] = useState<Estimate[]>([])
-  const [selectedEstimate, setSelectedEstimate] = useState<Estimate | null>(null)
-  const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(initialPage)
+  const [lastFetch, setLastFetch] = useState<Date | null>(null)
+  const [currentFilters, setCurrentFilters] = useState({ status, serviceType })
   
-  // UI state
-  const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState("pending_approval")
-  const [serviceFilter, setServiceFilter] = useState("all")
+  // UI State
+  const [searchTerm, setSearchTerm] = useState('')
+  const [statusFilter, setStatusFilterState] = useState<EstimateStatus>('all')
+  const [serviceFilter, setServiceFilterState] = useState<ServiceType>('all')
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards')
-  
-  // Refs for debouncing and cleanup
-  const debounceRef = useRef<NodeJS.Timeout | null>(null)
-  const requestIdRef = useRef<number>(0)
-  
-  const supabase = createClient()
-  
-  // Cache management
-  const getCacheKey = useCallback(() => {
-    const filterString = JSON.stringify({ statusFilter, serviceFilter })
-    return `estimates_cache_${filterString}`
-  }, [statusFilter, serviceFilter])
-  
-  const getFromCache = useCallback((): EstimatesCache | null => {
-    if (!enableCaching) return null
-    
-    try {
-      const cached = localStorage.getItem(getCacheKey())
-      if (!cached) return null
-      
-      const parsedCache: EstimatesCache = JSON.parse(cached)
-      const isExpired = Date.now() - parsedCache.timestamp > CACHE_DURATION
-      
-      if (isExpired) {
-        localStorage.removeItem(getCacheKey())
-        return null
-      }
-      
-      return parsedCache
-    } catch {
-      return null
-    }
-  }, [getCacheKey, enableCaching])
-  
-  const setCache = useCallback((data: Estimate[]) => {
-    if (!enableCaching) return
-    
-    try {
-      const cache: EstimatesCache = {
-        data,
-        timestamp: Date.now(),
-        filters: { statusFilter, serviceFilter }
-      }
-      localStorage.setItem(getCacheKey(), JSON.stringify(cache))
-    } catch (error) {
-      console.warn('Failed to cache estimates data:', error)
-    }
-  }, [getCacheKey, statusFilter, serviceFilter, enableCaching])
+  const [selectedEstimate, setSelectedEstimate] = useState<Estimate | null>(null)
+  const [user, setUser] = useState<{ role: string; full_name: string } | null>(null)
 
-  /**
-   * Load user profile
-   */
-  const loadUser = useCallback(async () => {
-    try {
-      const { data: { user: authUser } } = await supabase.auth.getUser()
-      if (authUser) {
-        const { data: profile } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', authUser.id)
-          .single()
-        
-        if (profile) {
-          setUser(profile)
-        }
-      }
-    } catch (error) {
-      console.error('Error loading user:', error)
-    }
-  }, [supabase])
+  // Refs for cleanup and debouncing
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
-  /**
-   * Enhanced fetchEstimates with caching and request deduplication
-   */
-  const fetchEstimates = useCallback(async (forceRefresh = false) => {
-    // Generate unique request ID for deduplication
-    const currentRequestId = ++requestIdRef.current
-    
-    try {
+  // Cache key generation
+  const cacheKey = useMemo(() => {
+    return `estimates_${currentFilters.status}_${currentFilters.serviceType}_${page}_${limit}`
+  }, [currentFilters.status, currentFilters.serviceType, page, limit])
+
+  // Check if cache is stale
+  const isStale = useMemo(() => {
+    const cached = cache.get(cacheKey)
+    if (!cached) return true
+    return Date.now() - cached.timestamp.getTime() > CACHE_DURATION
+  }, [cacheKey, lastFetch])
+
+  // Pagination helpers
+  const hasNextPage = useMemo(() => {
+    return page * limit < total
+  }, [page, limit, total])
+
+  const hasPreviousPage = useMemo(() => {
+    return page > 1
+  }, [page])
+
+  // Debounced fetch function
+  const debouncedFetch = useCallback(async (immediate = false) => {
+    // Clear existing debounce
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current)
+    }
+
+    const executeFetch = async () => {
+      // Cancel previous request
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+
+      // Check cache first
+      const cached = cache.get(cacheKey)
+      if (cached && !isStale && !immediate) {
+        logger.debug('Using cached estimates data', { cacheKey })
+        setEstimates(cached.data)
+        setTotal(cached.total)
+        setLastFetch(cached.timestamp)
+        setError(null)
+        return
+      }
+
       setLoading(true)
       setError(null)
-      
-      // Check cache first (unless force refresh)
-      if (!forceRefresh) {
-        const cached = getFromCache()
-        if (cached) {
-          console.log('✅ Using cached estimates data')
-          setEstimates(cached.data)
-          setLastRefresh(new Date())
-          setLoading(false)
+
+      try {
+        abortControllerRef.current = new AbortController()
+        
+        logger.info('Fetching estimates', { 
+          filters: currentFilters, 
+          page, 
+          limit,
+          cacheKey 
+        })
+
+        const response = await estimatesService.getEstimates({
+          status: currentFilters.status === 'all' ? undefined : currentFilters.status,
+          serviceType: currentFilters.serviceType === 'all' ? undefined : currentFilters.serviceType,
+          page,
+          limit
+        })
+
+        if (!response.success) {
+          throw new Error(response.error || 'Failed to fetch estimates')
+        }
+
+        const fetchTime = new Date()
+        
+        // Update state
+        setEstimates(response.data?.estimates || [])
+        setTotal(response.data?.total || 0)
+        setLastFetch(fetchTime)
+
+        // Update cache
+        cache.set(cacheKey, {
+          data: response.data?.estimates || [],
+          total: response.data?.total || 0,
+          timestamp: fetchTime,
+          key: cacheKey
+        })
+
+        logger.debug('Estimates fetched successfully', { 
+          count: response.data?.estimates?.length || 0,
+          total: response.data?.total || 0,
+          cacheKey 
+        })
+
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          logger.debug('Estimates fetch aborted', { cacheKey })
           return
         }
-      }
-      
-      console.log('🔄 Fetching estimates from API...')
-      console.log('🔍 Current filters:', { statusFilter, serviceFilter })
-      
-      // Debounce rapid requests
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current)
-      }
-      
-      await new Promise(resolve => {
-        debounceRef.current = setTimeout(resolve, REQUEST_DEBOUNCE)
-      })
-      
-      // Check if this request is still current
-      if (currentRequestId !== requestIdRef.current) {
-        console.log('🔄 Request superseded, cancelling...')
-        return
-      }
-      
-      // Use business service layer instead of direct API calls
-      const result = await estimatesService.getEstimates({
-        status: statusFilter !== 'all' ? statusFilter : undefined,
-        serviceType: serviceFilter !== 'all' ? serviceFilter : undefined
-      })
-      
-      // Double-check request is still current before updating state
-      if (currentRequestId !== requestIdRef.current) {
-        console.log('🔄 Request completed but superseded')
-        return
-      }
 
-      if (result.success) {
-        setEstimates(result.data?.estimates || [])
-        setLastRefresh(new Date())
-        setCache(result.data?.estimates || [])
-        console.log('✅ Successfully loaded', (result.data?.estimates || []).length, 'estimates')
-        console.log('🔍 Status breakdown:', {
-          pending: result.data?.estimates?.filter(e => e.status === 'pending_approval').length || 0,
-          approved: result.data?.estimates?.filter(e => e.status === 'approved').length || 0,
-          rejected: result.data?.estimates?.filter(e => e.status === 'rejected').length || 0,
-          draft: result.data?.estimates?.filter(e => e.status === 'draft').length || 0
+        const errorMessage = err instanceof Error ? err.message : 'Failed to fetch estimates'
+        logger.error('Failed to fetch estimates', err, { 
+          filters: currentFilters, 
+          page, 
+          limit 
         })
-      } else {
-        throw new Error(result.error || 'Failed to fetch estimates')
-      }
-    } catch (err) {
-      // Only update error state if this is still the current request
-      if (currentRequestId === requestIdRef.current) {
-        console.error('❌ Error fetching estimates:', err)
-        const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred'
-        setError(errorMessage)
-        toast.error('Failed to load estimates')
-      }
-    } finally {
-      // Only update loading state if this is still the current request
-      if (currentRequestId === requestIdRef.current) {
-        setLoading(false)
-      }
-    }
-  }, [getFromCache, setCache, statusFilter, serviceFilter])
-  
-  // Computed filtered estimates with memoization
-  const filteredEstimates = useMemo(() => {
-    if (!estimates.length) return []
-    
-    return estimates.filter(estimate => {
-      // Search term filter
-      if (searchTerm) {
-        const searchLower = searchTerm.toLowerCase()
-        const matchesSearch = 
-          estimate.jobs.job_name.toLowerCase().includes(searchLower) ||
-          estimate.jobs.lead?.name?.toLowerCase().includes(searchLower) ||
-          estimate.created_by_user.full_name.toLowerCase().includes(searchLower) ||
-          estimate.estimate_number.toLowerCase().includes(searchLower)
         
-        if (!matchesSearch) return false
+        setError(errorMessage)
+        toast.error(errorMessage)
+      } finally {
+        setLoading(false)
+        abortControllerRef.current = null
       }
-      
-      return true
-    })
-  }, [estimates, searchTerm])
-  
-  // Computed metrics with memoization
-  const { pendingValue, approvedValue, totalValue, pendingCount, approvedCount, totalCount } = useMemo(() => {
-    const pending = estimates.filter(est => est.status === 'pending_approval')
-    const approved = estimates.filter(est => est.status === 'approved')
-    
-    return {
-      pendingValue: pending.reduce((sum, est) => sum + (est.total_amount || est.subtotal || 0), 0),
-      approvedValue: approved.reduce((sum, est) => sum + (est.total_amount || est.subtotal || 0), 0),
-      totalValue: estimates.reduce((sum, est) => sum + (est.total_amount || est.subtotal || 0), 0),
-      pendingCount: pending.length,
-      approvedCount: approved.length,
-      totalCount: estimates.length
     }
-  }, [estimates])
-  
-  /**
-   * Approve an estimate using business service
-   */
-  const approveEstimate = useCallback(async (estimateId: string) => {
-    try {
-      const result = await estimatesService.approveEstimate(estimateId)
-      
-      if (result.success) {
-        toast.success('Estimate approved successfully')
-        // Update local state
-        setEstimates(prev => prev.map(est => 
-          est.id === estimateId ? { ...est, status: 'approved' as const } : est
-        ))
-        // Invalidate cache
-        if (enableCaching) {
-          localStorage.removeItem(getCacheKey())
-        }
-      } else {
-        toast.error(result.error || 'Failed to approve estimate')
-      }
-    } catch (error) {
-      console.error('Error approving estimate:', error)
-      toast.error('Failed to approve estimate')
-    }
-  }, [getCacheKey, enableCaching])
 
-  /**
-   * Reject an estimate using business service
-   */
-  const rejectEstimate = useCallback(async (estimateId: string) => {
-    try {
-      const result = await estimatesService.rejectEstimate(estimateId)
-      
-      if (result.success) {
-        toast.success('Estimate rejected')
-        // Update local state
-        setEstimates(prev => prev.map(est => 
-          est.id === estimateId ? { ...est, status: 'rejected' as const } : est
-        ))
-        // Invalidate cache
-        if (enableCaching) {
-          localStorage.removeItem(getCacheKey())
-        }
-      } else {
-        toast.error(result.error || 'Failed to reject estimate')
-      }
-    } catch (error) {
-      console.error('Error rejecting estimate:', error)
-      toast.error('Failed to reject estimate')
+    if (immediate) {
+      await executeFetch()
+    } else {
+      debounceTimeoutRef.current = setTimeout(executeFetch, REQUEST_DEBOUNCE)
     }
-  }, [getCacheKey, enableCaching])
+  }, [cacheKey, currentFilters, page, limit, isStale])
+
+  // Get current user from auth hook
+  const { profile } = useAuth()
   
-  /**
-   * Updates an estimate with partial data
-   */
-  const updateEstimate = useCallback((id: string, updates: Partial<Estimate>) => {
-    setEstimates(prev => prev.map(estimate => 
-      estimate.id === id ? { ...estimate, ...updates } : estimate
-    ))
-    setSelectedEstimate(prev => prev?.id === id ? { ...prev, ...updates } : prev)
-    
-    // Invalidate cache
-    if (enableCaching) {
-      localStorage.removeItem(getCacheKey())
+  useEffect(() => {
+    if (profile) {
+      setUser({ 
+        role: profile.role || 'user', 
+        full_name: profile.full_name || profile.email || 'User' 
+      })
     }
-  }, [getCacheKey, enableCaching])
-  
-  // Selection actions
+  }, [profile])
+
+  // Filtered estimates based on search and filters
+  const filteredEstimates = useMemo(() => {
+    let filtered = estimates
+
+    // Apply search term
+    if (searchTerm.trim()) {
+      const searchLower = searchTerm.toLowerCase()
+      filtered = filtered.filter(estimate => 
+        estimate.estimate_number?.toLowerCase().includes(searchLower) ||
+        estimate.jobs?.job_name?.toLowerCase().includes(searchLower) ||
+        estimate.jobs?.lead?.name?.toLowerCase().includes(searchLower) ||
+        estimate.created_by_user?.full_name?.toLowerCase().includes(searchLower)
+      )
+    }
+
+    // Apply status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(estimate => estimate.status === statusFilter)
+    }
+
+    // Apply service filter
+    if (serviceFilter !== 'all') {
+      filtered = filtered.filter(estimate => estimate.jobs?.service_type === serviceFilter)
+    }
+
+    return filtered
+  }, [estimates, searchTerm, statusFilter, serviceFilter])
+
+  // Computed metrics
+  const pendingValue = useMemo(() => {
+    return estimates
+      .filter(e => e.status === 'pending_approval')
+      .reduce((sum, e) => sum + (e.total_amount || e.subtotal || 0), 0)
+  }, [estimates])
+
+  const approvedValue = useMemo(() => {
+    return estimates
+      .filter(e => e.status === 'approved')
+      .reduce((sum, e) => sum + (e.total_amount || e.subtotal || 0), 0)
+  }, [estimates])
+
+  const totalValue = useMemo(() => {
+    return estimates
+      .reduce((sum, e) => sum + (e.total_amount || e.subtotal || 0), 0)
+  }, [estimates])
+
+  const pendingCount = useMemo(() => {
+    return estimates.filter(e => e.status === 'pending_approval').length
+  }, [estimates])
+
+  const approvedCount = useMemo(() => {
+    return estimates.filter(e => e.status === 'approved').length
+  }, [estimates])
+
+  const totalCount = useMemo(() => {
+    return estimates.length
+  }, [estimates])
+
+  // UI Action handlers
+  const setStatusFilter = useCallback((status: EstimateStatus) => {
+    setStatusFilterState(status)
+    setCurrentFilters(prev => ({ ...prev, status }))
+  }, [])
+
+  const setServiceFilter = useCallback((service: ServiceType) => {
+    setServiceFilterState(service)
+    setCurrentFilters(prev => ({ ...prev, serviceType: service }))
+  }, [])
+
   const selectEstimate = useCallback((estimate: Estimate | null) => {
     setSelectedEstimate(estimate)
   }, [])
-  
-  // Auto-fetch on mount
-  useEffect(() => {
-    if (autoFetch) {
-      loadUser()
-      fetchEstimates()
-    }
-  }, [autoFetch, loadUser, fetchEstimates])
 
-  // Re-fetch when filters change
-  useEffect(() => {
-    console.log('🔍 useEstimates: Filter changed, re-fetching...', { statusFilter, serviceFilter })
-    if (autoFetch) {
-      fetchEstimates(true) // Force refresh when filters change
-    }
-  }, [statusFilter, serviceFilter, autoFetch, fetchEstimates])
+  // Refetch functions
+  const refetch = useCallback(async (immediate?: boolean) => {
+    await debouncedFetch(immediate || true)
+  }, [debouncedFetch])
 
-  // Set up refetch interval with proper cleanup
-  useEffect(() => {
-    if (refetchInterval && refetchInterval > 0) {
-      const interval = setInterval(() => fetchEstimates(), refetchInterval)
-      return () => clearInterval(interval)
+  const refetchIfStale = useCallback(async () => {
+    if (isStale) {
+      await refetch()
     }
-  }, [fetchEstimates, refetchInterval])
-  
-  // Listen for estimate updates from other parts of the app
-  useEffect(() => {
-    const handleEstimateUpdate = (event: CustomEvent) => {
-      console.log('🔄 Estimate updated from jobs page, refreshing estimate approvals...', event.detail)
-      fetchEstimates(true)
+  }, [isStale, refetch])
+
+  // Estimate actions
+  const approveEstimate = useCallback(async (estimateId: string): Promise<boolean> => {
+    try {
+      logger.info('Approving estimate', { estimateId })
+      
+      const response = await estimatesService.approveEstimate(estimateId)
+      
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to approve estimate')
+      }
+
+      toast.success('Estimate approved successfully')
+      
+      // Clear cache and refetch
+      cache.delete(cacheKey)
+      await refetch()
+      
+      logger.info('Estimate approved successfully', { estimateId })
+      return true
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to approve estimate'
+      logger.error('Failed to approve estimate', err, { estimateId })
+      toast.error(errorMessage)
+      return false
     }
+  }, [cacheKey, refetch])
+
+  const rejectEstimate = useCallback(async (estimateId: string): Promise<boolean> => {
+    try {
+      logger.info('Rejecting estimate', { estimateId })
+      
+      const response = await estimatesService.rejectEstimate(estimateId)
+      
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to reject estimate')
+      }
+
+      toast.success('Estimate rejected successfully')
+      
+      // Clear cache and refetch
+      cache.delete(cacheKey)
+      await refetch()
+      
+      logger.info('Estimate rejected successfully', { estimateId })
+      return true
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to reject estimate'
+      logger.error('Failed to reject estimate', err, { estimateId })
+      toast.error(errorMessage)
+      return false
+    }
+  }, [cacheKey, refetch])
+
+  // Navigation
+  const goToPage = useCallback(async (newPage: number) => {
+    if (newPage === page || newPage < 1) return
     
-    window.addEventListener('estimateUpdated', handleEstimateUpdate as EventListener)
+    logger.debug('Navigating to page', { from: page, to: newPage })
+    setPage(newPage)
+  }, [page])
+
+  // Filter management
+  const setFilters = useCallback((filters: { status?: EstimateStatus; serviceType?: ServiceType }) => {
+    logger.debug('Setting filters', { 
+      old: currentFilters, 
+      new: filters 
+    })
     
-    return () => {
-      window.removeEventListener('estimateUpdated', handleEstimateUpdate as EventListener)
+    setCurrentFilters(prev => ({
+      status: filters.status ?? prev.status,
+      serviceType: filters.serviceType ?? prev.serviceType
+    }))
+    
+    // Reset to first page when filters change
+    setPage(1)
+  }, [currentFilters])
+
+  // Cache management
+  const clearCache = useCallback(() => {
+    logger.debug('Clearing estimates cache')
+    cache.clear()
+    setLastFetch(null)
+  }, [])
+
+  // Auto-refresh setup
+  useEffect(() => {
+    if (actualAutoRefresh && actualRefreshInterval > 0) {
+      refreshIntervalRef.current = setInterval(() => {
+        logger.debug('Auto-refreshing estimates')
+        refetchIfStale()
+      }, actualRefreshInterval)
+
+      return () => {
+        if (refreshIntervalRef.current) {
+          clearInterval(refreshIntervalRef.current)
+        }
+      }
     }
-  }, [fetchEstimates])
-  
+  }, [actualAutoRefresh, actualRefreshInterval, refetchIfStale])
+
+  // Fetch on mount and when key dependencies change
+  useEffect(() => {
+    debouncedFetch()
+  }, [currentFilters.status, currentFilters.serviceType, page, limit])
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current)
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current)
+      }
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current)
       }
     }
   }, [])
@@ -446,11 +479,14 @@ export function useEstimates(options: UseEstimatesOptions = {}): UseEstimatesRet
     filteredEstimates,
     selectedEstimate,
     user,
-    
-    // State
     loading,
     error,
-    lastRefresh,
+    total,
+    page,
+    limit,
+    hasNextPage,
+    hasPreviousPage,
+    lastRefresh: lastFetch,
     
     // UI State
     searchTerm,
@@ -466,11 +502,19 @@ export function useEstimates(options: UseEstimatesOptions = {}): UseEstimatesRet
     approvedCount,
     totalCount,
     
+    // Cache info
+    lastFetch,
+    isStale,
+    
     // Actions
-    refetch: fetchEstimates,
+    refetch,
+    refetchIfStale,
     approveEstimate,
     rejectEstimate,
-    updateEstimate,
+    updateEstimate: undefined, // Not implemented in current hook
+    goToPage,
+    setFilters,
+    clearCache,
     
     // UI Actions
     setSearchTerm,
@@ -480,3 +524,5 @@ export function useEstimates(options: UseEstimatesOptions = {}): UseEstimatesRet
     selectEstimate
   }
 }
+
+export default useEstimates

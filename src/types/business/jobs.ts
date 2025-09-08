@@ -1,7 +1,8 @@
 import { Tables } from '@/lib/types/database'
 
 export type Job = Tables<'jobs'>
-export type JobStatus = Job['job_status']
+export type JobStatus = 'new' | 'contacted' | 'measurement_scheduled' | 'measured' | 'quoted' | 'proposal_sent' | 'closed_won' | 'closed_lost'
+export type WorkflowStatus = 'send_to_customer' | 'awaiting_approval' | null
 export type ServiceType = Job['service_type']
 export type BuildingType = Job['building_type']
 export type MeasurementType = Job['measurement_type']
@@ -45,4 +46,27 @@ export interface JobFilters {
     start: string
     end: string
   }
+}
+
+export interface ParsedScopeOfWork {
+  project_type?: string | null
+  system_type?: string | null
+  install_type?: string | null
+  tonnage_estimate?: number | null
+  plaster_job_type?: string | null
+  number_of_rooms?: number | null
+  approximate_sqft?: number | null
+  job_complexity?: 'standard' | 'complex' | 'simple'
+  description?: string
+}
+
+export interface EnhancedJob extends Job {
+  project_type?: string | null
+  system_type?: string | null
+  install_type?: string | null
+  tonnage_estimate?: number | null
+  plaster_job_type?: string | null
+  number_of_rooms?: number | null
+  approximate_sqft?: number | null
+  job_complexity?: 'standard' | 'complex' | 'simple'
 }

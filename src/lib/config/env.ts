@@ -3,20 +3,24 @@
  */
 
 import { z } from 'zod'
+import { logger } from '@/lib/services/logger'
 
 const envSchema = z.object({
+  // Node Environment
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  
   // Supabase
   NEXT_PUBLIC_SUPABASE_URL: z.string().url('Invalid Supabase URL'),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1, 'Supabase anon key is required'),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1, 'Supabase service role key is required').optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1, 'Supabase service role key is required'),
 
   // Twilio
-  TWILIO_ACCOUNT_SID: z.string().startsWith('AC').optional(),
-  TWILIO_AUTH_TOKEN: z.string().min(1, 'Twilio Auth Token is required').optional(),
-  TWILIO_PHONE_NUMBER: z.string().min(1, 'Twilio Phone Number is required').optional(),
+  TWILIO_ACCOUNT_SID: z.string().startsWith('AC', 'Twilio Account SID must start with AC'),
+  TWILIO_AUTH_TOKEN: z.string().min(1, 'Twilio Auth Token is required'),
+  TWILIO_PHONE_NUMBER: z.string().regex(/^\+[1-9]\d{1,14}$/, 'Invalid Twilio phone number format'),
 
   // Email
-  RESEND_API_KEY: z.string().min(1, 'Resend API key is required').optional(),
+  RESEND_API_KEY: z.string().min(1, 'Resend API key is required'),
   FROM_EMAIL: z.string().email('Invalid from email address').optional(),
 
   // App configuration
@@ -36,12 +40,37 @@ const envSchema = z.object({
 
 function validateEnv() {
   try {
-    return envSchema.parse(process.env)
+    const parsed = envSchema.parse(process.env)
+    logger.info('Environment configuration validated successfully', {
+      nodeEnv: parsed.NODE_ENV,
+      appEnv: parsed.APP_ENV,
+      features: {
+        analytics: parsed.ENABLE_ANALYTICS,
+        notifications: parsed.ENABLE_NOTIFICATIONS,
+        auditLog: parsed.ENABLE_AUDIT_LOG,
+      },
+      services: {
+        twilio: !!(parsed.TWILIO_ACCOUNT_SID && parsed.TWILIO_AUTH_TOKEN),
+        email: !!parsed.RESEND_API_KEY,
+      }
+    })
+    return parsed
   } catch (error) {
     if (error instanceof z.ZodError) {
       const missingVars = error.errors.map(e => `${e.path.join('.')}: ${e.message}`)
-      throw new Error(`Invalid environment variables:\n${missingVars.join('\n')}`)
+      const errorMessage = `Invalid environment variables:\n${missingVars.join('\n')}`
+      
+      logger.error('Environment validation failed', error, { errors: missingVars })
+      
+      // In production, fail fast
+      if (process.env.NODE_ENV === 'production') {
+        console.error(errorMessage)
+        process.exit(1)
+      }
+      
+      throw new Error(errorMessage)
     }
+    logger.error('Unexpected error during environment validation', error)
     throw error
   }
 }
@@ -65,3 +94,47 @@ export const services = {
   twilio: !!(env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN),
   email: !!env.RESEND_API_KEY,
 } as const
+
+/**
+ * Additional helper functions for better environment management
+ */
+export function requireEnvVar(key: string): string {
+  const value = process.env[key]
+  if (!value) {
+    throw new Error(`Required environment variable ${key} is not set`)
+  }
+  return value
+}
+
+export function getOptionalEnvVar(key: string, defaultValue?: string): string | undefined {
+  return process.env[key] || defaultValue
+}
+
+/**
+ * Validate environment on server startup
+ */
+export function validateEnvironmentOnStartup(): void {
+  if (typeof window === 'undefined' && env.APP_ENV === 'production') {
+    // Additional production-only validations
+    const requiredForProduction = [
+      'NEXT_PUBLIC_SUPABASE_URL',
+      'NEXT_PUBLIC_SUPABASE_ANON_KEY', 
+      'SUPABASE_SERVICE_ROLE_KEY',
+      'TWILIO_ACCOUNT_SID',
+      'TWILIO_AUTH_TOKEN',
+      'TWILIO_PHONE_NUMBER',
+      'RESEND_API_KEY'
+    ]
+    
+    const missing = requiredForProduction.filter(key => !process.env[key])
+    
+    if (missing.length > 0) {
+      const errorMessage = `Missing required environment variables for production: ${missing.join(', ')}`
+      logger.error(errorMessage)
+      console.error(errorMessage)
+      process.exit(1)
+    }
+    
+    logger.info('Production environment validation completed successfully')
+  }
+}

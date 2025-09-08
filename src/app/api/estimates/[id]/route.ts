@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { logger } from '@/lib/services/logger'
 
 export async function GET(
   request: NextRequest,
@@ -46,7 +47,7 @@ export async function GET(
     })
 
   } catch (error) {
-    console.error('Error in GET estimate API:', error)
+    logger.error('Error in GET estimate API', error, { estimateId: id })
     return NextResponse.json(
       { success: false, error: 'Internal server error' },
       { status: 500 }
@@ -83,7 +84,7 @@ export async function PATCH(
       .single()
 
     if (updateError) {
-      console.error('Error updating estimate:', updateError)
+      logger.error('Error updating estimate', updateError, { estimateId: id, status: body.status })
       return NextResponse.json(
         { success: false, error: 'Failed to update estimate' },
         { status: 500 }
@@ -96,7 +97,7 @@ export async function PATCH(
     })
 
   } catch (error) {
-    console.error('Error in PATCH estimate API:', error)
+    logger.error('Error in PATCH estimate API', error, { estimateId: id })
     return NextResponse.json(
       { success: false, error: 'Internal server error' },
       { status: 500 }

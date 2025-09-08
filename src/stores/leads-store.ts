@@ -1,366 +1,424 @@
-'use client'
-
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
-import { createClient } from '@/lib/supabase/client'
-import type { LeadWithAssignee, LeadFilters, LeadStatus } from '@/types'
 
-export type ViewMode = 'communication' | 'pipeline' | 'map' | 'enhanced'
-export type QuickFilter = 'all' | 'new' | 'active' | 'recent'
+// Types matching your current working system
+interface Lead {
+  id: string
+  name: string
+  email: string
+  phone: string
+  company: string
+  lead_source: string
+  followup_priority: 'hot' | 'warm' | 'cold'
+  status: 'new' | 'contacted' | 'qualified' | 'proposal_sent' | 'closed_won' | 'closed_lost'
+  assigned_to: string
+  lead_score: number
+}
 
-interface LeadsState {
-  // Core Data
-  leads: LeadWithAssignee[]
-  selectedLead: LeadWithAssignee | null
-  selectedLeads: string[]
-  
-  // UI State
+interface User {
+  id: string
+  full_name: string
+  email: string
+  role: string
+}
+
+interface LeadsStore {
+  // State
+  leads: Lead[]
+  users: User[]
   loading: boolean
   error: string | null
-  lastRefresh: Date | null
-  
-  // View State
-  viewMode: ViewMode
+  initialized: boolean
   searchTerm: string
-  quickFilter: QuickFilter
-  serviceFilter: 'all' | 'insulation' | 'hvac' | 'plaster'
-  statusFilter: 'all' | LeadStatus
+  priorityFilter: string
+  sourceFilter: string
+  assignedFilter: string
+  selectedLeads: string[]
   
-  // Modal/Dialog State
+  // Form State
   showAddDialog: boolean
-  showImportDialog: boolean
-  smsModalOpen: boolean
-  historyModalOpen: boolean
-  selectedLeadForComms: LeadWithAssignee | null
-}
-
-interface LeadsActions {
-  // Data Actions
-  setLeads: (leads: LeadWithAssignee[]) => void
-  addLead: (lead: LeadWithAssignee) => void
-  updateLead: (id: string, updates: Partial<LeadWithAssignee>) => void
-  removeLead: (id: string) => void
+  editingLead: Lead | null
   
-  // Selection Actions
-  selectLead: (lead: LeadWithAssignee | null) => void
-  toggleLeadSelection: (id: string) => void
-  clearSelection: () => void
+  // Computed (as regular property that updates when filters change)
+  filteredLeads: Lead[]
   
-  // Filter Actions
-  setSearchTerm: (term: string) => void
-  setQuickFilter: (filter: QuickFilter) => void
-  setServiceFilter: (filter: 'all' | 'insulation' | 'hvac' | 'plaster') => void
-  setStatusFilter: (filter: 'all' | LeadStatus) => void
-  clearFilters: () => void
-  
-  // View Actions
-  setViewMode: (mode: ViewMode) => void
-  
-  // Modal Actions
-  openAddDialog: () => void
-  closeAddDialog: () => void
-  openImportDialog: () => void
-  closeImportDialog: () => void
-  openSmsModal: (lead: LeadWithAssignee) => void
-  closeSmsModal: () => void
-  openHistoryModal: (lead: LeadWithAssignee) => void
-  closeHistoryModal: () => void
-  
-  // Async Actions
-  fetchLeads: (forceRefresh?: boolean) => Promise<void>
-  createLead: (leadData: any) => Promise<LeadWithAssignee>
-  updateLeadStatus: (id: string, status: LeadStatus) => Promise<void>
-  importLeads: (leadsData: any[]) => Promise<LeadWithAssignee[]>
-  
-  // Utility Actions
+  // Actions
+  setLeads: (leads: Lead[]) => void
+  setUsers: (users: User[]) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
+  setSearchTerm: (term: string) => void
+  setPriorityFilter: (filter: string) => void
+  setSourceFilter: (filter: string) => void
+  setAssignedFilter: (filter: string) => void
+  setSelectedLeads: (ids: string[]) => void
+  fetchLeads: () => Promise<void>
+  fetchUsers: () => Promise<void>
+  updateFilteredLeads: () => void
+  updateLeadStatus: (id: string, status: Lead['status']) => Promise<void>
+  updateLeadPriority: (id: string, priority: Lead['followup_priority']) => Promise<void>
+  updateLeadAssignment: (id: string, assignedTo: string) => Promise<void>
+  init: () => Promise<void>
+  
+  // Form Actions
+  openAddDialog: () => void
+  openEditDialog: (lead: Lead) => void
+  closeDialog: () => void
+  createLead: (leadData: Omit<Lead, 'id'>) => Promise<void>
+  updateLead: (id: string, leadData: Partial<Lead>) => Promise<void>
 }
 
-interface LeadsSelectors {
-  filteredLeads: LeadWithAssignee[]
-  totalLeads: number
-  leadsByStatus: Record<string, LeadWithAssignee[]>
+const filterLeads = (leads: Lead[], searchTerm: string, priorityFilter: string, sourceFilter: string, assignedFilter: string): Lead[] => {
+  return leads.filter(lead => {
+    const matchesSearch = !searchTerm || 
+      lead.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      lead.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      lead.phone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      lead.company?.toLowerCase().includes(searchTerm.toLowerCase())
+    
+    const matchesPriority = priorityFilter === 'all' || lead.followup_priority === priorityFilter
+    const matchesSource = sourceFilter === 'all' || lead.lead_source === sourceFilter
+    const matchesAssigned = assignedFilter === 'all' || lead.assigned_to === assignedFilter
+    
+    return matchesSearch && matchesPriority && matchesSource && matchesAssigned
+  })
 }
-
-export type LeadsStore = LeadsState & LeadsActions & LeadsSelectors
 
 export const useLeadsStore = create<LeadsStore>()(
-  devtools(
-    (set, get) => ({
-      // Initial State
-      leads: [],
-      selectedLead: null,
-      selectedLeads: [],
-      loading: true,
-      error: null,
-      lastRefresh: null,
-      viewMode: 'communication',
-      searchTerm: '',
-      quickFilter: 'all',
-      serviceFilter: 'all',
-      statusFilter: 'all',
-      showAddDialog: false,
-      showImportDialog: false,
-      smsModalOpen: false,
-      historyModalOpen: false,
-      selectedLeadForComms: null,
-
-      // Computed Selectors
-      get filteredLeads() {
-        const state = get()
-        let filtered = state.leads
-
-        // Apply search filter
-        if (state.searchTerm) {
-          const term = state.searchTerm.toLowerCase()
-          filtered = filtered.filter(lead =>
-            lead.name.toLowerCase().includes(term) ||
-            lead.email?.toLowerCase().includes(term) ||
-            lead.phone?.toLowerCase().includes(term) ||
-            lead.company?.toLowerCase().includes(term)
-          )
-        }
-
-        // Apply quick filter
-        if (state.quickFilter !== 'all') {
-          const now = new Date()
-          const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-          
-          switch (state.quickFilter) {
-            case 'new':
-              filtered = filtered.filter(lead => lead.status === 'new')
-              break
-            case 'active':
-              filtered = filtered.filter(lead => 
-                ['contacted', 'measurement_scheduled', 'measured', 'quoted', 'proposal_sent'].includes(lead.status)
-              )
-              break
-            case 'recent':
-              filtered = filtered.filter(lead => new Date(lead.created_at) > oneWeekAgo)
-              break
-          }
-        }
-
-        // Apply status filter
-        if (state.statusFilter !== 'all') {
-          filtered = filtered.filter(lead => lead.status === state.statusFilter)
-        }
-
-        return filtered
-      },
-
-      get totalLeads() {
-        return get().leads.length
-      },
-
-      get leadsByStatus() {
-        const leads = get().leads
-        return leads.reduce((acc, lead) => {
-          acc[lead.status] = acc[lead.status] || []
-          acc[lead.status].push(lead)
-          return acc
-        }, {} as Record<string, LeadWithAssignee[]>)
-      },
-
-      // Data Actions
-      setLeads: (leads) => 
-        set({ leads, lastRefresh: new Date() }, false, 'setLeads'),
-
-      addLead: (lead) => 
-        set(
-          (state) => ({ leads: [lead, ...state.leads] }),
-          false,
-          'addLead'
-        ),
-
-      updateLead: (id, updates) => 
-        set(
-          (state) => ({
-            leads: state.leads.map(lead => 
-              lead.id === id ? { ...lead, ...updates } : lead
-            ),
-            selectedLead: state.selectedLead?.id === id 
-              ? { ...state.selectedLead, ...updates } 
-              : state.selectedLead
-          }),
-          false,
-          'updateLead'
-        ),
-
-      removeLead: (id) => 
-        set(
-          (state) => ({
-            leads: state.leads.filter(lead => lead.id !== id),
-            selectedLeads: state.selectedLeads.filter(selectedId => selectedId !== id),
-            selectedLead: state.selectedLead?.id === id ? null : state.selectedLead
-          }),
-          false,
-          'removeLead'
-        ),
-
-      // Selection Actions
-      selectLead: (lead) => 
-        set({ selectedLead: lead }, false, 'selectLead'),
-
-      toggleLeadSelection: (id) => 
-        set(
-          (state) => ({
-            selectedLeads: state.selectedLeads.includes(id)
-              ? state.selectedLeads.filter(selectedId => selectedId !== id)
-              : [...state.selectedLeads, id]
-          }),
-          false,
-          'toggleLeadSelection'
-        ),
-
-      clearSelection: () => 
-        set({ selectedLeads: [], selectedLead: null }, false, 'clearSelection'),
-
-      // Filter Actions
-      setSearchTerm: (searchTerm) => 
-        set({ searchTerm }, false, 'setSearchTerm'),
-
-      setQuickFilter: (quickFilter) => 
-        set({ quickFilter }, false, 'setQuickFilter'),
-
-      setServiceFilter: (serviceFilter) => 
-        set({ serviceFilter }, false, 'setServiceFilter'),
-
-      setStatusFilter: (statusFilter) => 
-        set({ statusFilter }, false, 'setStatusFilter'),
-
-      clearFilters: () => 
-        set({
+  typeof window !== 'undefined'
+    ? devtools<LeadsStore>(
+        (set, get) => ({
+          // Initial state
+          leads: [],
+          users: [],
+          loading: true,
+          error: null,
+          initialized: false,
           searchTerm: '',
-          quickFilter: 'all',
-          serviceFilter: 'all',
-          statusFilter: 'all'
-        }, false, 'clearFilters'),
-
-      // View Actions
-      setViewMode: (viewMode) => 
-        set({ viewMode }, false, 'setViewMode'),
-
-      // Modal Actions
-      openAddDialog: () => 
-        set({ showAddDialog: true }, false, 'openAddDialog'),
-
-      closeAddDialog: () => 
-        set({ showAddDialog: false, selectedLead: null }, false, 'closeAddDialog'),
-
-      openImportDialog: () => 
-        set({ showImportDialog: true }, false, 'openImportDialog'),
-
-      closeImportDialog: () => 
-        set({ showImportDialog: false }, false, 'closeImportDialog'),
-
-      openSmsModal: (lead) => 
-        set({ smsModalOpen: true, selectedLeadForComms: lead }, false, 'openSmsModal'),
-
-      closeSmsModal: () => 
-        set({ smsModalOpen: false, selectedLeadForComms: null }, false, 'closeSmsModal'),
-
-      openHistoryModal: (lead) => 
-        set({ historyModalOpen: true, selectedLeadForComms: lead }, false, 'openHistoryModal'),
-
-      closeHistoryModal: () => 
-        set({ historyModalOpen: false, selectedLeadForComms: null }, false, 'closeHistoryModal'),
-
-      // Utility Actions
-      setLoading: (loading) => 
-        set({ loading }, false, 'setLoading'),
-
-      setError: (error) => 
-        set({ error }, false, 'setError'),
-
-      // Async Actions
-      fetchLeads: async (forceRefresh = false) => {
-        try {
-          set({ loading: true, error: null }, false, 'fetchLeads:start')
+          priorityFilter: 'all',
+          sourceFilter: 'all',
+          assignedFilter: 'all',
+          selectedLeads: [],
+          filteredLeads: [],
           
-          console.log('🔄 Fetching leads via Zustand store...')
+          // Form state
+          showAddDialog: false,
+          editingLead: null,
+
+          // Actions
+          setLeads: (leads) => {
+            const state = get()
+            const filteredLeads = filterLeads(leads, state.searchTerm, state.priorityFilter, state.sourceFilter, state.assignedFilter)
+            set({ leads, filteredLeads })
+          },
           
-          // Use client-side Supabase directly
-          const supabase = createClient()
-          const { data: leads, error } = await supabase
-            .from('leads')
-            .select(`
-              *,
-              assigned_user:users!assigned_to(id, full_name, email)
-            `)
-            .order('created_at', { ascending: false })
-            .limit(100)
+          setUsers: (users) => set({ users }),
+          setLoading: (loading) => set({ loading }),
+          setError: (error) => set({ error }),
           
-          if (error) {
-            throw new Error(error.message)
+          setSearchTerm: (searchTerm) => {
+            const state = get()
+            const filteredLeads = filterLeads(state.leads, searchTerm, state.priorityFilter, state.sourceFilter, state.assignedFilter)
+            set({ searchTerm, filteredLeads })
+          },
+          
+          setPriorityFilter: (priorityFilter) => {
+            const state = get()
+            const filteredLeads = filterLeads(state.leads, state.searchTerm, priorityFilter, state.sourceFilter, state.assignedFilter)
+            set({ priorityFilter, filteredLeads })
+          },
+          
+          setSourceFilter: (sourceFilter) => {
+            const state = get()
+            const filteredLeads = filterLeads(state.leads, state.searchTerm, state.priorityFilter, sourceFilter, state.assignedFilter)
+            set({ sourceFilter, filteredLeads })
+          },
+          
+          setAssignedFilter: (assignedFilter) => {
+            const state = get()
+            const filteredLeads = filterLeads(state.leads, state.searchTerm, state.priorityFilter, state.sourceFilter, assignedFilter)
+            set({ assignedFilter, filteredLeads })
+          },
+          
+          setSelectedLeads: (selectedLeads) => set({ selectedLeads }),
+
+          updateFilteredLeads: () => {
+            const state = get()
+            const filteredLeads = filterLeads(state.leads, state.searchTerm, state.priorityFilter, state.sourceFilter, state.assignedFilter)
+            set({ filteredLeads })
+          },
+
+          // Idempotent initializer to ensure data is loaded once
+          init: async () => {
+            const state = get()
+            if (state.initialized) return
+            await get().fetchLeads()
+            set({ initialized: true })
+          },
+
+          // Form Actions
+          openAddDialog: () => set({ showAddDialog: true, editingLead: null }),
+          
+          openEditDialog: (lead: Lead) => set({ showAddDialog: true, editingLead: lead }),
+          
+          closeDialog: () => set({ showAddDialog: false, editingLead: null }),
+
+          // Create Lead
+          createLead: async (leadData: Omit<Lead, 'id'>) => {
+            set({ loading: true, error: null })
+            
+            try {
+              const response = await fetch('/api/leads', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(leadData)
+              })
+              
+              const data = await response.json()
+              
+              if (!response.ok) {
+                throw new Error(data.error || 'Failed to create lead')
+              }
+              
+              // Add new lead to the list and update filters
+              const state = get()
+              const newLeads = [data.lead, ...state.leads]
+              const filteredLeads = filterLeads(newLeads, state.searchTerm, state.priorityFilter, state.sourceFilter, state.assignedFilter)
+              
+              set({ 
+                leads: newLeads,
+                filteredLeads,
+                loading: false,
+                showAddDialog: false,
+                editingLead: null
+              })
+              
+            } catch (error) {
+              console.error('❌ Error creating lead:', error)
+              set({ 
+                error: error instanceof Error ? error.message : 'Unknown error',
+                loading: false 
+              })
+              throw error
+            }
+          },
+
+          // Update Lead
+          updateLead: async (id: string, leadData: Partial<Lead>) => {
+            set({ loading: true, error: null })
+            
+            try {
+              const response = await fetch(`/api/leads/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(leadData)
+              })
+              
+              const data = await response.json()
+              
+              if (!response.ok) {
+                throw new Error(data.error || 'Failed to update lead')
+              }
+              
+              // Update lead in the list and refresh filters
+              const state = get()
+              const updatedLeads = state.leads.map(lead => 
+                lead.id === id ? { ...lead, ...data.lead } : lead
+              )
+              const filteredLeads = filterLeads(updatedLeads, state.searchTerm, state.priorityFilter, state.sourceFilter, state.assignedFilter)
+              
+              set({ 
+                leads: updatedLeads,
+                filteredLeads,
+                loading: false,
+                showAddDialog: false,
+                editingLead: null
+              })
+              
+            } catch (error) {
+              console.error('❌ Error updating lead:', error)
+              set({ 
+                error: error instanceof Error ? error.message : 'Unknown error',
+                loading: false 
+              })
+              throw error
+            }
+          },
+
+          // Fetch leads (same API call as your working version)
+          fetchLeads: async () => {
+            set({ loading: true, error: null })
+            
+            try {
+              console.log('🔄 Fetching leads via Zustand...')
+              const response = await fetch('/api/leads')
+              const data = await response.json()
+              
+              if (!response.ok) {
+                throw new Error(data.error || 'Failed to fetch leads')
+              }
+              
+              console.log('✅ Fetched leads:', data.data?.length || 0)
+              const leads = data.data || []
+              const state = get()
+              const filteredLeads = filterLeads(leads, state.searchTerm, state.priorityFilter, state.sourceFilter, state.assignedFilter)
+              
+              set({ 
+                leads, 
+                filteredLeads,
+                loading: false,
+                initialized: true
+              })
+            } catch (error) {
+              console.error('❌ Error fetching leads:', error)
+              set({ 
+                error: error instanceof Error ? error.message : 'Unknown error',
+                loading: false,
+                leads: [],
+                filteredLeads: []
+              })
+            }
+          },
+
+          // Fetch users (all users for assignment)
+          fetchUsers: async () => {
+            try {
+              const response = await fetch('/api/users')
+              const data = await response.json()
+              
+              if (!response.ok) {
+                console.warn('Failed to fetch users:', data.error || 'Unknown error')
+                set({ users: [] })
+                return
+              }
+              
+              set({ users: data.users || [] })
+            } catch (error) {
+              console.warn('❌ Error fetching users:', error)
+              set({ users: [] })
+            }
+          },
+
+          // Update lead status
+          updateLeadStatus: async (id: string, status: Lead['status']) => {
+            try {
+              const response = await fetch(`/api/leads/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status })
+              })
+              
+              if (!response.ok) {
+                throw new Error('Failed to update lead status')
+              }
+              
+              // Update local state
+              const state = get()
+              const updatedLeads = state.leads.map(lead => 
+                lead.id === id ? { ...lead, status } : lead
+              )
+              const filteredLeads = filterLeads(updatedLeads, state.searchTerm, state.priorityFilter, state.sourceFilter, state.assignedFilter)
+              set({ leads: updatedLeads, filteredLeads })
+              
+            } catch (error) {
+              console.error('❌ Error updating lead status:', error)
+              set({ error: error instanceof Error ? error.message : 'Unknown error' })
+            }
+          },
+
+          // Update lead priority
+          updateLeadPriority: async (id: string, priority: Lead['followup_priority']) => {
+            try {
+              const response = await fetch(`/api/leads/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ followup_priority: priority })
+              })
+              
+              if (!response.ok) {
+                throw new Error('Failed to update lead priority')
+              }
+              
+              // Update local state
+              const state = get()
+              const updatedLeads = state.leads.map(lead => 
+                lead.id === id ? { ...lead, followup_priority: priority } : lead
+              )
+              const filteredLeads = filterLeads(updatedLeads, state.searchTerm, state.priorityFilter, state.sourceFilter, state.assignedFilter)
+              set({ leads: updatedLeads, filteredLeads })
+              
+            } catch (error) {
+              console.error('❌ Error updating lead priority:', error)
+              set({ error: error instanceof Error ? error.message : 'Unknown error' })
+            }
+          },
+
+          // Update lead assignment
+          updateLeadAssignment: async (id: string, assignedTo: string) => {
+            try {
+              const response = await fetch(`/api/leads/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ assigned_to: assignedTo })
+              })
+              
+              if (!response.ok) {
+                throw new Error('Failed to update lead assignment')
+              }
+              
+              // Update local state
+              const state = get()
+              const updatedLeads = state.leads.map(lead => 
+                lead.id === id ? { ...lead, assigned_to: assignedTo } : lead
+              )
+              const filteredLeads = filterLeads(updatedLeads, state.searchTerm, state.priorityFilter, state.sourceFilter, state.assignedFilter)
+              set({ leads: updatedLeads, filteredLeads })
+              
+            } catch (error) {
+              console.error('❌ Error updating lead assignment:', error)
+              set({ error: error instanceof Error ? error.message : 'Unknown error' })
+            }
           }
-          
-          set({
-            leads: leads || [],
-            loading: false,
-            lastRefresh: new Date()
-          }, false, 'fetchLeads:success')
-          
-          console.log('✅ Fetched', leads?.length || 0, 'leads via Zustand')
-          
-        } catch (error) {
-          console.error('❌ Error fetching leads via Zustand:', error)
-          const errorMessage = error instanceof Error ? error.message : 'Failed to fetch leads'
-          
-          set({
-            error: errorMessage,
-            loading: false,
-            leads: []
-          }, false, 'fetchLeads:error')
+        }) as LeadsStore,
+        {
+          name: 'leads-store',
+          enabled: process.env.NODE_ENV === 'development'
         }
-      },
-
-      createLead: async (leadData) => {
-        try {
-          set({ error: null }, false, 'createLead:start')
-          
-          const supabase = createClient()
-          const { data: newLead, error } = await supabase
-            .from('leads')
-            .insert({
-              ...leadData,
-              status: leadData.status || 'new'
-            })
-            .select()
-            .single()
-          
-          if (error) {
-            throw new Error(error.message)
-          }
-          
-          set((state) => ({
-            ...state,
-            leads: [newLead, ...state.leads]
-          }), false, 'createLead:success')
-          
-          return newLead
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Failed to create lead'
-          set({ error: errorMessage }, false, 'createLead:error')
-          throw error
-        }
-      },
-
-      updateLeadStatus: async (id, status) => {
-        // Temporarily disabled for build fix
-        set({ error: 'Service temporarily disabled for build fix' }, false, 'updateLeadStatus:disabled')
-        throw new Error('Service temporarily disabled')
-      },
-
-      importLeads: async (leadsData) => {
-        // Temporarily disabled for build fix
-        set({ error: 'Service temporarily disabled for build fix' }, false, 'importLeads:disabled')
-        throw new Error('Service temporarily disabled')
-      },
-    }),
-    {
-      name: 'leads-store',
-    }
-  )
+      )
+    : // Server-side fallback
+      ((set, get) => ({
+        leads: [],
+        users: [],
+        loading: true,
+        error: null,
+        initialized: false,
+        searchTerm: '',
+        priorityFilter: 'all',
+        sourceFilter: 'all',
+        assignedFilter: 'all',
+        selectedLeads: [],
+        filteredLeads: [],
+        showAddDialog: false,
+        editingLead: null,
+        setLeads: () => {},
+        setUsers: () => {},
+        setLoading: () => {},
+        setError: () => {},
+        setSearchTerm: () => {},
+        setPriorityFilter: () => {},
+        setSourceFilter: () => {},
+        setAssignedFilter: () => {},
+        setSelectedLeads: () => {},
+        updateFilteredLeads: () => {},
+        fetchLeads: async () => {},
+        fetchUsers: async () => {},
+        updateLeadStatus: async () => {},
+        updateLeadAssignment: async () => {},
+        init: async () => {},
+        openAddDialog: () => {},
+        openEditDialog: () => {},
+        closeDialog: () => {},
+        createLead: async () => {},
+        updateLead: async () => {},
+      })) as unknown as LeadsStore
 )

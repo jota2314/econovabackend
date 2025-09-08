@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { Resend } from 'resend'
-import { env } from '@/lib/config/env'
 import emailService from '@/lib/services/business/email-service'
+import { logger } from '@/lib/services/logger'
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const resolvedParams = await params
-  console.log('[Email API] Starting estimate email for job:', resolvedParams.id)
+  logger.info('Starting estimate email for job', { jobId: resolvedParams.id })
   
   try {
     const supabase = await createClient()
@@ -18,11 +17,11 @@ export async function POST(
     // Get current user
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError || !user) {
-      console.log('[Email API] Auth error:', authError)
+      logger.warn('Email API auth error', { error: authError })
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    console.log('[Email API] User authenticated:', user.id)
+    logger.debug('User authenticated for estimate email', { userId: user.id })
 
     // Get job details with lead information
     const { data: job, error: jobError } = await supabase
@@ -36,32 +35,32 @@ export async function POST(
       .single()
 
     if (jobError || !job) {
-      console.error('[Email API] Job not found:', jobError)
+      logger.error('Job not found for estimate email', jobError, { jobId })
       return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     }
 
-    console.log('[Email API] Job loaded:', job.job_name)
+    logger.debug('Job loaded for estimate email', { jobName: job.job_name, jobId })
 
     // Check if customer has email
     if (!job.lead?.email) {
-      console.error('[Email API] Customer email not found')
+      logger.error('Customer email not found for estimate', { jobId, leadId: job.lead_id })
       return NextResponse.json({ error: 'Customer email not found' }, { status: 400 })
     }
 
     // Check if PDF already exists
-    let pdfBuffer: Uint8Array
+    let pdfBuffer: Buffer
     let pdfFileName = `Estimate_${job.job_name.replace(/[^a-z0-9]/gi, '_')}.pdf`
 
     if (job.latest_estimate_pdf_url?.startsWith('data:')) {
       // Use existing PDF data URL (standard for Vercel deployment)
-      console.log('[Email API] Using existing PDF data URL...')
+      logger.debug('Using existing PDF data URL for estimate email')
       const base64Data = job.latest_estimate_pdf_url.split(',')[1]
       pdfBuffer = Buffer.from(base64Data, 'base64')
       pdfFileName = job.latest_estimate_pdf_name || pdfFileName
-      console.log('[Email API] Using saved PDF, size:', pdfBuffer.length)
+      logger.debug('Using saved PDF', { pdfSize: pdfBuffer.length, fileName: pdfFileName })
     } else {
       // No PDF exists, generate one directly using the PDF generator
-      console.log('[Email API] No PDF exists, generating new one...')
+      logger.debug('No PDF exists, generating new one for estimate email', { jobId })
       
       try {
         // Import and use the PDF generation function directly
@@ -73,57 +72,81 @@ export async function POST(
           customerName: job.lead?.name || 'Valued Customer',
           customerPhone: job.lead?.phone || '',
           customerEmail: job.lead?.email || '',
-          projectAddress: (job as any).project_address || '',
-          projectCity: (job as any).project_city || '',
-          projectState: (job as any).project_state || '',
-          projectZipCode: (job as any).project_zip_code || '',
+          projectAddress: (job as unknown as Record<string, string>).project_address || '',
+          projectCity: (job as unknown as Record<string, string>).project_city || '',
+          projectState: (job as unknown as Record<string, string>).project_state || '',
+          projectZipCode: (job as unknown as Record<string, string>).project_zip_code || '',
           salespersonName: 'Manager',
           salespersonEmail: 'jorge@EconovaEnergySavings.com',
           salespersonPhone: '617-596-2476',
           companyWebsite: 'EconovaEnergySavings.com',
-          measurements: job.measurements || [],
+          measurements: (job.measurements || []).map(m => ({
+            room_name: m.room_name,
+            floor_level: m.floor_level,
+            area_type: m.area_type,
+            surface_type: m.surface_type,
+            square_feet: m.square_feet || 0,
+            height: m.height,
+            width: m.width,
+            insulation_type: m.insulation_type,
+            r_value: m.r_value,
+            framing_size: (m as any).framing_size || null,
+            closed_cell_inches: m.closed_cell_inches,
+            open_cell_inches: m.open_cell_inches,
+            blown_in_inches: (m as any).blown_in_inches || 0,
+            is_hybrid_system: m.is_hybrid_system,
+            photo_url: m.photo_url
+          })),
           jobPhotos: [],
           generatedDate: new Date(),
           validUntil: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000), // 15 days from now
           returnBuffer: true // Return buffer instead of downloading
-        }
+        } as any
         
         // Generate PDF buffer
-        pdfBuffer = await generateEstimatePDF(estimateData)
-        console.log('[Email API] Generated new PDF, size:', pdfBuffer.length)
+        const generatedPdf = await generateEstimatePDF(estimateData)
+        if (!generatedPdf) {
+          throw new Error('PDF generation returned no data')
+        }
+        pdfBuffer = Buffer.from(generatedPdf)
+        logger.debug('Generated new PDF for estimate email', { pdfSize: pdfBuffer.length, fileName: pdfFileName })
         
         // Update job with PDF info (optional - for caching)
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
         pdfFileName = `estimate_${job.job_name.replace(/[^a-z0-9]/gi, '_')}_${timestamp}.pdf`
         
       } catch (pdfError) {
-        console.error('[Email API] Direct PDF generation error:', pdfError)
+        logger.error('Direct PDF generation error for estimate email', pdfError, { jobId })
         throw new Error('Failed to generate PDF: ' + (pdfError instanceof Error ? pdfError.message : 'Unknown error'))
       }
     }
 
     // Prepare email data
     const customerName = job.lead?.name || 'Valued Customer'
-    const projectAddress = (job as any).project_address || 'your property'
+    const projectAddress = (job as unknown as Record<string, string>).project_address || 'your property'
 
     // Send email using business service
-    console.log('[Email API] Sending estimate email using business service')
-    console.log('[Email API] Service status:', emailService.getServiceStatus())
+    logger.info('Sending estimate email using business service', { 
+      jobId, 
+      customerEmail: job.lead.email,
+      serviceStatus: emailService.getServiceStatus()
+    })
 
     const emailResult = await emailService.sendEstimateEmail({
       customerEmail: job.lead.email,
       customerName,
       projectAddress,
-      pdfBuffer: Buffer.from(pdfBuffer),
+      pdfBuffer,
       pdfFileName
     })
 
     if (!emailResult.success) {
-      console.error('[Email API] Email service error details:')
-      console.error('[Email API] Error message:', emailResult.error)
-      console.error('[Email API] Service status:', emailService.getServiceStatus())
-      console.error('[Email API] Customer email:', job.lead.email)
-      console.error('[Email API] PDF size:', pdfBuffer.length)
+      logger.error('Email service error for estimate email', emailResult.error, {
+        jobId,
+        serviceStatus: emailService.getServiceStatus(),
+        customerEmail: job.lead.email,
+        pdfSize: pdfBuffer.length
+      })
       
       return NextResponse.json({ 
         error: emailResult.error || 'Failed to send email',
@@ -135,7 +158,11 @@ export async function POST(
       }, { status: 500 })
     }
 
-    console.log('[Email API] Email sent successfully via business service:', emailResult.data?.emailId)
+    logger.info('Estimate email sent successfully', { 
+      jobId,
+      emailId: emailResult.data?.emailId,
+      customerEmail: job.lead.email 
+    })
 
     // Update job workflow status to sent
     const { error: updateError } = await supabase
@@ -147,7 +174,7 @@ export async function POST(
       .eq('id', jobId)
 
     if (updateError) {
-      console.error('[Email API] Failed to update job status:', updateError)
+      logger.error('Failed to update job status after sending estimate email', updateError, { jobId })
       // Don't fail the whole operation if status update fails
     }
 
@@ -160,7 +187,7 @@ export async function POST(
     })
 
   } catch (error) {
-    console.error('[Email API] Error:', error)
+    logger.error('Error in send estimate email API', error, { jobId: resolvedParams.id })
     return NextResponse.json({ 
       error: 'Internal server error',
       details: error instanceof Error ? error.message : 'Unknown error'

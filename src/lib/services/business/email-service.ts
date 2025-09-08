@@ -7,6 +7,7 @@
 import { Resend } from 'resend'
 import { env } from '@/lib/config/env'
 import type { ApiResponse } from '@/types/api/responses'
+import { logger } from '@/lib/services/logger'
 
 export interface EmailAttachment {
   filename: string
@@ -33,15 +34,16 @@ class EmailService {
 
   constructor() {
     // Initialize Resend only if API key is available
-    console.log('🔧 EmailService: Initializing email service...')
-    console.log('🔧 EmailService: RESEND_API_KEY available:', !!env.RESEND_API_KEY)
-    console.log('🔧 EmailService: FROM_EMAIL:', env.FROM_EMAIL)
+    logger.info('Initializing email service', {
+      hasApiKey: !!env.RESEND_API_KEY,
+      fromEmail: env.FROM_EMAIL
+    })
     
     if (env.RESEND_API_KEY) {
       this.resend = new Resend(env.RESEND_API_KEY)
-      console.log('✅ EmailService: Resend client initialized successfully')
+      logger.info('Resend client initialized successfully')
     } else {
-      console.error('❌ EmailService: No RESEND_API_KEY found in environment')
+      logger.error('No RESEND_API_KEY found in environment')
     }
   }
 
@@ -57,11 +59,11 @@ class EmailService {
    */
   async sendEmail(options: SendEmailOptions): Promise<ApiResponse<EmailResult>> {
     try {
-      console.log('📧 EmailService: Sending email to:', options.to)
+      logger.info('Sending email', { to: options.to, subject: options.subject })
 
       // Check if service is configured
       if (!this.isConfigured()) {
-        console.error('❌ EmailService: Service not configured - missing RESEND_API_KEY')
+        logger.error('Email service not configured - missing RESEND_API_KEY')
         return {
           success: false,
           error: 'Email service not configured. Please check RESEND_API_KEY environment variable.',
@@ -84,9 +86,11 @@ class EmailService {
       // Prepare email data
       const fromEmail = options.from || env.FROM_EMAIL || 'onboarding@resend.dev'
       
-      console.log('📧 EmailService: Using from email:', fromEmail)
-      console.log('📧 EmailService: Subject:', options.subject)
-      console.log('📧 EmailService: Attachments:', options.attachments?.length || 0)
+      logger.debug('Email details', {
+        fromEmail,
+        subject: options.subject,
+        attachmentCount: options.attachments?.length || 0
+      })
 
       // Prepare attachments
       const attachments = options.attachments?.map(attachment => ({
@@ -109,7 +113,7 @@ class EmailService {
       })
 
       if (emailResult.error) {
-        console.error('❌ EmailService: Resend API error:', emailResult.error)
+        logger.error('Resend API error', emailResult.error, { to: options.to, subject: options.subject })
         return {
           success: false,
           error: `Failed to send email: ${emailResult.error.message || emailResult.error}`,
@@ -117,7 +121,11 @@ class EmailService {
         }
       }
 
-      console.log('✅ EmailService: Email sent successfully:', emailResult.data?.id)
+      logger.info('Email sent successfully', {
+        emailId: emailResult.data?.id,
+        to: options.to,
+        subject: options.subject
+      })
       return {
         success: true,
         data: {
@@ -128,7 +136,7 @@ class EmailService {
         error: null
       }
     } catch (error) {
-      console.error('❌ EmailService: Unexpected error:', error)
+      logger.error('Unexpected error sending email', error, { to: options.to, subject: options.subject })
       return {
         success: false,
         error: error instanceof Error ? error.message : 'An unexpected error occurred while sending email',
@@ -148,7 +156,11 @@ class EmailService {
     pdfFileName: string
   }): Promise<ApiResponse<EmailResult & { customerName: string; customerEmail: string }>> {
     try {
-      console.log('📧 EmailService: Sending estimate email')
+      logger.info('Sending estimate email', {
+        customerEmail: options.customerEmail,
+        customerName: options.customerName,
+        projectAddress: options.projectAddress
+      })
 
       const firstName = options.customerName.split(' ')[0]
       const emailSubject = `Your Spray Foam Insulation Estimate - ${options.projectAddress}`
@@ -227,7 +239,10 @@ class EmailService {
         error: null
       }
     } catch (error) {
-      console.error('❌ EmailService: Error sending estimate email:', error)
+      logger.error('Error sending estimate email', error, {
+        customerEmail: options.customerEmail,
+        customerName: options.customerName
+      })
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to send estimate email',

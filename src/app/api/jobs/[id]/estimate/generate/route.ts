@@ -80,39 +80,43 @@ export async function POST(
 
     let totalAmount = 0
 
-    // Group measurements by insulation type and framing size
+    // Group measurements by insulation type and job framing size
     const groupedMeasurements = measurements.reduce((acc, measurement) => {
-      const key = `${measurement.insulation_type || 'standard'}_${measurement.framing_size}`
+      const key = `${measurement.insulation_type || 'standard'}_${job.structural_framing || '2x4'}`
       if (!acc[key]) {
         acc[key] = {
           insulation_type: measurement.insulation_type,
-          framing_size: measurement.framing_size,
+          framing_size: job.structural_framing || '2x4',
           total_square_feet: 0,
           measurements: []
         }
       }
-      acc[key].total_square_feet += measurement.square_feet
+      acc[key].total_square_feet += measurement.square_feet || 0
       acc[key].measurements.push(measurement)
       return acc
-    }, {} as Record<string, any>)
+    }, {} as Record<string, {
+      insulation_type: string | null
+      framing_size: string
+      total_square_feet: number
+      measurements: Array<typeof measurements[0]>
+    }>)
 
     // Create line items for each group
-    for (const [key, group] of Object.entries(groupedMeasurements)) {
-      const group_data = group as any
+    for (const [, group] of Object.entries(groupedMeasurements)) {
       
       // Find matching pricing item
       const pricingItem = pricingData?.find(item => 
-        item.item_name.toLowerCase().includes(group_data.insulation_type?.toLowerCase() || 'insulation') &&
+        item.item_name.toLowerCase().includes(group.insulation_type?.toLowerCase() || 'insulation') &&
         item.unit === 'sq_ft'
       ) || pricingData?.find(item => item.unit === 'sq_ft') // Fallback to first sq_ft item
 
       if (pricingItem) {
         const unitPrice = pricingItem.base_price * (1 + pricingItem.markup_percentage / 100)
-        const totalPrice = unitPrice * group_data.total_square_feet
+        const totalPrice = unitPrice * group.total_square_feet
 
         lineItems.push({
-          description: `${group_data.insulation_type || 'Insulation'} - ${group_data.framing_size} framing`,
-          quantity: group_data.total_square_feet,
+          description: `${group.insulation_type || 'Insulation'} - ${group.framing_size} framing`,
+          quantity: group.total_square_feet,
           unit_price: unitPrice,
           total: totalPrice
         })

@@ -10,6 +10,7 @@ import { createClient } from '@/lib/supabase/client'
 import { leadsService } from '@/lib/services/business/leads-service'
 import { Lead, Job as DatabaseJob } from '@/lib/types/database'
 import { toast } from 'sonner'
+import { logger } from '@/lib/services/logger'
 
 // Cache configuration
 const CACHE_DURATION = 2 * 60 * 1000 // 2 minutes
@@ -186,7 +187,7 @@ export function useJobs(options: UseJobsOptions = {}): UseJobsReturn {
       }
       localStorage.setItem(getJobsCacheKey(), JSON.stringify(cache))
     } catch (error) {
-      console.warn('Failed to cache jobs data:', error)
+      logger.warn('Failed to cache jobs data', { error })
     }
   }, [getJobsCacheKey, enableCaching])
   
@@ -221,7 +222,7 @@ export function useJobs(options: UseJobsOptions = {}): UseJobsReturn {
       }
       localStorage.setItem(getLeadsCacheKey(), JSON.stringify(cache))
     } catch (error) {
-      console.warn('Failed to cache leads data:', error)
+      logger.warn('Failed to cache leads data', { error })
     }
   }, [getLeadsCacheKey, enableCaching])
 
@@ -243,7 +244,7 @@ export function useJobs(options: UseJobsOptions = {}): UseJobsReturn {
         }
       }
     } catch (error) {
-      console.error('Error loading user:', error)
+      logger.error('Error loading user in useJobs hook', error)
     }
   }, [supabase])
 
@@ -262,7 +263,7 @@ export function useJobs(options: UseJobsOptions = {}): UseJobsReturn {
       if (!forceRefresh) {
         const cached = getJobsFromCache()
         if (cached) {
-          console.log('✅ Using cached jobs data')
+          logger.debug('Using cached jobs data', { count: cached.data.length })
           setJobs(cached.data)
           setLastRefresh(new Date())
           setLoading(false)
@@ -270,7 +271,7 @@ export function useJobs(options: UseJobsOptions = {}): UseJobsReturn {
         }
       }
       
-      console.log('🔄 Fetching jobs from API...')
+      logger.debug('Fetching jobs from API')
       
       // Debounce rapid requests
       if (debounceRef.current) {
@@ -283,7 +284,7 @@ export function useJobs(options: UseJobsOptions = {}): UseJobsReturn {
       
       // Check if this request is still current
       if (currentRequestId !== requestIdRef.current) {
-        console.log('🔄 Request superseded, cancelling...')
+        logger.debug('Request superseded, cancelling jobs fetch')
         return
       }
       
@@ -291,7 +292,7 @@ export function useJobs(options: UseJobsOptions = {}): UseJobsReturn {
       
       // Double-check request is still current before updating state
       if (currentRequestId !== requestIdRef.current) {
-        console.log('🔄 Request completed but superseded')
+        logger.debug('Jobs fetch request completed but superseded')
         return
       }
 
@@ -305,14 +306,14 @@ export function useJobs(options: UseJobsOptions = {}): UseJobsReturn {
         setJobs(result.data || [])
         setLastRefresh(new Date())
         setJobsCache(result.data || [])
-        console.log('✅ Successfully loaded', (result.data || []).length, 'jobs')
+        logger.info('Successfully loaded jobs', { count: (result.data || []).length })
       } else {
         throw new Error(result.error || 'Failed to fetch jobs')
       }
     } catch (err) {
       // Only update error state if this is still the current request
       if (currentRequestId === requestIdRef.current) {
-        console.error('❌ Error fetching jobs:', err)
+        logger.error('Error fetching jobs in useJobs hook', err)
         const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred'
         setError(errorMessage)
         toast.error('Failed to load jobs')
@@ -334,25 +335,25 @@ export function useJobs(options: UseJobsOptions = {}): UseJobsReturn {
       if (!forceRefresh) {
         const cached = getLeadsFromCache()
         if (cached) {
-          console.log('✅ Using cached leads data')
+          logger.debug('Using cached leads data', { count: cached.data.length })
           setLeads(cached.data)
           return
         }
       }
       
-      console.log('🔄 Fetching leads from API...')
+      logger.debug('Fetching leads from API')
       const result = await leadsService.getLeads()
       
       if (result.success && result.data) {
         setLeads(result.data)
         setLeadsCache(result.data)
-        console.log('✅ Successfully loaded', result.data.length, 'leads')
+        logger.info('Successfully loaded leads', { count: result.data.length })
       } else {
-        console.warn('Failed to load leads:', result.error)
+        logger.warn('Failed to load leads', { error: result.error })
         setLeads([])
       }
     } catch (err) {
-      console.error('❌ Error fetching leads:', err)
+      logger.error('Error fetching leads in useJobs hook', err)
     }
   }, [getLeadsFromCache, setLeadsCache])
   
@@ -418,7 +419,7 @@ export function useJobs(options: UseJobsOptions = {}): UseJobsReturn {
       
       return result
     } catch (err) {
-      console.error('Error creating job:', err)
+      logger.error('Error creating job in useJobs hook', err)
       toast.error('Failed to create job')
       return { success: false, error: 'Failed to create job' }
     }
@@ -461,7 +462,7 @@ export function useJobs(options: UseJobsOptions = {}): UseJobsReturn {
         throw new Error('Failed to delete job')
       }
     } catch (err) {
-      console.error('Error deleting job:', err)
+      logger.error('Error deleting job in useJobs hook', err, { jobId: id })
       toast.error('Failed to delete job')
       throw err
     }
@@ -495,7 +496,7 @@ export function useJobs(options: UseJobsOptions = {}): UseJobsReturn {
   // Listen for estimate updates
   useEffect(() => {
     const handleEstimateUpdate = (event: CustomEvent) => {
-      console.log('🔄 Estimate updated, refreshing jobs data...', event.detail)
+      logger.debug('Estimate updated event received, refreshing jobs data', { eventDetail: event.detail })
       fetchJobs(true) // Force refresh jobs to show updated estimate totals
     }
     

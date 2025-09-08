@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useForm, useFieldArray } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -19,6 +19,8 @@ import {
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { SimpleHvacJobForm } from '@/components/hvac/SimpleHvacJobForm'
+import { useApprovalsStore } from '@/stores/approvals-store'
 
 import { ImageGallery, ImageThumbnailGrid } from '@/components/ui/image-gallery'
 import { toast } from "sonner"
@@ -381,6 +383,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
   const [showEstimateBuilder, setShowEstimateBuilder] = useState(false)
   const [jobPhotos, setJobPhotos] = useState<string[]>([])
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [galleryOpen, setGalleryOpen] = useState(false)
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
   const [realtimePricing, setRealtimePricing] = useState<{ pricePerSqft: number; totalPrice: number } | null>(null)
@@ -729,17 +732,26 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         console.log(`✅ Estimate ${action} with ID:`, result.data?.id || existingEstimate?.id)
         console.log('🎯 Total line items included:', lineItems.length)
         
-        // Broadcast estimate update to sync with other parts of the app
+        // Update the approvals store immediately
+        const approvalsStore = useApprovalsStore.getState()
+        
+        // If the estimate is pending_approval, refresh the approvals store
+        if (result.data?.status === 'pending_approval' || (!existingEstimate && result.data)) {
+          console.log('🔄 Refreshing approvals store after estimate creation/update')
+          approvalsStore.refresh()
+        }
+        
+        // Keep the window event for backwards compatibility
         window.dispatchEvent(new CustomEvent('estimateUpdated', { 
           detail: { 
             estimateId: result.data?.id || existingEstimate?.id,
             jobId: job.id,
             newTotal: total,
             timestamp: Date.now(),
-            source: 'jobs_page'
+            source: 'measurements_page'
           } 
         }))
-        console.log('📡 Broadcasted estimate update event from jobs page')
+        console.log('📡 Broadcasted estimate update event from measurements page')
         
         // Optionally update job status or refresh data
       } else {
@@ -2633,7 +2645,16 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
       case 'insulation':
         return renderInsulationForm()
       case 'hvac':
-        return renderHvacForm()
+        return (
+          <SimpleHvacJobForm 
+            jobId={job.id}
+            onSystemsChange={(systems, summary) => {
+              // Handle systems change if needed
+              console.log('HVAC systems updated:', systems, summary)
+            }}
+            className="mt-4"
+          />
+        )
       case 'plaster':
         return renderPlasterForm()
       default:
@@ -2686,20 +2707,24 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             {/* Upload Dropzone */}
             <div className="border-2 border-dashed border-blue-300 rounded-lg p-6 text-center bg-white/30 hover:bg-white/50 transition-colors cursor-pointer">
               <input
+                ref={fileInputRef}
                 type="file"
                 multiple
                 accept="image/*"
                 className="hidden"
-                id="photo-upload"
                 onChange={(e) => {
                   const files = Array.from(e.target.files || [])
                   if (files.length > 0) {
                     // Upload each file
                     files.forEach(uploadJobPhoto)
                   }
+                  // Clear the input value to allow selecting the same file again
+                  if (e.target) {
+                    e.target.value = ''
+                  }
                 }}
               />
-              <label htmlFor="photo-upload" className="cursor-pointer">
+              <div className="cursor-pointer" onClick={() => fileInputRef.current?.click()}>
                 {uploadingPhoto ? (
                   <>
                     <Loader2 className="h-8 w-8 text-blue-500 mx-auto mb-2 animate-spin" />
@@ -2721,7 +2746,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                     </p>
                   </>
                 )}
-              </label>
+              </div>
             </div>
 
             {/* Photo Preview Grid */}
@@ -2766,7 +2791,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                 size="sm" 
                 className="flex-1 border-blue-300 text-blue-700 hover:bg-blue-100"
                 onClick={() => {
-                  document.getElementById('photo-upload')?.click()
+                  fileInputRef.current?.click()
                 }}
                 disabled={uploadingPhoto}
               >

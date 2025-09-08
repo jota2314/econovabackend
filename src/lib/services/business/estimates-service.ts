@@ -6,19 +6,24 @@
 
 import { createClient } from '@/lib/supabase/client'
 import type { ApiResponse } from '@/types/api/responses'
+import { logger } from '@/lib/services/logger'
+
+// Define valid status and service types
+type EstimateStatus = 'draft' | 'pending_approval' | 'sent' | 'approved' | 'rejected' | 'all'
+type ServiceType = 'insulation' | 'hvac' | 'plaster' | 'all'
 
 export interface EstimateDetail {
   id: string
   estimate_number: string
   subtotal: number
   total_amount: number
-  status: string
+  status: EstimateStatus
   created_at: string
   markup_percentage: number
   jobs: {
     id: string
     job_name: string
-    service_type: string
+    service_type: ServiceType
     total_square_feet?: number
     lead: {
       id: string
@@ -49,14 +54,14 @@ export interface EstimateDetail {
 export interface EstimateListItem {
   id: string
   estimate_number: string
-  status: 'draft' | 'pending_approval' | 'approved' | 'rejected'
+  status: EstimateStatus
   total_amount?: number
   subtotal?: number
   created_at: string
   jobs: {
     id: string
     job_name: string
-    service_type?: string
+    service_type?: ServiceType
     lead?: {
       id: string
       name: string
@@ -81,6 +86,10 @@ export interface EstimatesListResponse {
   limit: number
 }
 
+interface MessageResponse {
+  message: string
+}
+
 class EstimatesService {
   private supabase = createClient()
 
@@ -89,7 +98,7 @@ class EstimatesService {
    */
   async getEstimate(estimateId: string): Promise<ApiResponse<EstimateDetail>> {
     try {
-      console.log('🔍 EstimatesService: Getting estimate', estimateId)
+      logger.debug('Getting estimate', { estimateId })
 
       // Get authenticated user first
       const { data: { user }, error: authError } = await this.supabase.auth.getUser()
@@ -98,7 +107,7 @@ class EstimatesService {
         return {
           success: false,
           error: 'Authentication required',
-          data: null
+          data: undefined
         }
       }
 
@@ -141,11 +150,11 @@ class EstimatesService {
         .single()
 
       if (error) {
-        console.error('❌ EstimatesService: Database error:', error)
+        logger.error('Database error getting estimate', error, { estimateId })
         return {
           success: false,
           error: error.code === 'PGRST116' ? 'Estimate not found' : 'Failed to load estimate',
-          data: null
+          data: undefined
         }
       }
 
@@ -153,22 +162,25 @@ class EstimatesService {
         return {
           success: false,
           error: 'Estimate not found',
-          data: null
+          data: undefined
         }
       }
 
-      console.log('✅ EstimatesService: Successfully loaded estimate')
+      // Type assertion after validation
+      const typedEstimate = estimate as unknown as EstimateDetail
+
+      logger.debug('Successfully loaded estimate', { estimateId })
       return {
         success: true,
-        data: estimate as EstimateDetail,
-        error: null
+        data: typedEstimate,
+        error: undefined
       }
     } catch (error) {
-      console.error('❌ EstimatesService: Unexpected error:', error)
+      logger.error('Unexpected error getting estimate', error, { estimateId })
       return {
         success: false,
         error: error instanceof Error ? error.message : 'An unexpected error occurred',
-        data: null
+        data: undefined
       }
     }
   }
@@ -177,13 +189,13 @@ class EstimatesService {
    * Get all estimates with filtering options
    */
   async getEstimates(options: {
-    status?: string
-    serviceType?: string
+    status?: EstimateStatus
+    serviceType?: ServiceType
     page?: number
     limit?: number
   } = {}): Promise<ApiResponse<EstimatesListResponse>> {
     try {
-      console.log('🔍 EstimatesService: Getting estimates list', options)
+      logger.debug('Getting estimates list', { options })
 
       // Get authenticated user first
       const { data: { user }, error: authError } = await this.supabase.auth.getUser()
@@ -192,7 +204,7 @@ class EstimatesService {
         return {
           success: false,
           error: 'Authentication required',
-          data: null
+          data: undefined
         }
       }
 
@@ -229,13 +241,13 @@ class EstimatesService {
 
       // Apply filters
       if (options.status && options.status !== 'all') {
-        console.log('🔍 EstimatesService: Applying status filter:', options.status)
-        query = query.eq('status', options.status)
+        logger.debug('Applying status filter', { status: options.status })
+        query = query.eq('status', options.status as Exclude<EstimateStatus, 'all'>)
       }
 
       if (options.serviceType && options.serviceType !== 'all') {
-        console.log('🔍 EstimatesService: Applying service type filter:', options.serviceType)
-        query = query.eq('jobs.service_type', options.serviceType)
+        logger.debug('Applying service type filter', { serviceType: options.serviceType })
+        query = query.eq('jobs.service_type', options.serviceType as Exclude<ServiceType, 'all'>)
       }
 
       // Apply pagination
@@ -250,31 +262,31 @@ class EstimatesService {
       const { data: estimates, error, count } = await query
 
       if (error) {
-        console.error('❌ EstimatesService: Database error:', error)
+        logger.error('Database error getting estimates list', error, { options })
         return {
           success: false,
           error: 'Failed to load estimates',
-          data: null
+          data: undefined
         }
       }
 
-      console.log('✅ EstimatesService: Successfully loaded', estimates?.length || 0, 'estimates')
+      logger.debug('Successfully loaded estimates', { count: estimates?.length || 0, options })
       return {
         success: true,
         data: {
-          estimates: estimates as EstimateListItem[] || [],
+          estimates: (estimates as EstimateListItem[]) || [],
           total: count || 0,
           page,
           limit
         },
-        error: null
+        error: undefined
       }
     } catch (error) {
-      console.error('❌ EstimatesService: Unexpected error:', error)
+      logger.error('Unexpected error getting estimates list', error, { options })
       return {
         success: false,
         error: error instanceof Error ? error.message : 'An unexpected error occurred',
-        data: null
+        data: undefined
       }
     }
   }
@@ -282,9 +294,9 @@ class EstimatesService {
   /**
    * Approve an estimate (manager only)
    */
-  async approveEstimate(estimateId: string): Promise<ApiResponse<{ message: string }>> {
+  async approveEstimate(estimateId: string): Promise<ApiResponse<MessageResponse>> {
     try {
-      console.log('🔍 EstimatesService: Approving estimate', estimateId)
+      logger.info('Approving estimate', { estimateId })
 
       // Get authenticated user and check role
       const { data: { user }, error: authError } = await this.supabase.auth.getUser()
@@ -293,7 +305,7 @@ class EstimatesService {
         return {
           success: false,
           error: 'Authentication required',
-          data: null
+          data: undefined
         }
       }
 
@@ -308,7 +320,7 @@ class EstimatesService {
         return {
           success: false,
           error: 'Only managers can approve estimates',
-          data: null
+          data: undefined
         }
       }
 
@@ -330,7 +342,7 @@ class EstimatesService {
         return {
           success: false,
           error: 'Estimate not found',
-          data: null
+          data: undefined
         }
       }
 
@@ -345,11 +357,11 @@ class EstimatesService {
         .eq('id', estimateId)
 
       if (updateError) {
-        console.error('❌ EstimatesService: Failed to approve estimate:', updateError)
+        logger.error('Failed to approve estimate', updateError, { estimateId })
         return {
           success: false,
           error: 'Failed to approve estimate',
-          data: null
+          data: undefined
         }
       }
 
@@ -362,21 +374,21 @@ class EstimatesService {
         .eq('id', estimate.jobs.id)
 
       if (jobUpdateError) {
-        console.warn('⚠️ EstimatesService: Failed to update job workflow status:', jobUpdateError)
+        logger.warn('Failed to update job workflow status after estimate approval', { error: jobUpdateError, estimateId, jobId: estimate.jobs.id })
       }
 
-      console.log('✅ EstimatesService: Successfully approved estimate')
+      logger.info('Successfully approved estimate', { estimateId })
       return {
         success: true,
         data: { message: 'Estimate approved successfully' },
-        error: null
+        error: undefined
       }
     } catch (error) {
-      console.error('❌ EstimatesService: Unexpected error:', error)
+      logger.error('Unexpected error approving estimate', error, { estimateId })
       return {
         success: false,
         error: error instanceof Error ? error.message : 'An unexpected error occurred',
-        data: null
+        data: undefined
       }
     }
   }
@@ -384,9 +396,9 @@ class EstimatesService {
   /**
    * Reject an estimate (manager only)
    */
-  async rejectEstimate(estimateId: string): Promise<ApiResponse<{ message: string }>> {
+  async rejectEstimate(estimateId: string): Promise<ApiResponse<MessageResponse>> {
     try {
-      console.log('🔍 EstimatesService: Rejecting estimate', estimateId)
+      logger.info('Rejecting estimate', { estimateId })
 
       // Get authenticated user and check role
       const { data: { user }, error: authError } = await this.supabase.auth.getUser()
@@ -395,7 +407,7 @@ class EstimatesService {
         return {
           success: false,
           error: 'Authentication required',
-          data: null
+          data: undefined
         }
       }
 
@@ -410,7 +422,7 @@ class EstimatesService {
         return {
           success: false,
           error: 'Only managers can reject estimates',
-          data: null
+          data: undefined
         }
       }
 
@@ -425,26 +437,26 @@ class EstimatesService {
         .eq('id', estimateId)
 
       if (updateError) {
-        console.error('❌ EstimatesService: Failed to reject estimate:', updateError)
+        logger.error('Failed to reject estimate', updateError, { estimateId })
         return {
           success: false,
           error: 'Failed to reject estimate',
-          data: null
+          data: undefined
         }
       }
 
-      console.log('✅ EstimatesService: Successfully rejected estimate')
+      logger.info('Successfully rejected estimate', { estimateId })
       return {
         success: true,
         data: { message: 'Estimate rejected successfully' },
-        error: null
+        error: undefined
       }
     } catch (error) {
-      console.error('❌ EstimatesService: Unexpected error:', error)
+      logger.error('Unexpected error rejecting estimate', error, { estimateId })
       return {
         success: false,
         error: error instanceof Error ? error.message : 'An unexpected error occurred',
-        data: null
+        data: undefined
       }
     }
   }
@@ -452,4 +464,3 @@ class EstimatesService {
 
 // Export a singleton instance
 export const estimatesService = new EstimatesService()
-export default estimatesService

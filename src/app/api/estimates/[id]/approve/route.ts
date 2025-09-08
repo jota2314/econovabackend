@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { logger } from '@/lib/services/logger'
 
 export async function POST(
   request: NextRequest,
@@ -9,6 +10,16 @@ export async function POST(
   
   try {
     const supabase = await createClient()
+    
+    // Get authenticated user
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    
+    if (authError || !user) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
     
     // Get estimate with job details first
     const { data: estimate, error: estimateError } = await supabase
@@ -44,7 +55,7 @@ export async function POST(
       .single()
 
     if (updateError) {
-      console.error('Error approving estimate:', updateError)
+      logger.error('Error approving estimate', updateError, { estimateId: id, userId: user.id })
       return NextResponse.json(
         { success: false, error: 'Failed to approve estimate' },
         { status: 500 }
@@ -60,10 +71,10 @@ export async function POST(
       .eq('id', estimate.jobs.id)
 
     if (jobUpdateError) {
-      console.warn('Warning: Failed to update job workflow status:', jobUpdateError)
+      logger.warn('Failed to update job workflow status', { error: jobUpdateError, jobId: estimate.jobs.id })
     }
 
-    console.log(`✅ Estimate ${id} approved successfully`)
+    logger.info('Estimate approved successfully', { estimateId: id, userId: user.id, jobId: estimate.jobs.id })
 
     return NextResponse.json({
       success: true,
@@ -73,7 +84,7 @@ export async function POST(
     })
 
   } catch (error) {
-    console.error('Error in approve estimate API:', error)
+    logger.error('Error in approve estimate API', error, { estimateId: id })
     return NextResponse.json(
       { success: false, error: 'Internal server error' },
       { status: 500 }

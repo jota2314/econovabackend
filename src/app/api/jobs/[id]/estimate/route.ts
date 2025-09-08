@@ -1,13 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { calculateTotalEstimate, formatCurrency, type InsulationType } from '@/lib/utils/pricing-calculator'
+import { calculateTotalEstimate, type InsulationType } from '@/lib/utils/pricing-calculator'
+import { logger } from '@/lib/services/logger'
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
+    
+    // Get authenticated user
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    
+    if (authError || !user) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+    
     const { 
       prepWork = false, 
       fireRetardant = false, 
@@ -19,7 +32,7 @@ export async function POST(
     const { data: measurements, error: measurementsError } = await supabase
       .from('measurements')
       .select('*')
-      .eq('job_id', params.id)
+      .eq('job_id', id)
 
     if (measurementsError) {
       throw new Error(`Failed to fetch measurements: ${measurementsError.message}`)
@@ -34,15 +47,17 @@ export async function POST(
 
     // Calculate base estimate
     const baseEstimate = calculateTotalEstimate(
-      measurements.map(m => ({
-        squareFeet: m.square_feet,
-        insulationType: m.insulation_type as InsulationType,
-        rValue: m.r_value ? Number(m.r_value) : 0
-      }))
+      measurements
+        .filter(m => m.square_feet !== null)
+        .map(m => ({
+          squareFeet: m.square_feet!,
+          insulationType: m.insulation_type as InsulationType,
+          rValue: m.r_value ? Number(m.r_value) : 0
+        }))
     )
 
     // Calculate additional costs
-    let totalSquareFeet = measurements.reduce((sum, m) => sum + m.square_feet, 0)
+    const totalSquareFeet = measurements.reduce((sum, m) => sum + (m.square_feet || 0), 0)
     
     // Apply complexity multiplier to base price
     let adjustedSubtotal = baseEstimate.subtotal * complexityMultiplier
@@ -99,15 +114,14 @@ export async function POST(
     const { data: estimate, error: estimateError } = await supabase
       .from('estimates')
       .insert({
-        job_id: params.id,
+        job_id: id,
+        estimate_number: `EST-${Date.now()}`,
         total_amount: total,
         subtotal: subtotalAfterDiscount,
-        discount_amount: discountAmount,
-        prep_work_cost: prepWorkCost,
-        fire_retardant_cost: fireRetardantCost,
-        complexity_multiplier: complexityMultiplier,
+        markup_percentage: 6.25,
+        locks_measurements: false,
         status: total > 10000 ? 'pending_approval' : 'approved',
-        breakdown: breakdown,
+        created_by: user.id,
         created_at: new Date().toISOString()
       })
       .select()
@@ -134,7 +148,7 @@ export async function POST(
     })
 
   } catch (error) {
-    console.error('Error creating estimate:', error)
+    logger.error('Error creating estimate', error, { jobId: id })
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Failed to create estimate' },
       { status: 500 }
@@ -144,16 +158,17 @@ export async function POST(
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
 
     // Get existing estimates for this job
     const { data: estimates, error } = await supabase
       .from('estimates')
       .select('*')
-      .eq('job_id', params.id)
+      .eq('job_id', id)
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -166,7 +181,7 @@ export async function GET(
     })
 
   } catch (error) {
-    console.error('Error fetching estimates:', error)
+    logger.error('Error fetching estimates', error, { jobId: id })
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Failed to fetch estimates' },
       { status: 500 }

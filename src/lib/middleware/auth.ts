@@ -2,8 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
 export interface AuthenticatedRequest extends NextRequest {
-  user?: any
-  userProfile?: any
+  user?: {
+    id: string
+    email: string
+    [key: string]: unknown
+  }
+  userProfile?: {
+    id: string
+    role: 'manager' | 'salesperson'
+    full_name: string | null
+    email: string
+    [key: string]: unknown
+  }
 }
 
 export interface AuthOptions {

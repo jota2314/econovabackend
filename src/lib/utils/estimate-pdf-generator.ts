@@ -609,7 +609,7 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
       }
       
       // Create second line with technical details
-      let secondLineDetails = ''
+      const secondLineDetails = ''
       
       // Display primary description (centered)
       pdf.text(primaryDescription, descPos + descWidth/2, yPosition, { align: 'center' })
@@ -813,7 +813,7 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
       }
       
       // Create second line with technical details (removed sq ft and framing details)
-      let secondLineDetails = ''
+      const secondLineDetails = ''
       // Removed framing and sq ft details as requested
       
       // Display primary description

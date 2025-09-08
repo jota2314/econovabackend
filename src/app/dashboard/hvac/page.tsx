@@ -1,7 +1,11 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { EstimateCard } from "@/components/dashboard/estimate-card"
-import { Card } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { EnhancedHvacMeasurement } from "@/components/measurements/services/hvac/EnhancedHvacMeasurement"
 import { 
   Thermometer, 
   Wind, 
@@ -10,16 +14,65 @@ import {
   TrendingUp,
   Clock,
   DollarSign,
-  Settings
+  Settings,
+  Plus,
+  FileText,
+  Calculator
 } from "lucide-react"
+import { toast } from "sonner"
 
 export default function HVACDashboard() {
+  const [activeTab, setActiveTab] = useState('dashboard')
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
+
+  // Mock job data - in real app this would come from API
+  const mockJob = {
+    id: 'demo-hvac-job',
+    service_type: 'hvac' as const,
+    construction_type: 'new_construction' as const
+  }
+
+  const handleEstimateGenerate = async (measurements: any[], summary: any) => {
+    toast.success(`Professional HVAC estimate generated for ${measurements.length} systems`)
+  }
+
+  const handlePdfGenerate = async (measurements: any[], summary: any) => {
+    toast.success('HVAC proposal PDF generated successfully')
+  }
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">HVAC Dashboard</h1>
-        <p className="text-slate-600">Monitor your HVAC service performance and estimates</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Professional HVAC Systems</h1>
+          <p className="text-slate-600">Professional HVAC measurement and pricing system</p>
+        </div>
+        <Button 
+          onClick={() => setActiveTab('measurements')}
+          className="flex items-center gap-2"
+        >
+          <Plus className="h-4 w-4" />
+          New HVAC Project
+        </Button>
       </div>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="dashboard" className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4" />
+            Dashboard
+          </TabsTrigger>
+          <TabsTrigger value="measurements" className="flex items-center gap-2">
+            <Wrench className="h-4 w-4" />
+            HVAC Systems
+          </TabsTrigger>
+          <TabsTrigger value="estimates" className="flex items-center gap-2">
+            <FileText className="h-4 w-4" />
+            Estimates
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="dashboard" className="space-y-6">
 
       {/* Estimate Value Card for HVAC */}
       <EstimateCard 
@@ -93,6 +146,47 @@ export default function HVACDashboard() {
           <p>No HVAC jobs to display yet</p>
         </div>
       </Card>
+        </TabsContent>
+
+        {/* Enhanced HVAC Measurements Tab */}
+        <TabsContent value="measurements">
+          <EnhancedHvacMeasurement
+            jobId={mockJob.id}
+            onEstimateGenerate={handleEstimateGenerate}
+            onPdfGenerate={handlePdfGenerate}
+            isManager={true}
+            showPricing={true}
+            showEstimateActions={true}
+            showPhotos={true}
+            showValidation={true}
+          />
+        </TabsContent>
+
+        {/* Estimates Tab */}
+        <TabsContent value="estimates">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Calculator className="h-5 w-5" />
+                HVAC Estimates
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center py-8 text-slate-500">
+                <FileText className="h-12 w-12 mx-auto mb-3 text-slate-300" />
+                <p>Generated HVAC estimates will appear here</p>
+                <Button 
+                  onClick={() => setActiveTab('measurements')} 
+                  variant="outline" 
+                  className="mt-4"
+                >
+                  Create HVAC Systems
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

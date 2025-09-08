@@ -29,7 +29,58 @@ export class LeadsService {
     offset?: number
   }): Promise<ApiResponse<LeadWithAssignee[]>> {
     try {
-      console.log('🔄 Starting leads query...')
+      console.log('🔄 Starting leads query via API...')
+      
+      // Use API endpoint for better error handling and consistency
+      const response = await fetch('/api/leads', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (!response.ok) {
+        console.error('❌ API response not ok:', response.status)
+        return {
+          success: false,
+          error: `API error: ${response.status}`,
+          data: []
+        }
+      }
+      
+      const result = await response.json()
+      console.log('📥 API result:', result)
+      
+      if (result.success) {
+        console.log(`✅ Successfully fetched ${result.data?.length || 0} leads via API`)
+        return {
+          success: true,
+          data: result.data || []
+        }
+      } else {
+        console.warn('⚠️ API returned error:', result.error)
+        return {
+          success: false,
+          error: result.error || 'Failed to fetch leads',
+          data: []
+        }
+      }
+    } catch (error) {
+      console.error('💥 Error in getLeads API call:', error)
+      
+      // Fallback to direct database query if API fails
+      console.log('🔄 Falling back to direct database query...')
+      return this.getLeadsDirectly(options)
+    }
+  }
+
+  private async getLeadsDirectly(options?: {
+    filters?: LeadFilters
+    limit?: number
+    offset?: number
+  }): Promise<ApiResponse<LeadWithAssignee[]>> {
+    try {
+      console.log('🔄 Starting direct leads query...')
       
       // Get current user context
       const userContext = await this.getCurrentUserContext()
@@ -66,13 +117,13 @@ export class LeadsService {
         return this.handleLeadsError(error)
       }
 
-      console.log(`✅ Successfully fetched ${data?.length || 0} leads`)
+      console.log(`✅ Successfully fetched ${data?.length || 0} leads directly`)
       return {
         success: true,
         data: data || []
       }
     } catch (error) {
-      console.error('💥 Error in getLeads:', error)
+      console.error('💥 Error in direct getLeads:', error)
       return {
         success: false,
         error: 'Failed to fetch leads',
@@ -348,14 +399,14 @@ export class LeadsService {
     }
   }
 
-  private applyRoleBasedFiltering(query: any, userContext: any) {
+  private applyRoleBasedFiltering(query: ReturnType<typeof this.supabase.from>, userContext: { role?: string; userId?: string }) {
     if (userContext.role === 'salesperson' && userContext.userId) {
       return query.eq('assigned_to', userContext.userId)
     }
     return query // Managers and admins see all leads
   }
 
-  private applyLeadFilters(query: any, filters: LeadFilters) {
+  private applyLeadFilters(query: ReturnType<typeof this.supabase.from>, filters: LeadFilters) {
     if (filters.status?.length) {
       query = query.in('status', filters.status)
     }
@@ -381,7 +432,7 @@ export class LeadsService {
     return query
   }
 
-  private handleLeadsError(error: any): ApiResponse<LeadWithAssignee[]> {
+  private handleLeadsError(error: unknown): ApiResponse<LeadWithAssignee[]> {
     if (error.message?.includes('relation "leads" does not exist')) {
       console.warn('⚠️ Leads table does not exist')
       return { success: true, data: [] }
@@ -512,7 +563,7 @@ export class LeadsService {
     }
   }
 
-  private calculateAverageResponseTime(leads: any[]): number {
+  private calculateAverageResponseTime(leads: Array<{ created_at: string; [key: string]: unknown }>): number {
     // Simplified calculation - in reality would need communication data
     const contactedLeads = leads.filter(l => l.status !== 'new')
     if (contactedLeads.length === 0) return 0

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { SupabaseClient } from '@supabase/supabase-js'
+import { Database } from '@/lib/types/database'
 
 export async function POST(request: NextRequest) {
   try {
@@ -131,7 +133,7 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-async function calculateLeadScore(leadId: string, supabase: any): Promise<number> {
+async function calculateLeadScore(leadId: string, supabase: SupabaseClient<Database>): Promise<number> {
   let score = 0
 
   // Get lead data

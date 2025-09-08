@@ -32,6 +32,7 @@ import {
   RefreshCw
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { HvacPricingTab } from '@/components/pricing/HvacPricingTab'
 
 interface PricingCatalogItem {
   id: string
@@ -399,9 +400,8 @@ export default function PricingPage() {
           </TabsTrigger>
         </TabsList>
 
-        {(['insulation', 'hvac', 'plaster'] as const).map((serviceType) => (
-          <TabsContent key={serviceType} value={serviceType}>
-            <Card>
+        <TabsContent value="insulation">
+          <Card>
                       <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <DollarSign className="h-5 w-5" />
@@ -433,7 +433,7 @@ export default function PricingPage() {
                     </SelectContent>
                   </Select>
                   <Badge variant="outline" className="ml-auto">
-                    {getFilteredItems(serviceType).length} items
+                    {getFilteredItems('insulation').length} items
                   </Badge>
                 </div>
                 
@@ -449,7 +449,7 @@ export default function PricingPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {getFilteredItems(serviceType).map((item) => (
+                    {getFilteredItems('insulation').map((item) => (
                       <TableRow key={item.id}>
                         <TableCell>
                           {editingItem === item.id ? (
@@ -567,12 +567,12 @@ export default function PricingPage() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    {getFilteredItems(serviceType).length === 0 && (
+                    {getFilteredItems('insulation').length === 0 && (
                       <TableRow>
                         <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                           {selectedProductType === 'all' 
-                            ? `No ${serviceType} pricing items found. Add one to get started.`
-                            : `No ${selectedProductType.replace('-', ' ')} items found for ${serviceType}.`
+                            ? `No insulation pricing items found. Add one to get started.`
+                            : `No ${selectedProductType.replace('-', ' ')} items found for insulation.`
                           }
                         </TableCell>
                       </TableRow>
@@ -582,7 +582,29 @@ export default function PricingPage() {
               </CardContent>
             </Card>
           </TabsContent>
-        ))}
+
+        <TabsContent value="hvac">
+          <HvacPricingTab />
+        </TabsContent>
+
+        <TabsContent value="plaster">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <DollarSign className="h-5 w-5" />
+                Plaster Products
+              </CardTitle>
+              <CardDescription>
+                Manage pricing for plaster services
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center text-muted-foreground py-8">
+                Plaster pricing coming soon...
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {/* Important Notice */}

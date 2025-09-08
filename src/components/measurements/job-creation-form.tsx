@@ -202,6 +202,15 @@ export function JobCreationForm({
     }
   }, [selectedLeadData, serviceType, form])
 
+  // Debug leads data
+  React.useEffect(() => {
+    console.log('🔍 JobCreationForm - Leads data:', {
+      leadsLength: leads.length,
+      leads: leads.slice(0, 3), // Show first 3 leads for debugging
+      hasLeads: leads.length > 0
+    })
+  }, [leads])
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -230,20 +239,33 @@ export function JobCreationForm({
                   <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select a lead/customer" />
+                        <SelectValue placeholder={
+                          leads.length === 0 
+                            ? "Loading customers..." 
+                            : "Select a lead/customer"
+                        } />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {leads.map((lead) => (
-                        <SelectItem key={lead.id} value={lead.id}>
-                          <div className="flex flex-col">
-                            <span className="font-medium">{lead.name}</span>
-                            <span className="text-sm text-muted-foreground">
-                              {lead.phone} • {lead.address}
-                            </span>
+                      {leads.length === 0 ? (
+                        <SelectItem value="" disabled>
+                          <div className="flex items-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <span>Loading customers...</span>
                           </div>
                         </SelectItem>
-                      ))}
+                      ) : (
+                        leads.map((lead) => (
+                          <SelectItem key={lead.id} value={lead.id}>
+                            <div className="flex flex-col">
+                              <span className="font-medium">{lead.name}</span>
+                              <span className="text-sm text-muted-foreground">
+                                {lead.phone} • {lead.address}
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                   <FormMessage />

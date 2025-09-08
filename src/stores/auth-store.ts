@@ -6,8 +6,9 @@ import { createClient } from '@/lib/supabase/client'
 import type { AuthStore } from './types'
 
 export const useAuthStore = create<AuthStore>()(
-  devtools(
-    (set, get) => ({
+  typeof window !== 'undefined'
+    ? devtools(
+        (set, get) => ({
       // Initial State
       user: null,
       profile: null,
@@ -228,18 +229,46 @@ export const useAuthStore = create<AuthStore>()(
           set({ error: 'Failed to refresh profile' }, false, 'refreshProfile:error')
         }
       },
-    }),
-    {
-      name: 'auth-store',
-    }
-  )
+        }),
+        {
+          name: 'auth-store',
+          enabled: process.env.NODE_ENV === 'development'
+        }
+      )
+    : // Server-side fallback store (minimal implementation)
+      (set, get) => ({
+        // Initial State
+        user: null,
+        profile: null,
+        session: null,
+        loading: true,
+        error: null,
+
+        // Computed Selectors
+        get isAuthenticated() { return false },
+        get userRole() { return null },
+        get userId() { return null },
+
+        // Stub actions for SSR
+        setAuth: () => {},
+        clearAuth: () => {},
+        setLoading: () => {},
+        setError: () => {},
+        signIn: async () => ({ error: { message: 'SSR mode' } }),
+        signUp: async () => ({ error: { message: 'SSR mode' } }),
+        signOut: async () => ({ error: { message: 'SSR mode' } }),
+        resetPassword: async () => ({ error: { message: 'SSR mode' } }),
+        updatePassword: async () => ({ error: { message: 'SSR mode' } }),
+        updateProfile: async () => ({ error: { message: 'SSR mode' } }),
+        refreshProfile: async () => {},
+      })
 )
 
 // Initialize auth state listener
 let authListenerInitialized = false
 
 export const initializeAuthListener = () => {
-  if (authListenerInitialized) return
+  if (authListenerInitialized || typeof window === 'undefined') return
 
   const supabase = createClient()
   const { setAuth, clearAuth, setLoading } = useAuthStore.getState()

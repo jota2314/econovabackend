@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { Job, ParsedScopeOfWork, EnhancedJob } from '@/types/business/jobs'
 
 export async function GET(request: NextRequest) {
   try {
@@ -40,8 +41,8 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false })
 
     // Apply role-based filtering
-    if (userProfile?.role === 'salesperson' || userProfile?.role === 'lead_hunter') {
-      // Salesperson and lead hunters can only see their own jobs
+    if (userProfile?.role === 'salesperson') {
+      // Salesperson can only see their own jobs
       query = query.eq('created_by', user.id)
     }
     // Managers and admins can see all jobs (no filter needed)
@@ -61,10 +62,10 @@ export async function GET(request: NextRequest) {
     }
 
     // Parse service-specific data from scope_of_work if stored as JSON
-    const enhancedJobs = data?.map((job: any) => {
+    const enhancedJobs = data?.map((job: Job): EnhancedJob => {
       if (job.scope_of_work) {
         try {
-          const parsed = JSON.parse(job.scope_of_work)
+          const parsed: ParsedScopeOfWork = JSON.parse(job.scope_of_work)
           return {
             ...job,
             // Extract service-specific fields
@@ -78,7 +79,7 @@ export async function GET(request: NextRequest) {
             job_complexity: parsed.job_complexity || 'standard',
             scope_of_work: parsed.description || job.scope_of_work
           }
-        } catch (e) {
+        } catch {
           // If not JSON, keep original
         }
       }

@@ -1,10 +1,12 @@
 import { createClient } from '@/lib/supabase/client'
 import { addDays, subDays, startOfMonth, endOfMonth, format } from 'date-fns'
+import { ApiResponse } from '@/types/api/responses'
+import { Lead, Job } from '@/lib/types/database'
 
 export class AnalyticsService {
   private supabase = createClient()
 
-  private handleError(error: any, defaultValue: any = null) {
+  private handleError(error: unknown, defaultValue: unknown = null) {
     console.error('Analytics service error:', error)
     return { success: false, data: defaultValue, error: error.message }
   }
@@ -56,7 +58,7 @@ export class AnalyticsService {
       const { data: sms, error: smsError } = await smsQuery
 
       // Get measurements completed
-      let measurementsQuery = this.supabase
+      const measurementsQuery = this.supabase
         .from('measurements')
         .select(`
           created_at,
@@ -299,8 +301,8 @@ export class AnalyticsService {
         success: true,
         data: {
           revenueBySource,
-          totalRevenue: Object.values(revenueBySource).reduce((sum: number, item: any) => sum + item.revenue, 0),
-          totalJobs: Object.values(revenueBySource).reduce((sum: number, item: any) => sum + item.jobCount, 0)
+          totalRevenue: Object.values(revenueBySource).reduce((sum: number, item: { revenue: number; jobCount: number }) => sum + item.revenue, 0),
+          totalJobs: Object.values(revenueBySource).reduce((sum: number, item: { revenue: number; jobCount: number }) => sum + item.jobCount, 0)
         }
       }
 
@@ -433,10 +435,10 @@ export class AnalyticsService {
         // Simplified queries with individual error handling
         let totalJobs = 0
         let commissions = 0
-        let conversionRate = 0
-        let pipelineValue = 0
-        let estimatesSent = 0
-        let estimatesSentLastMonth = 0
+        const conversionRate = 0
+        const pipelineValue = 0
+        const estimatesSent = 0
+        const estimatesSentLastMonth = 0
         
         try {
           console.log('Fetching total jobs...')
@@ -661,9 +663,9 @@ export class AnalyticsService {
       }
 
       // Simplified approach - fetch each type with individual timeouts
-      let recentComms: any[] = []
-      let recentLeads: any[] = []
-      let recentJobs: any[] = []
+      let recentComms: Array<unknown> = []
+      let recentLeads: Lead[] = []
+      let recentJobs: Job[] = []
 
       try {
         console.log('Fetching recent communications...')

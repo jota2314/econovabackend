@@ -108,7 +108,7 @@ export function LeadHunterArena({ stats, setStats, addAchievement }: LeadHunterA
 
     // Handle XP and achievements
     let xpGained = 0
-    let newAchievements: any[] = []
+    const newAchievements: any[] = []
 
     switch (disposition) {
       case 'victory':
