@@ -123,7 +123,7 @@ export function Sidebar({ className, user }: SidebarProps) {
         <div className="px-3 py-2">
           <div className="flex items-center justify-center mb-4 px-2">
             <Image
-              src="/logo1.png"
+              src="/logo2.png"
               alt="Econova Energy Savings"
               width={350}
               height={85}

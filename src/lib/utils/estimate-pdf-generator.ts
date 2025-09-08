@@ -181,7 +181,7 @@ export async function generateEstimatePDF(data: EstimateData & { returnBuffer?: 
     const fs = await import('fs')
     const path = await import('path')
     
-    const logoPath = path.join(process.cwd(), 'public', 'logo1.png')
+    const logoPath = path.join(process.cwd(), 'public', 'logo3.png')
     
     if (fs.existsSync(logoPath)) {
       const logoBuffer = fs.readFileSync(logoPath)
