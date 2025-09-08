@@ -26,7 +26,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { createClient } from "@/lib/supabase/client"
-import estimatesService, { type EstimateDetail } from "@/lib/services/business/estimates-service"
+import { estimatesService, type EstimateDetail } from "@/lib/services/business/estimates-service"
 
 interface EstimateDetail {
   id: string
