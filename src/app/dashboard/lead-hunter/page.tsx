@@ -8,6 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { MapComponent } from '@/components/lead-hunter/map-component'
 import { AddPermitForm, PermitFormData } from '@/components/lead-hunter/add-permit-form'
 import { PermitDetailsSidebar } from '@/components/lead-hunter/permit-details-sidebar'
+import { PermitTableView } from '@/components/lead-hunter/permit-table-view'
+import { ZoneSelector } from '@/components/lead-hunter/zone-selector'
+import { ViewToggle, ViewMode } from '@/components/lead-hunter/view-toggle'
 import { Plus, Filter, Search, MapPin, Building } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -17,6 +20,7 @@ interface Permit {
   city?: string
   state?: string
   zip_code?: string
+  county?: string
   builder_name: string
   builder_phone?: string
   permit_type: 'residential' | 'commercial'
@@ -40,10 +44,18 @@ export default function LeadHunterPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [clickedLocation, setClickedLocation] = useState<{lat: number, lng: number} | null>(null)
 
+  // View Management
+  const [currentView, setCurrentView] = useState<ViewMode>('map')
+
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [searchFilter, setSearchFilter] = useState('')
+  const [zoneFilter, setZoneFilter] = useState<{
+    state?: 'MA' | 'NH'
+    county?: string
+    cities?: string[]
+  }>({})
 
   // Load permits on component mount
   useEffect(() => {
@@ -71,8 +83,21 @@ export default function LeadHunterPage() {
       )
     }
 
+    // Zone filtering
+    if (zoneFilter.state) {
+      filtered = filtered.filter(p => p.state === zoneFilter.state)
+    }
+
+    if (zoneFilter.county) {
+      filtered = filtered.filter(p => p.county === zoneFilter.county)
+    }
+
+    if (zoneFilter.cities && zoneFilter.cities.length > 0) {
+      filtered = filtered.filter(p => p.city && zoneFilter.cities!.includes(p.city))
+    }
+
     setFilteredPermits(filtered)
-  }, [permits, statusFilter, typeFilter, searchFilter])
+  }, [permits, statusFilter, typeFilter, searchFilter, zoneFilter])
 
   const fetchPermits = async () => {
     try {
@@ -202,20 +227,27 @@ export default function LeadHunterPage() {
           <div className="flex items-center justify-between">
             <div className="min-w-0 flex-1">
               <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
-                Lead Hunter - Construction Map
+                Lead Hunter - Construction Permits
               </h1>
               <p className="text-slate-600 mt-1 text-sm sm:text-base">
                 Track construction permits and convert builders to leads
               </p>
             </div>
-            <Button 
-              onClick={() => setIsAddFormOpen(true)}
-              className="bg-orange-500 hover:bg-orange-600 ml-4 flex-shrink-0"
-              size="sm"
-            >
-              <Plus className="w-4 h-4 sm:mr-2" />
-              <span className="hidden sm:inline">Add Permit</span>
-            </Button>
+            <div className="flex items-center space-x-3 ml-4 flex-shrink-0">
+              <ViewToggle 
+                currentView={currentView}
+                onViewChange={setCurrentView}
+                permitCount={filteredPermits.length}
+              />
+              <Button 
+                onClick={() => setIsAddFormOpen(true)}
+                className="bg-orange-500 hover:bg-orange-600"
+                size="sm"
+              >
+                <Plus className="w-4 h-4 sm:mr-2" />
+                <span className="hidden sm:inline">Add Permit</span>
+              </Button>
+            </div>
           </div>
 
           {/* Filters and Stats */}
@@ -262,51 +294,73 @@ export default function LeadHunterPage() {
               </Select>
             </div>
           </div>
+
+          {/* Zone Selector */}
+          <div className="mt-4">
+            <ZoneSelector 
+              selectedZone={zoneFilter}
+              onZoneChange={setZoneFilter}
+            />
+          </div>
         </div>
 
         {/* Main Content */}
-        <div className="flex-1 flex">
-          {/* Map Container */}
-          <div className="flex-1 relative">
-            {isLoading ? (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto mb-2"></div>
-                  <p className="text-slate-600">Loading permits...</p>
-                </div>
+        <div className="flex-1 flex flex-col">
+          {isLoading ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto mb-2"></div>
+                <p className="text-slate-600">Loading permits...</p>
               </div>
-            ) : (
-              <MapComponent
-                permits={filteredPermits}
-                selectedPermit={selectedPermit}
-                onPermitSelect={handlePermitSelect}
-                onMapClick={handleMapClick}
-              />
-            )}
+            </div>
+          ) : (
+            <>
+              {currentView === 'map' ? (
+                <div className="flex-1 relative">
+                  <MapComponent
+                    permits={filteredPermits}
+                    selectedPermit={selectedPermit}
+                    onPermitSelect={handlePermitSelect}
+                    onMapClick={handleMapClick}
+                  />
 
-            {/* Map Legend - Responsive positioning */}
-            <Card className="absolute bottom-4 left-4 right-4 lg:right-auto lg:w-auto p-3 bg-white/90 backdrop-blur">
-              <h4 className="font-semibold text-sm mb-2 lg:mb-2">Legend</h4>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 lg:space-y-1 lg:grid-cols-1 text-xs">
-                <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 rounded-full bg-green-500 flex-shrink-0"></div>
-                  <span>New</span>
+                  {/* Map Legend - Only show in map view */}
+                  <Card className="absolute bottom-4 left-4 right-4 lg:right-auto lg:w-auto p-3 bg-white/90 backdrop-blur">
+                    <h4 className="font-semibold text-sm mb-2 lg:mb-2">Legend</h4>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 lg:space-y-1 lg:grid-cols-1 text-xs">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-3 h-3 rounded-full bg-green-500 flex-shrink-0"></div>
+                        <span>New</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <div className="w-3 h-3 rounded-full bg-amber-500 flex-shrink-0"></div>
+                        <span>Contacted</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <div className="w-3 h-3 rounded-full bg-blue-500 flex-shrink-0"></div>
+                        <span>Converted</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <div className="w-3 h-3 rounded-full bg-red-500 flex-shrink-0"></div>
+                        <span>Rejected</span>
+                      </div>
+                    </div>
+                  </Card>
                 </div>
-                <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 rounded-full bg-amber-500 flex-shrink-0"></div>
-                  <span>Contacted</span>
+              ) : (
+                <div className="flex-1 p-6 overflow-auto">
+                  <PermitTableView
+                    permits={filteredPermits}
+                    onPermitSelect={handlePermitSelect}
+                    onStatusChange={handleStatusChange}
+                    onConvertToLead={handleConvertToLead}
+                    onEdit={handleEdit}
+                    onDelete={handleDelete}
+                  />
                 </div>
-                <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 rounded-full bg-blue-500 flex-shrink-0"></div>
-                  <span>Converted</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 rounded-full bg-red-500 flex-shrink-0"></div>
-                  <span>Rejected</span>
-                </div>
-              </div>
-            </Card>
-          </div>
+              )}
+            </>
+          )}
         </div>
       </div>
 
