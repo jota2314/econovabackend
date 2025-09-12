@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
       builder_name,
       builder_phone,
       permit_type,
+      status = 'new',
       notes,
       latitude,
       longitude,
@@ -78,9 +79,9 @@ export async function POST(request: NextRequest) {
     } = body
 
     // Validation
-    if (!address || !builder_name || !permit_type) {
+    if (!address || !permit_type) {
       return NextResponse.json(
-        { error: 'Address, builder_name, and permit_type are required' },
+        { error: 'Address and permit_type are required' },
         { status: 400 }
       )
     }
@@ -104,9 +105,10 @@ export async function POST(request: NextRequest) {
       city: city?.trim(),
       state: state?.trim() || 'MA',
       zip_code: zip_code?.trim(),
-      builder_name: builder_name.trim(),
+      builder_name: builder_name?.trim() || 'Unknown Builder',
       builder_phone: builder_phone?.trim(),
       permit_type,
+      status,
       notes: notes?.trim(),
       latitude: parseFloat(latitude),
       longitude: parseFloat(longitude),

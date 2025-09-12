@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -11,18 +11,28 @@ import { Autocomplete } from '@react-google-maps/api'
 import { MapPin, Building, Phone, FileText, X, Image as ImageIcon, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
-interface AddPermitFormProps {
+interface EditPermitFormProps {
   isOpen: boolean
   onClose: () => void
-  onSubmit: (permitData: PermitFormData) => void
-  initialData?: {
-    lat?: number
-    lng?: number
-    address?: string
+  onSubmit: (permitId: string, permitData: EditPermitFormData) => void
+  permit: {
+    id: string
+    address: string
+    city?: string
+    state?: string
+    zip_code?: string
+    builder_name: string
+    builder_phone?: string
+    permit_type: 'residential' | 'commercial'
+    status: 'new' | 'contacted' | 'converted_to_lead' | 'rejected' | 'hot' | 'cold' | 'visited' | 'not_visited'
+    notes?: string
+    latitude: number
+    longitude: number
+    photo_urls?: string[]
   }
 }
 
-export interface PermitFormData {
+export interface EditPermitFormData {
   address: string
   city: string
   state: string
@@ -37,20 +47,20 @@ export interface PermitFormData {
   photo_urls?: string[]
 }
 
-export function AddPermitForm({ isOpen, onClose, onSubmit, initialData }: AddPermitFormProps) {
-  const [formData, setFormData] = useState<PermitFormData>({
-    address: initialData?.address || '',
-    city: '',
-    state: 'MA',
-    zip_code: '',
-    builder_name: '',
-    builder_phone: '',
-    permit_type: 'residential',
-    status: 'new',
-    notes: '',
-    latitude: initialData?.lat,
-    longitude: initialData?.lng,
-    photo_urls: [],
+export function EditPermitForm({ isOpen, onClose, onSubmit, permit }: EditPermitFormProps) {
+  const [formData, setFormData] = useState<EditPermitFormData>({
+    address: permit.address || '',
+    city: permit.city || '',
+    state: permit.state || 'MA',
+    zip_code: permit.zip_code || '',
+    builder_name: permit.builder_name || '',
+    builder_phone: permit.builder_phone || '',
+    permit_type: permit.permit_type || 'residential',
+    status: permit.status || 'new',
+    notes: permit.notes || '',
+    latitude: permit.latitude,
+    longitude: permit.longitude,
+    photo_urls: permit.photo_urls || [],
   })
   
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -59,7 +69,27 @@ export function AddPermitForm({ isOpen, onClose, onSubmit, initialData }: AddPer
   const [isUploading, setIsUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
-  const handleInputChange = (field: keyof PermitFormData, value: string) => {
+  // Update form data when permit changes
+  useEffect(() => {
+    if (permit) {
+      setFormData({
+        address: permit.address || '',
+        city: permit.city || '',
+        state: permit.state || 'MA',
+        zip_code: permit.zip_code || '',
+        builder_name: permit.builder_name || '',
+        builder_phone: permit.builder_phone || '',
+        permit_type: permit.permit_type || 'residential',
+        status: permit.status || 'new',
+        notes: permit.notes || '',
+        latitude: permit.latitude,
+        longitude: permit.longitude,
+        photo_urls: permit.photo_urls || [],
+      })
+    }
+  }, [permit])
+
+  const handleInputChange = (field: keyof EditPermitFormData, value: string | number | string[]) => {
     setFormData(prev => ({ ...prev, [field]: value }))
   }
 
@@ -84,7 +114,6 @@ export function AddPermitForm({ isOpen, onClose, onSubmit, initialData }: AddPer
     let city = ''
     let state = ''
     let zipCode = ''
-    let county = ''
 
     components.forEach((component) => {
       const types = component.types
@@ -98,8 +127,6 @@ export function AddPermitForm({ isOpen, onClose, onSubmit, initialData }: AddPer
         state = component.short_name
       } else if (types.includes('postal_code')) {
         zipCode = component.long_name
-      } else if (types.includes('administrative_area_level_2')) {
-        county = component.long_name
       }
     })
 
@@ -111,7 +138,7 @@ export function AddPermitForm({ isOpen, onClose, onSubmit, initialData }: AddPer
       ...prev,
       address: fullAddress || place.formatted_address || '',
       city: city,
-      state: state || 'MA', // Default to MA if not found
+      state: state || 'MA',
       zip_code: zipCode,
       latitude: place.geometry!.location!.lat(),
       longitude: place.geometry!.location!.lng()
@@ -165,7 +192,6 @@ export function AddPermitForm({ isOpen, onClose, onSubmit, initialData }: AddPer
       return
     }
 
-    // Check if Google Maps API is available
     if (typeof window === 'undefined' || !window.google || !window.google.maps) {
       toast.error('Google Maps is not loaded yet. Please wait and try again.')
       return
@@ -201,6 +227,7 @@ export function AddPermitForm({ isOpen, onClose, onSubmit, initialData }: AddPer
 
 
 
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
@@ -217,25 +244,11 @@ export function AddPermitForm({ isOpen, onClose, onSubmit, initialData }: AddPer
     setIsSubmitting(true)
     
     try {
-      onSubmit(formData)
-      toast.success('Permit added successfully!')
+      onSubmit(permit.id, formData)
+      toast.success('Permit updated successfully!')
       onClose()
-      
-      // Reset form
-      setFormData({
-        address: '',
-        city: '',
-        state: 'MA',
-        zip_code: '',
-        builder_name: '',
-        builder_phone: '',
-        permit_type: 'residential',
-        status: 'new',
-        notes: '',
-        photo_urls: [],
-      })
     } catch (error) {
-      toast.error('Failed to add permit')
+      toast.error('Failed to update permit')
     } finally {
       setIsSubmitting(false)
     }
@@ -272,7 +285,7 @@ export function AddPermitForm({ isOpen, onClose, onSubmit, initialData }: AddPer
       <Card className="bg-white w-full h-full sm:max-w-md sm:w-full sm:max-h-[90vh] sm:h-auto overflow-y-auto">
         <div className="p-6">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-slate-900">Add New Permit</h2>
+            <h2 className="text-xl font-bold text-slate-900">Edit Permit</h2>
             <Button
               variant="ghost"
               size="sm"
@@ -336,7 +349,6 @@ export function AddPermitForm({ isOpen, onClose, onSubmit, initialData }: AddPer
                 </div>
               </div>
 
-              {/* Manual Geocoding Button - Only show if no coordinates or if user typed manually */}
               {(!formData.latitude || !formData.longitude) && (
                 <Button
                   type="button"
@@ -354,9 +366,6 @@ export function AddPermitForm({ isOpen, onClose, onSubmit, initialData }: AddPer
                 <div className="p-2 bg-green-50 border border-green-200 rounded-lg">
                   <p className="text-xs text-green-700 font-medium">
                     ✓ Location confirmed: {formData.latitude.toFixed(6)}, {formData.longitude.toFixed(6)}
-                  </p>
-                  <p className="text-xs text-green-600 mt-1">
-                    Address validated and ready to save
                   </p>
                 </div>
               )}
@@ -489,7 +498,7 @@ export function AddPermitForm({ isOpen, onClose, onSubmit, initialData }: AddPer
                 className="flex-1 bg-orange-500 hover:bg-orange-600"
                 disabled={isSubmitting}
               >
-                {isSubmitting ? 'Adding...' : 'Add Permit'}
+                {isSubmitting ? 'Updating...' : 'Update Permit'}
               </Button>
             </div>
           </form>
