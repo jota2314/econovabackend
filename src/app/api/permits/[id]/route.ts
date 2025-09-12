@@ -105,7 +105,7 @@ export async function PUT(
     if (permit_type !== undefined && !['residential', 'commercial'].includes(permit_type)) {
       return NextResponse.json({ error: 'permit_type must be residential or commercial' }, { status: 400 })
     }
-    if (status !== undefined && !['new', 'contacted', 'converted_to_lead', 'rejected'].includes(status)) {
+    if (status !== undefined && !['new', 'contacted', 'converted_to_lead', 'rejected', 'hot', 'cold', 'visited', 'not_visited'].includes(status)) {
       return NextResponse.json({ error: 'Invalid status value' }, { status: 400 })
     }
 
@@ -187,18 +187,25 @@ export async function DELETE(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const { error } = await supabase
+    const { data, error, count } = await supabase
       .from('permits')
       .delete()
       .eq('id', params.id)
+      .select()
 
     if (error) {
       logger.error('Error deleting permit:', error)
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    logger.info(`Permit deleted: ${params.id} by user ${user.id}`)
-    return NextResponse.json({ message: 'Permit deleted successfully' })
+    // Check if any rows were actually deleted
+    if (!data || data.length === 0) {
+      logger.error(`No permit was deleted for ID: ${params.id}. This could indicate RLS policy restrictions or the permit doesn't exist.`)
+      return NextResponse.json({ error: 'No permit was deleted. Check permissions or if permit exists.' }, { status: 404 })
+    }
+
+    logger.info(`Permit deleted: ${params.id} by user ${user.id}. Deleted data:`, data)
+    return NextResponse.json({ message: 'Permit deleted successfully', deletedData: data[0] })
 
   } catch (error) {
     logger.error('Unexpected error in DELETE /api/permits/[id]:', error)
