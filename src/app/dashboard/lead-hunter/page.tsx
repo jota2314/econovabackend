@@ -301,7 +301,7 @@ export default function LeadHunterPage() {
               />
               <Button 
                 onClick={() => setIsAddFormOpen(true)}
-                className="bg-orange-500 hover:bg-orange-600"
+                className="bg-green-600 hover:bg-green-700"
                 size="sm"
               >
                 <Plus className="w-4 h-4 sm:mr-2" />
@@ -378,13 +378,13 @@ export default function LeadHunterPage() {
 
           {/* Zone Selector - Desktop always visible, Mobile collapsible */}
           <div className={`mt-4 transition-all duration-300 ${
-            isZoneSelectorCollapsed ? 'sm:block hidden' : 'mb-2'
+            isZoneSelectorCollapsed ? 'hidden sm:block' : 'block'
           }`}>
             <ZoneSelector 
               selectedZone={zoneFilter}
               onZoneChange={setZoneFilter}
-              isCollapsed={false}
-              onToggleCollapse={() => {}}
+              isCollapsed={isZoneSelectorCollapsed}
+              onToggleCollapse={() => setIsZoneSelectorCollapsed(!isZoneSelectorCollapsed)}
             />
             
             {/* Mobile Filters in Collapsed State */}
