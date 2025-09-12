@@ -11,12 +11,13 @@ import {
   Phone, 
   Calendar, 
   FileText, 
-  Camera,
   ExternalLink,
   Edit,
   Trash2,
   UserPlus,
-  X
+  X,
+  Image as ImageIcon,
+  ZoomIn
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -29,7 +30,7 @@ interface Permit {
   builder_name: string
   builder_phone?: string
   permit_type: 'residential' | 'commercial'
-  status: 'new' | 'contacted' | 'converted_to_lead' | 'rejected'
+  status: 'new' | 'contacted' | 'converted_to_lead' | 'rejected' | 'hot' | 'cold' | 'visited' | 'not_visited'
   notes?: string
   latitude: number
   longitude: number
@@ -91,6 +92,10 @@ export function PermitDetailsSidebar({
       case 'contacted': return 'bg-amber-100 text-amber-800 border-amber-200'
       case 'converted_to_lead': return 'bg-blue-100 text-blue-800 border-blue-200'
       case 'rejected': return 'bg-red-100 text-red-800 border-red-200'
+      case 'hot': return 'bg-orange-100 text-orange-800 border-orange-200'
+      case 'cold': return 'bg-slate-100 text-slate-800 border-slate-200'
+      case 'visited': return 'bg-purple-100 text-purple-800 border-purple-200'
+      case 'not_visited': return 'bg-gray-100 text-gray-800 border-gray-200'
     }
   }
 
@@ -113,7 +118,7 @@ export function PermitDetailsSidebar({
     .join(', ')
 
   return (
-    <div className={`fixed top-0 right-0 h-full w-full sm:w-96 bg-white shadow-xl border-l transform transition-transform duration-300 z-40 ${
+    <div className={`fixed top-0 right-0 h-full w-full sm:w-[28rem] lg:w-[32rem] bg-white shadow-xl border-l transform transition-transform duration-300 z-40 ${
       isOpen ? 'translate-x-0' : 'translate-x-full'
     }`}>
       <div className="flex flex-col h-full">
@@ -194,6 +199,31 @@ export function PermitDetailsSidebar({
             </div>
           </Card>
 
+          {/* Photos */}
+          {permit.photo_urls && permit.photo_urls.length > 0 && (
+            <Card className="p-4">
+              <h3 className="font-semibold mb-3 flex items-center">
+                <ImageIcon className="w-4 h-4 mr-2" />
+                Photos ({permit.photo_urls.length})
+              </h3>
+              <div className="grid grid-cols-2 gap-2">
+                {permit.photo_urls.map((url, index) => (
+                  <div key={url} className="relative group">
+                    <img 
+                      src={url} 
+                      alt={`Permit photo ${index + 1}`}
+                      className="w-full h-24 object-cover rounded border cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={() => window.open(url, '_blank')}
+                    />
+                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-200 rounded flex items-center justify-center">
+                      <ZoomIn className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
           {/* Notes */}
           {permit.notes && (
             <Card className="p-4">
@@ -207,26 +237,6 @@ export function PermitDetailsSidebar({
             </Card>
           )}
 
-          {/* Photos */}
-          {permit.photo_urls && permit.photo_urls.length > 0 && (
-            <Card className="p-4">
-              <h3 className="font-semibold mb-3 flex items-center">
-                <Camera className="w-4 h-4 mr-2" />
-                Photos ({permit.photo_urls.length})
-              </h3>
-              <div className="grid grid-cols-2 gap-2">
-                {permit.photo_urls.map((url, index) => (
-                  <img
-                    key={index}
-                    src={url}
-                    alt={`Permit photo ${index + 1}`}
-                    className="w-full h-20 object-cover rounded border cursor-pointer hover:opacity-80"
-                    onClick={() => window.open(url, '_blank')}
-                  />
-                ))}
-              </div>
-            </Card>
-          )}
 
           {/* Status Update */}
           <Card className="p-4">
@@ -240,10 +250,14 @@ export function PermitDetailsSidebar({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="new">New</SelectItem>
-                <SelectItem value="contacted">Contacted</SelectItem>
-                <SelectItem value="converted_to_lead">Converted to Lead</SelectItem>
-                <SelectItem value="rejected">Rejected</SelectItem>
+                <SelectItem value="new">🆕 New</SelectItem>
+                <SelectItem value="contacted">📞 Contacted</SelectItem>
+                <SelectItem value="converted_to_lead">✅ Converted to Lead</SelectItem>
+                <SelectItem value="rejected">❌ Rejected</SelectItem>
+                <SelectItem value="hot">🔥 Hot</SelectItem>
+                <SelectItem value="cold">❄️ Cold</SelectItem>
+                <SelectItem value="visited">👥 Visited</SelectItem>
+                <SelectItem value="not_visited">📍 Not Visited</SelectItem>
               </SelectContent>
             </Select>
           </Card>

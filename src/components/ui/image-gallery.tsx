@@ -12,7 +12,8 @@ import {
   RotateCw,
   Download,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Trash2
 } from 'lucide-react'
 import Image from 'next/image'
 
@@ -26,9 +27,10 @@ interface ImageGalleryProps {
   isOpen: boolean
   onClose: () => void
   initialIndex?: number
+  onDelete?: (imageId: string) => void
 }
 
-export function ImageGallery({ images, isOpen, onClose, initialIndex = 0 }: ImageGalleryProps) {
+export function ImageGallery({ images, isOpen, onClose, initialIndex = 0, onDelete }: ImageGalleryProps) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex)
   const [zoom, setZoom] = useState(1)
   const [rotation, setRotation] = useState(0)
@@ -194,6 +196,23 @@ export function ImageGallery({ images, isOpen, onClose, initialIndex = 0 }: Imag
               >
                 <RotateCw className="h-4 w-4" />
               </Button>
+
+              {/* Delete */}
+              {onDelete && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => {
+                    if (currentImage && confirm('Are you sure you want to delete this photo?')) {
+                      onDelete(currentImage.id)
+                    }
+                  }}
+                  className="text-red-400 hover:bg-red-500/20 hover:text-red-300"
+                  title="Delete photo"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
 
               {/* Download */}
               <Button

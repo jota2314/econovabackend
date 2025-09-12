@@ -51,7 +51,8 @@ export const AREA_TYPES = [
   'interior_walls',
   'ceiling',
   'gable',
-  'roof'
+  'roof',
+  'concrete'
 ] as const
 
 export const USER_ROLES = ['manager', 'salesperson', 'admin'] as const

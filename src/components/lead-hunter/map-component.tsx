@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from 'react'
-import { GoogleMap, LoadScript, Marker, InfoWindow } from '@react-google-maps/api'
+import { GoogleMap, useJsApiLoader, Marker, InfoWindow } from '@react-google-maps/api'
 
 interface Permit {
   id: string
@@ -55,6 +55,11 @@ export function MapComponent({
 }: MapComponentProps) {
   const [map, setMap] = useState<google.maps.Map | null>(null)
 
+  const { isLoaded, loadError } = useJsApiLoader({
+    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
+    libraries: ['places'],
+  })
+
   const onLoad = useCallback((map: google.maps.Map) => {
     setMap(map)
   }, [])
@@ -98,70 +103,93 @@ export function MapComponent({
     return `${permit.builder_name} - ${permit.address} (${permit.status})`
   }
 
+  if (loadError) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-slate-50">
+        <div className="text-center p-8">
+          <div className="text-red-500 text-lg mb-2">⚠️ Map Loading Error</div>
+          <p className="text-slate-600 text-sm">Failed to load Google Maps</p>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="mt-4 px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600"
+          >
+            Reload Page
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isLoaded) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-slate-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto mb-2"></div>
+          <p className="text-slate-600">Loading map...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="w-full h-full">
-      <LoadScript 
-        googleMapsApiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''}
-        libraries={['places']}
+      <GoogleMap
+        mapContainerStyle={mapContainerStyle}
+        center={center}
+        zoom={11}
+        onLoad={onLoad}
+        onUnmount={onUnmount}
+        onClick={handleMapClick}
+        options={getMapOptions()}
       >
-        <GoogleMap
-          mapContainerStyle={mapContainerStyle}
-          center={center}
-          zoom={11}
-          onLoad={onLoad}
-          onUnmount={onUnmount}
-          onClick={handleMapClick}
-          options={getMapOptions()}
-        >
-          {permits.map((permit) => (
-            <Marker
-              key={permit.id}
-              position={{
-                lat: permit.latitude,
-                lng: permit.longitude
-              }}
-              icon={getMarkerIcon(permit)}
-              title={getMarkerTitle(permit)}
-              onClick={() => onPermitSelect(permit)}
-            />
-          ))}
+        {permits.map((permit) => (
+          <Marker
+            key={permit.id}
+            position={{
+              lat: permit.latitude,
+              lng: permit.longitude
+            }}
+            icon={getMarkerIcon(permit)}
+            title={getMarkerTitle(permit)}
+            onClick={() => onPermitSelect(permit)}
+          />
+        ))}
 
-          {selectedPermit && (
-            <InfoWindow
-              position={{
-                lat: selectedPermit.latitude,
-                lng: selectedPermit.longitude
-              }}
-              onCloseClick={() => onPermitSelect(null)}
-            >
-              <div className="p-2 max-w-xs">
-                <h3 className="font-bold text-sm mb-1">
-                  {selectedPermit.builder_name}
-                </h3>
-                <p className="text-xs text-gray-600 mb-1">
-                  {selectedPermit.address}
-                </p>
-                <div className="flex items-center space-x-2">
-                  <span className={`px-2 py-1 rounded text-xs font-medium ${
-                    selectedPermit.status === 'new' ? 'bg-green-100 text-green-800' :
-                    selectedPermit.status === 'contacted' ? 'bg-amber-100 text-amber-800' :
-                    selectedPermit.status === 'converted_to_lead' ? 'bg-blue-100 text-blue-800' :
-                    'bg-red-100 text-red-800'
-                  }`}>
-                    {selectedPermit.status.replace('_', ' ')}
-                  </span>
-                  <span className={`px-2 py-1 rounded text-xs ${
-                    selectedPermit.permit_type === 'residential' ? 
-                    'bg-gray-100 text-gray-700' : 'bg-purple-100 text-purple-700'
-                  }`}>
-                    {selectedPermit.permit_type}
-                  </span>
-                </div>
+        {selectedPermit && (
+          <InfoWindow
+            position={{
+              lat: selectedPermit.latitude,
+              lng: selectedPermit.longitude
+            }}
+            onCloseClick={() => onPermitSelect(null)}
+          >
+            <div className="p-2 max-w-xs">
+              <h3 className="font-bold text-sm mb-1">
+                {selectedPermit.builder_name}
+              </h3>
+              <p className="text-xs text-gray-600 mb-1">
+                {selectedPermit.address}
+              </p>
+              <div className="flex items-center space-x-2">
+                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                  selectedPermit.status === 'new' ? 'bg-green-100 text-green-800' :
+                  selectedPermit.status === 'contacted' ? 'bg-amber-100 text-amber-800' :
+                  selectedPermit.status === 'converted_to_lead' ? 'bg-blue-100 text-blue-800' :
+                  'bg-red-100 text-red-800'
+                }`}>
+                  {selectedPermit.status.replace('_', ' ')}
+                </span>
+                <span className={`px-2 py-1 rounded text-xs ${
+                  selectedPermit.permit_type === 'residential' ? 
+                  'bg-gray-100 text-gray-700' : 'bg-purple-100 text-purple-700'
+                }`}>
+                  {selectedPermit.permit_type}
+                </span>
               </div>
-            </InfoWindow>
-          )}
-        </GoogleMap>
-      </LoadScript>
+            </div>
+          </InfoWindow>
+        )}
+      </GoogleMap>
     </div>
   )
 }

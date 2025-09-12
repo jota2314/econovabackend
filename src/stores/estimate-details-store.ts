@@ -79,6 +79,7 @@ interface EstimateDetailsStore {
   approving: boolean
   error?: string
   
+  
   // Field overrides for editing
   priceOverrides: Record<string, number>
   dimensionOverrides: Record<string, { height: number; width: number; square_feet: number }>
@@ -113,130 +114,31 @@ export const useEstimateDetailsStore = create<EstimateDetailsStore>()(
       dimensionOverrides: {},
       editingPrices: false,
 
-      // Fetch estimate details with photos from job
+
+      // Fetch estimate details with photos from job using combined endpoint
       fetchEstimate: async (id: string) => {
         set({ loading: true, error: undefined })
         
         try {
-          // Try to get session with longer timeout
-          let headers: Record<string, string> = {};
-          try {
-            const supabase = createClient()
-            const session = await Promise.race([
-              supabase.auth.getSession(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Session timeout')), 10000))
-            ]) as any;
-            
-            if (session?.data?.session?.access_token) {
-              headers['Authorization'] = `Bearer ${session.data.session.access_token}`;
-            }
-          } catch (sessionError) {
-            // Continue without auth header - the API route will handle authentication
-            console.warn('Session error in fetchEstimate, continuing without auth header:', sessionError)
-          }
+          // Use new combined endpoint that fetches estimate + measurements in single call
+          const response = await fetch(`/api/estimates/${id}/full`)
           
-          const estimateResponse = await fetch(`/api/estimates/${id}`, { headers })
-          
-          if (!estimateResponse.ok) {
+          if (!response.ok) {
             throw new Error('Failed to fetch estimate')
           }
           
-          const estimateData = await estimateResponse.json()
+          const responseData = await response.json()
+          const estimateData = responseData.data
           
-          // Fetch measurements and photos for this estimate
-          const jobId = estimateData.data.jobs.id
-          const measurementsResponse = await fetch(`/api/jobs/${jobId}/measurements`, { headers })
-          
-          // Get measurements data exactly as stored - no recalculation
-          let realItems: EstimateItem[] = []
-          let realPhotos: EstimatePhoto[] = []
-          
-          if (measurementsResponse.ok) {
-            const measurementsData = await measurementsResponse.json()
-            if (measurementsData.data && measurementsData.data.length > 0) {
-              // Calculate pricing using the same hybrid logic as the job view
-              realItems = measurementsData.data
-                .filter((measurement: any) => measurement.square_feet && measurement.square_feet > 0)
-                .map((measurement: any) => {
-                  let unitPrice = 0
-                  let totalCost = 0
-                  let rValue = measurement.r_value || ''
-
-                  // Check for override price first (applies to all insulation types)
-                  if (measurement.override_unit_price) {
-                    unitPrice = measurement.override_unit_price
-                    totalCost = unitPrice * (measurement.square_feet || 0)
-                  } else {
-                    // Calculate pricing based on insulation type and measurements
-                    if (measurement.insulation_type === 'hybrid' && measurement.is_hybrid_system) {
-                      // Use hybrid pricing calculation
-                      const hybridCalc = calculateHybridRValue(
-                        measurement.closed_cell_inches || 0,
-                        measurement.open_cell_inches || 0
-                      )
-                      const hybridPricing = calculateHybridPricing(hybridCalc)
-                      
-                      unitPrice = hybridPricing.totalPricePerSqft
-                      totalCost = unitPrice * (measurement.square_feet || 0)
-                      rValue = `R-${hybridCalc.totalRValue}`
-                    } else {
-                      // Handle non-hybrid systems (single insulation type)
-                      // Calculate based on insulation type and inches
-                      const totalInches = (measurement.closed_cell_inches || 0) + (measurement.open_cell_inches || 0)
-                      if (measurement.insulation_type === 'closed_cell') {
-                        unitPrice = totalInches * 1.243 // $1.243 per inch from hybrid calculator
-                      } else if (measurement.insulation_type === 'open_cell') {
-                        unitPrice = totalInches * 0.471 // $0.471 per inch from hybrid calculator
-                      }
-                      totalCost = unitPrice * (measurement.square_feet || 0)
-                    }
-                  }
-
-                  return {
-                    id: measurement.id,
-                    room_name: measurement.room_name,
-                    surface_type: measurement.surface_type,
-                    area_type: measurement.area_type || '',
-                    height: measurement.height || 0,
-                    width: measurement.width || 0,
-                    square_feet: measurement.square_feet || 0,
-                    insulation_type: measurement.insulation_type,
-                    r_value: rValue,
-                    unit_price: Math.round(unitPrice * 100) / 100, // Round to 2 decimals
-                    total_cost: Math.round(totalCost * 100) / 100, // Round to 2 decimals
-                    notes: measurement.notes,
-                    // Pass through the raw data for reference
-                    closed_cell_inches: measurement.closed_cell_inches,
-                    open_cell_inches: measurement.open_cell_inches,
-                    is_hybrid_system: measurement.is_hybrid_system
-                  }
-                })
-              
-              // Get photos from measurement photo_url field
-              realPhotos = measurementsData.data
-                .filter((measurement: any) => measurement.photo_url)
-                .map((measurement: any, index: number) => ({
-                  id: `photo-${measurement.id}`,
-                  url: measurement.photo_url,
-                  alt: `${measurement.room_name} photo`,
-                  caption: `${measurement.room_name} - ${measurement.surface_type}`,
-                  measurement_id: measurement.id,
-                  room_name: measurement.room_name
-                }))
-            }
-          }
-          
-          // Calculate totals from the actual items (which include override prices)
-          // This ensures the displayed totals match the current measurements state
-          const calculatedSubtotal = realItems.reduce((sum, item) => sum + item.total_cost, 0)
-          const calculatedTotal = calculatedSubtotal // No markup for now
-          
+          // Data is already processed by the combined endpoint
           const estimate: EstimateDetails = {
-            ...estimateData.data,
-            items: realItems,
-            photos: realPhotos,
-            subtotal: calculatedSubtotal,
-            total_amount: calculatedTotal
+            ...estimateData,
+            // Items and photos are already processed by the API
+            items: estimateData.items || [],
+            photos: estimateData.photos || [],
+            // Keep database values, don't override with calculations
+            subtotal: estimateData.subtotal || 0,
+            total_amount: estimateData.total_amount || 0
           }
           
           set({ 
@@ -264,26 +166,9 @@ export const useEstimateDetailsStore = create<EstimateDetailsStore>()(
         set({ saving: true })
         
         try {
-          // Get auth header with longer timeout
-          let headers: Record<string, string> = { 'Content-Type': 'application/json' };
-          try {
-            const supabase = createClient()
-            const session = await Promise.race([
-              supabase.auth.getSession(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Session timeout')), 10000))
-            ]) as any;
-            
-            if (session?.data?.session?.access_token) {
-              headers['Authorization'] = `Bearer ${session.data.session.access_token}`;
-            }
-          } catch (sessionError) {
-            // Continue without auth header - the API route will handle authentication
-            console.warn('Session error in updatePriceOverrides, continuing without auth header:', sessionError)
-          }
-          
           const response = await fetch(`/api/estimates/${estimate.id}/items`, {
             method: 'PATCH',
-            headers,
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ price_overrides: overrides })
           })
           
@@ -298,8 +183,9 @@ export const useEstimateDetailsStore = create<EstimateDetailsStore>()(
             priceOverrides: {} 
           })
           
-          // Refresh the estimate to get updated data
-          get().fetchEstimate(estimate.id)
+          // Update local state instead of full re-fetch to prevent duplicate API calls
+          // The server response could include updated totals if needed
+          // get().fetchEstimate(estimate.id) // Removed to prevent duplicate calls
           
         } catch (error) {
           set({ saving: false })
@@ -353,26 +239,9 @@ export const useEstimateDetailsStore = create<EstimateDetailsStore>()(
         set({ approving: true })
         
         try {
-          // Get auth header with longer timeout
-          let headers: Record<string, string> = { 'Content-Type': 'application/json' };
-          try {
-            const supabase = createClient()
-            const session = await Promise.race([
-              supabase.auth.getSession(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Session timeout')), 10000))
-            ]) as any;
-            
-            if (session?.data?.session?.access_token) {
-              headers['Authorization'] = `Bearer ${session.data.session.access_token}`;
-            }
-          } catch (sessionError) {
-            // Continue without auth header - the API route will handle authentication
-            console.warn('Session error in approveEstimate, continuing without auth header:', sessionError)
-          }
-          
           const response = await fetch(`/api/estimates/${estimate.id}/approve`, {
             method: 'POST',
-            headers
+            headers: { 'Content-Type': 'application/json' }
           })
           
           if (!response.ok) {
@@ -380,10 +249,13 @@ export const useEstimateDetailsStore = create<EstimateDetailsStore>()(
           }
           
           toast.success('Estimate approved successfully')
-          set({ approving: false })
+          set({ 
+            approving: false,
+            estimate: estimate ? { ...estimate, status: 'approved' } : null
+          })
           
-          // Refresh the estimate to get updated data
-          get().fetchEstimate(estimate.id)
+          // Update local state instead of full re-fetch to prevent duplicate API calls
+          // get().fetchEstimate(estimate.id) // Removed to prevent duplicate calls
           
         } catch (error) {
           set({ approving: false })

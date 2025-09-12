@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -45,7 +45,8 @@ import {
   Building,
   Phone,
   Mail,
-  ArrowLeft
+  ArrowLeft,
+  Calculator
 } from "lucide-react"
 
 export default function EstimateDetailsPage() {
@@ -84,10 +85,41 @@ export default function EstimateDetailsPage() {
     await updatePriceOverrides(priceOverrides)
   }
 
+  const handleGeneratePDF = async () => {
+    if (!estimate?.jobs?.id) return
+    
+    try {
+      const response = await fetch(`/api/jobs/${estimate.jobs.id}/generate-pdf`, {
+        method: 'POST'
+      })
+      
+      const result = await response.json()
+      
+      if (result.success) {
+        // Open PDF in new tab
+        window.open(result.pdfUrl, '_blank')
+        
+        // Show success toast
+        const toast = await import('sonner')
+        toast.toast.success(
+          `PDF Generated & Saved! PDF saved to database and opened in new tab. Total: ${formatCurrency(Math.ceil(estimate.total_amount || 0))}`
+        )
+      } else {
+        throw new Error(result.error || 'Failed to generate PDF')
+      }
+    } catch (error) {
+      console.error('Error generating PDF:', error)
+      const toast = await import('sonner')
+      toast.toast.error('Failed to generate PDF. Please try again.')
+    }
+  }
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
     }).format(amount)
   }
 
@@ -115,22 +147,28 @@ export default function EstimateDetailsPage() {
     )
   }
 
+  // Stabilize fetchEstimate reference to prevent unnecessary re-renders
+  const fetchEstimateRef = useRef(fetchEstimate)
+  fetchEstimateRef.current = fetchEstimate
+
   useEffect(() => {
     if (estimateId) {
-      fetchEstimate(estimateId).catch(error => {
+      fetchEstimateRef.current(estimateId).catch(error => {
         console.error('Error in fetchEstimate:', error)
       })
     }
-    
+  }, [estimateId]) // Only estimateId as dependency
+
+  useEffect(() => {
     // Clean up when component unmounts
     return () => {
       reset()
     }
-  }, [estimateId, fetchEstimate, reset])
+  }, [])
 
   const totals = getCalculatedTotals()
 
-  if (loading) {
+  if (loading || !estimate) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
@@ -141,12 +179,12 @@ export default function EstimateDetailsPage() {
     )
   }
 
-  if (error || !estimate) {
+  if (error) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-          <p className="text-red-600 mb-4">{error || 'Estimate not found'}</p>
+          <p className="text-red-600 mb-4">{error}</p>
           <Button onClick={() => router.back()}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Go Back
@@ -159,77 +197,80 @@ export default function EstimateDetailsPage() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-lg border border-blue-100">
-        <div className="flex items-center justify-between">
+      <div className="bg-gradient-to-r from-slate-50 to-gray-50 p-6 rounded-xl border border-slate-200 shadow-sm">
+        <div className="space-y-4">
+          {/* Back Button and Project Address */}
           <div className="flex items-center gap-4">
             <Button
               variant="outline"
               size="sm"
               onClick={() => router.back()}
-              className="border-blue-200 text-blue-700 hover:bg-blue-50"
+              className="border-slate-300 text-slate-700 hover:bg-slate-100"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back
             </Button>
             <div>
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <FileText className="h-6 w-6 text-blue-700" />
-                </div>
-                <div>
-                  <h1 className="text-3xl font-bold text-slate-900">Estimate {estimate.estimate_number}</h1>
-                  <div className="flex items-center gap-3 mt-1">
-                    {getStatusBadge(estimate.status)}
-                    <span className="text-slate-600">•</span>
-                    <span className="text-slate-600">{estimate.jobs.job_name}</span>
-                    <span className="text-slate-600">•</span>
-                    <span className="text-slate-600">{estimate.jobs.lead.name}</span>
-                  </div>
-                </div>
-              </div>
+              <h1 className="text-2xl font-bold text-slate-900">{estimate.jobs.lead.name}</h1>
+              <p className="text-slate-600 mt-1">{estimate.jobs.project_address || estimate.jobs.job_address || 'No address available'}</p>
             </div>
           </div>
           
-          <div className="flex items-center gap-3">
-            <div className="text-right">
-              <p className="text-sm text-slate-600">Total Amount</p>
-              <p className="text-2xl font-bold text-green-700">{formatCurrency(estimate?.total_amount || 0)}</p>
+          {/* Status and Actions Row */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {estimate.status === 'pending_approval' && getStatusBadge(estimate.status)}
             </div>
-            <div className="flex items-center gap-2">
-              {estimate?.status === 'pending_approval' && (
-                <div className="flex flex-col items-end gap-1">
-                  {hasUnsavedChanges() && (
-                    <p className="text-xs text-orange-600 font-medium">
-                      Save changes before approving
-                    </p>
-                  )}
-                  <Button
-                    onClick={approveEstimate}
-                    disabled={approving || hasUnsavedChanges()}
-                    className="bg-green-600 hover:bg-green-700 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
-                  >
-                    {approving ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Approving...
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="h-4 w-4 mr-2" />
-                        Approve
-                      </>
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <p className="text-sm text-slate-600">Total Amount</p>
+                <p className="text-3xl font-bold text-emerald-600">{formatCurrency(Math.ceil(estimate.total_amount || 0))}</p>
+              </div>
+              
+              <div className="flex items-center gap-3">
+                {estimate?.status === 'pending_approval' && (
+                  <div className="flex flex-col items-end gap-1">
+                    {hasUnsavedChanges() && (
+                      <p className="text-xs text-orange-600 font-medium">
+                        Save changes before approving
+                      </p>
                     )}
-                  </Button>
-                </div>
-              )}
-              <Button
-                variant="outline"
-                onClick={() => setEditingPrices(!editingPrices)}
-                className="border-slate-200 hover:bg-slate-50"
-              >
-                <Edit className="h-4 w-4 mr-2" />
-                {editingPrices ? 'Cancel Edit' : 'Edit Prices'}
-              </Button>
+                    <Button
+                      onClick={approveEstimate}
+                      disabled={approving || hasUnsavedChanges()}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white disabled:bg-gray-400 disabled:cursor-not-allowed shadow-lg"
+                    >
+                      {approving ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Approving...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="h-4 w-4 mr-2" />
+                          Approve
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={handleGeneratePDF}
+                  className="border-slate-300 hover:bg-slate-100 shadow-sm"
+                >
+                  <Calculator className="h-4 w-4 mr-2" />
+                  Quick PDF
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setEditingPrices(!editingPrices)}
+                  className="border-slate-300 hover:bg-slate-100 shadow-sm"
+                >
+                  <Edit className="h-4 w-4 mr-2" />
+                  {editingPrices ? 'Cancel Edit' : 'Edit Prices'}
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -372,7 +413,7 @@ export default function EstimateDetailsPage() {
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between p-4 bg-emerald-100 rounded-lg border border-emerald-200">
                   <span className="text-lg font-bold text-emerald-800">Total Amount:</span>
-                  <span className="text-2xl font-bold text-emerald-900">{formatCurrency(estimate?.total_amount || 0)}</span>
+                  <span className="text-2xl font-bold text-emerald-900">{formatCurrency(Math.ceil(estimate.total_amount || 0))}</span>
                 </div>
               </CardContent>
             </Card>

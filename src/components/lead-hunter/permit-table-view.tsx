@@ -52,7 +52,7 @@ interface Permit {
   builder_name: string
   builder_phone?: string
   permit_type: 'residential' | 'commercial'
-  status: 'new' | 'contacted' | 'converted_to_lead' | 'rejected'
+  status: 'new' | 'contacted' | 'converted_to_lead' | 'rejected' | 'hot' | 'cold' | 'visited' | 'not_visited'
   notes?: string
   latitude: number
   longitude: number
@@ -179,6 +179,10 @@ export function PermitTableView({
       case 'contacted': return 'bg-amber-100 text-amber-800 border-amber-200'
       case 'converted_to_lead': return 'bg-blue-100 text-blue-800 border-blue-200'
       case 'rejected': return 'bg-red-100 text-red-800 border-red-200'
+      case 'hot': return 'bg-orange-100 text-orange-800 border-orange-200'
+      case 'cold': return 'bg-slate-100 text-slate-800 border-slate-200'
+      case 'visited': return 'bg-purple-100 text-purple-800 border-purple-200'
+      case 'not_visited': return 'bg-gray-100 text-gray-800 border-gray-200'
     }
   }
 
@@ -217,10 +221,14 @@ export function PermitTableView({
                     <SelectValue placeholder="Change status" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="new">New</SelectItem>
-                    <SelectItem value="contacted">Contacted</SelectItem>
-                    <SelectItem value="converted_to_lead">Converted</SelectItem>
-                    <SelectItem value="rejected">Rejected</SelectItem>
+                    <SelectItem value="new">🆕 New</SelectItem>
+                    <SelectItem value="contacted">📞 Contacted</SelectItem>
+                    <SelectItem value="converted_to_lead">✅ Converted</SelectItem>
+                    <SelectItem value="rejected">❌ Rejected</SelectItem>
+                    <SelectItem value="hot">🔥 Hot</SelectItem>
+                    <SelectItem value="cold">❄️ Cold</SelectItem>
+                    <SelectItem value="visited">👥 Visited</SelectItem>
+                    <SelectItem value="not_visited">📍 Not Visited</SelectItem>
                   </SelectContent>
                 </Select>
                 <Button

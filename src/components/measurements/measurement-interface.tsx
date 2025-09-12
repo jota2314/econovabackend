@@ -69,6 +69,20 @@ import {
   clearPricingCache 
 } from "@/lib/utils/database-pricing-calculator"
 import { generateQuickEstimatePDF } from "@/lib/utils/estimate-pdf-generator"
+import { Job as DatabaseJob, PricingCatalog, Database } from "@/lib/types/database"
+import { EstimateBuilder } from "./estimate-builder"
+import { 
+  calculateHybridRValue, 
+  calculateInchesForTargetRValue, 
+  getHybridBreakdownText, 
+  formatHybridSystemDescription,
+  shouldUseHybridSystem,
+  calculateHybridPricing,
+  type HybridSystemCalculation 
+} from "@/lib/utils/hybrid-calculator"
+import { useRole } from "@/contexts/role-context"
+import { determineUnitPrice } from "@/lib/pricing/determine-unit-price"
+import { fetchDbUnitPrice } from "@/lib/pricing/fetchDbUnitPrice"
 
 // Interface for grouped measurements
 interface MeasurementGroup {
@@ -229,20 +243,6 @@ function getRValueFromInches(insulationType: 'closed_cell' | 'open_cell', inches
   
   return 0
 }
-import { Job as DatabaseJob, PricingCatalog, Database } from "@/lib/types/database"
-import { EstimateBuilder } from "./estimate-builder"
-import { 
-  calculateHybridRValue, 
-  calculateInchesForTargetRValue, 
-  getHybridBreakdownText, 
-  formatHybridSystemDescription,
-  shouldUseHybridSystem,
-  calculateHybridPricing,
-  type HybridSystemCalculation 
-} from "@/lib/utils/hybrid-calculator"
-import { useRole } from "@/contexts/role-context"
-import { determineUnitPrice } from "@/lib/pricing/determine-unit-price"
-import { fetchDbUnitPrice } from "@/lib/pricing/fetchDbUnitPrice"
 
 // Feature flag for new pricing logic
 const USE_NEW_PRICING = process.env.NEXT_PUBLIC_USE_NEW_PRICING === 'true' || false

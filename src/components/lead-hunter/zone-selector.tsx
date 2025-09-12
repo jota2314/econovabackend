@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { MapPin, Filter, X, Plus } from 'lucide-react'
+import { MapPin, Filter, X, Plus, ChevronDown, ChevronUp } from 'lucide-react'
 import { toast } from 'sonner'
 
 // Massachusetts and New Hampshire geographical data
@@ -67,11 +67,26 @@ interface ZoneSelectorProps {
   onZoneChange: (filter: ZoneFilter) => void
   selectedZone: ZoneFilter
   permitCounts?: Record<string, number>
+  isCollapsed?: boolean
+  onToggleCollapse?: () => void
+  defaultCollapsed?: boolean
 }
 
-export function ZoneSelector({ onZoneChange, selectedZone, permitCounts = {} }: ZoneSelectorProps) {
+export function ZoneSelector({ 
+  onZoneChange, 
+  selectedZone, 
+  permitCounts = {},
+  isCollapsed,
+  onToggleCollapse,
+  defaultCollapsed = false
+}: ZoneSelectorProps) {
   const [activeFilters, setActiveFilters] = useState<ZoneFilter>(selectedZone)
   const [availableCities, setAvailableCities] = useState<string[]>([])
+  const [localCollapsed, setLocalCollapsed] = useState(defaultCollapsed)
+  
+  // Use prop-controlled collapsed state if provided, otherwise use local state
+  const collapsed = isCollapsed !== undefined ? isCollapsed : localCollapsed
+  const toggleCollapse = onToggleCollapse || (() => setLocalCollapsed(!localCollapsed))
 
   // Update available cities when county changes
   useEffect(() => {
@@ -138,25 +153,103 @@ export function ZoneSelector({ onZoneChange, selectedZone, permitCounts = {} }: 
   }
 
   const hasActiveFilters = activeFilters.state || activeFilters.county || activeFilters.cities?.length
+  
+  const getActiveFilterCount = () => {
+    let count = 0
+    if (activeFilters.state) count++
+    if (activeFilters.county) count++
+    if (activeFilters.cities?.length) count += activeFilters.cities.length
+    return count
+  }
 
+  // Collapsed view - compact summary
+  if (collapsed) {
+    return (
+      <Card className="p-3 bg-white border shadow-sm transition-all duration-300 ease-in-out">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3 flex-1 min-w-0">
+            <MapPin className="w-5 h-5 text-orange-500 flex-shrink-0" />
+            <div className="flex items-center space-x-2 flex-1 min-w-0">
+              <span className="text-sm font-medium text-slate-700 truncate">
+                {getFilterSummary()}
+              </span>
+              {hasActiveFilters && (
+                <Badge 
+                  variant="secondary" 
+                  className="ml-2 flex-shrink-0 bg-orange-100 text-orange-700 border-orange-200"
+                >
+                  {getActiveFilterCount()} active
+                </Badge>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center space-x-2 ml-2">
+            {hasActiveFilters && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearAllFilters}
+                className="text-slate-500 hover:text-slate-700 hover:bg-slate-100 px-2"
+                title="Clear all filters"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={toggleCollapse}
+              className="text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+              title="Expand zone selector"
+            >
+              <Filter className="w-4 h-4 mr-1" />
+              <ChevronDown className="w-4 h-4 transition-transform duration-200" />
+            </Button>
+          </div>
+        </div>
+      </Card>
+    )
+  }
+
+  // Expanded view - full selector
   return (
-    <Card className="p-4 space-y-4">
+    <Card className="p-4 space-y-4 transition-all duration-300 ease-in-out animate-in slide-in-from-top-2">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
           <MapPin className="w-5 h-5 text-orange-500" />
           <h3 className="font-semibold">Zone Selector</h3>
+          {hasActiveFilters && (
+            <Badge 
+              variant="secondary" 
+              className="ml-2 bg-orange-100 text-orange-700 border-orange-200"
+            >
+              {getActiveFilterCount()} active
+            </Badge>
+          )}
         </div>
-        {hasActiveFilters && (
+        <div className="flex items-center space-x-2">
+          {hasActiveFilters && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={clearAllFilters}
+              className="text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+              title="Clear all filters"
+            >
+              <X className="w-4 h-4 mr-1" />
+              Clear All
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
-            onClick={clearAllFilters}
-            className="text-slate-500 hover:text-slate-700"
+            onClick={toggleCollapse}
+            className="text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+            title="Collapse zone selector"
           >
-            <X className="w-4 h-4 mr-1" />
-            Clear All
+            <ChevronUp className="w-4 h-4 transition-transform duration-200" />
           </Button>
-        )}
+        </div>
       </div>
 
       {/* Filter Summary */}

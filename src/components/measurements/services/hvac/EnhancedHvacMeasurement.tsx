@@ -64,6 +64,17 @@ export function EnhancedHvacMeasurement({
 
   const api = useMeasurementApi<EnhancedHvacMeasurementType>('hvac', 'enhanced_hvac_measurements')
 
+  const loadMeasurements = async () => {
+    try {
+      logger.info('Loading enhanced HVAC measurements', { jobId })
+      const data = await api.loadMeasurements(jobId)
+      setMeasurements(data)
+      onMeasurementsChange?.(data)
+    } catch (error) {
+      logger.error('Failed to load enhanced HVAC measurements', error, { jobId })
+    }
+  }
+
   // Load measurements on mount if not provided
   useEffect(() => {
     if (initialMeasurements.length === 0 && jobId) {
@@ -87,17 +98,6 @@ export function EnhancedHvacMeasurement({
       setJobSummary(null)
     }
   }, [measurements])
-
-  const loadMeasurements = async () => {
-    try {
-      logger.info('Loading enhanced HVAC measurements', { jobId })
-      const data = await api.loadMeasurements(jobId)
-      setMeasurements(data)
-      onMeasurementsChange?.(data)
-    } catch (error) {
-      logger.error('Failed to load enhanced HVAC measurements', error, { jobId })
-    }
-  }
 
   const handleMeasurementsChange = useCallback((newMeasurements: EnhancedHvacMeasurementType[]) => {
     setMeasurements(newMeasurements)

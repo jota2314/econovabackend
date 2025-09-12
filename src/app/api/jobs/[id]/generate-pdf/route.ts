@@ -127,7 +127,7 @@ export async function POST(
       .single()
     
     // Always use live measurements instead of approved estimate data
-    let finalMeasurements: PDFMeasurement[] = measurements.map(m => ({
+    const finalMeasurements: PDFMeasurement[] = measurements.map(m => ({
       room_name: m.room_name,
       floor_level: m.floor_level,
       area_type: m.area_type,
@@ -144,7 +144,7 @@ export async function POST(
       is_hybrid_system: m.is_hybrid_system || false,
       photo_url: m.photo_url || undefined
     }))
-    let finalOverrideTotal = additionalData?.overrideTotal
+    const finalOverrideTotal = additionalData?.overrideTotal
     
     // COMMENTED OUT: Force use of live measurements instead of approved estimate data
     // This ensures PDF always matches what user sees in the app

@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
     )
     
     // Build query
-    let query = supabase
+    const query = supabase
       .from('estimates')
       .select(`
         *,

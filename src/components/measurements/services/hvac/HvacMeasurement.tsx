@@ -42,6 +42,18 @@ export function HvacMeasurement({
 
   const api = useMeasurementApi<HvacMeasurementType>('hvac', 'hvac_measurements')
 
+  const loadMeasurements = async () => {
+    try {
+      logger.info('Loading HVAC measurements', { jobId })
+      const data = await api.loadMeasurements(jobId)
+      setMeasurements(data)
+      onMeasurementsChange?.(data)
+    } catch (error) {
+      logger.error('Failed to load HVAC measurements', error, { jobId })
+      // Error already handled in API hook
+    }
+  }
+
   // Load measurements on mount if not provided
   useEffect(() => {
     if (initialMeasurements.length === 0 && jobId) {
@@ -55,18 +67,6 @@ export function HvacMeasurement({
       setMeasurements(initialMeasurements)
     }
   }, [initialMeasurements])
-
-  const loadMeasurements = async () => {
-    try {
-      logger.info('Loading HVAC measurements', { jobId })
-      const data = await api.loadMeasurements(jobId)
-      setMeasurements(data)
-      onMeasurementsChange?.(data)
-    } catch (error) {
-      logger.error('Failed to load HVAC measurements', error, { jobId })
-      // Error already handled in API hook
-    }
-  }
 
   const handleMeasurementsChange = (newMeasurements: HvacMeasurementType[]) => {
     setMeasurements(newMeasurements)

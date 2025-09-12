@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { MapComponent } from '@/components/lead-hunter/map-component'
 import { AddPermitForm, PermitFormData } from '@/components/lead-hunter/add-permit-form'
+import { EditPermitForm, EditPermitFormData } from '@/components/lead-hunter/edit-permit-form'
 import { PermitDetailsSidebar } from '@/components/lead-hunter/permit-details-sidebar'
 import { PermitTableView } from '@/components/lead-hunter/permit-table-view'
 import { ZoneSelector } from '@/components/lead-hunter/zone-selector'
@@ -24,7 +25,7 @@ interface Permit {
   builder_name: string
   builder_phone?: string
   permit_type: 'residential' | 'commercial'
-  status: 'new' | 'contacted' | 'converted_to_lead' | 'rejected'
+  status: 'new' | 'contacted' | 'converted_to_lead' | 'rejected' | 'hot' | 'cold' | 'visited' | 'not_visited'
   notes?: string
   latitude: number
   longitude: number
@@ -40,12 +41,23 @@ export default function LeadHunterPage() {
   const [filteredPermits, setFilteredPermits] = useState<Permit[]>([])
   const [selectedPermit, setSelectedPermit] = useState<Permit | null>(null)
   const [isAddFormOpen, setIsAddFormOpen] = useState(false)
+  const [isEditFormOpen, setIsEditFormOpen] = useState(false)
+  const [editingPermit, setEditingPermit] = useState<Permit | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [clickedLocation, setClickedLocation] = useState<{lat: number, lng: number} | null>(null)
 
   // View Management
   const [currentView, setCurrentView] = useState<ViewMode>('map')
+  
+  // Zone Selector Collapse State - Load from localStorage if available
+  const [isZoneSelectorCollapsed, setIsZoneSelectorCollapsed] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('zoneSelectorCollapsed')
+      return saved !== null ? JSON.parse(saved) : true
+    }
+    return true // Default to collapsed for map view
+  })
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -61,6 +73,13 @@ export default function LeadHunterPage() {
   useEffect(() => {
     fetchPermits()
   }, [])
+  
+  // Save zone selector collapsed state to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('zoneSelectorCollapsed', JSON.stringify(isZoneSelectorCollapsed))
+    }
+  }, [isZoneSelectorCollapsed])
 
   // Apply filters when permits or filter values change
   useEffect(() => {
@@ -183,8 +202,40 @@ export default function LeadHunterPage() {
   }
 
   const handleEdit = (permit: Permit) => {
-    // TODO: Implement edit functionality
-    toast.info('Edit functionality coming soon!')
+    setEditingPermit(permit)
+    setIsEditFormOpen(true)
+  }
+
+  const handleEditSubmit = async (permitId: string, permitData: EditPermitFormData) => {
+    try {
+      const response = await fetch(`/api/permits/${permitId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(permitData),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to update permit')
+      }
+
+      const updatedPermit = await response.json()
+      setPermits(prev => prev.map(p => p.id === permitId ? updatedPermit : p))
+      setIsEditFormOpen(false)
+      setEditingPermit(null)
+      
+      // Update selected permit if it's the one being edited
+      if (selectedPermit?.id === permitId) {
+        setSelectedPermit(updatedPermit)
+      }
+      
+      toast.success('Permit updated successfully!')
+    } catch (error) {
+      console.error('Error updating permit:', error)
+      toast.error(error instanceof Error ? error.message : 'Failed to update permit')
+    }
   }
 
   const handleDelete = async (permitId: string) => {
@@ -194,16 +245,20 @@ export default function LeadHunterPage() {
       })
 
       if (!response.ok) {
-        throw new Error('Failed to delete permit')
+        const errorData = await response.json().catch(() => ({}))
+        const errorMessage = errorData.error || `HTTP ${response.status}: ${response.statusText}`
+        console.error('Delete failed:', errorMessage)
+        throw new Error(errorMessage)
       }
 
+      // Only remove from UI if the server deletion was successful
       setPermits(prev => prev.filter(p => p.id !== permitId))
       setSelectedPermit(null)
       setIsSidebarOpen(false)
       toast.success('Permit deleted successfully')
     } catch (error) {
       console.error('Error deleting permit:', error)
-      toast.error('Failed to delete permit')
+      toast.error(error instanceof Error ? error.message : 'Failed to delete permit')
     }
   }
 
@@ -214,6 +269,10 @@ export default function LeadHunterPage() {
       contacted: permits.filter(p => p.status === 'contacted').length,
       converted_to_lead: permits.filter(p => p.status === 'converted_to_lead').length,
       rejected: permits.filter(p => p.status === 'rejected').length,
+      hot: permits.filter(p => p.status === 'hot').length,
+      cold: permits.filter(p => p.status === 'cold').length,
+      visited: permits.filter(p => p.status === 'visited').length,
+      not_visited: permits.filter(p => p.status === 'not_visited').length,
     }
   }
 
@@ -223,13 +282,14 @@ export default function LeadHunterPage() {
     <div className="min-h-screen bg-slate-50">
       <div className="flex flex-col h-screen">
         {/* Header */}
-        <div className="bg-white border-b px-4 sm:px-6 py-4">
+        <div className="bg-white border-b px-4 sm:px-6 py-2 sm:py-4">
           <div className="flex items-center justify-between">
             <div className="min-w-0 flex-1">
-              <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
-                Lead Hunter - Construction Permits
+              <h1 className="text-lg sm:text-2xl font-bold text-slate-900">
+                <span className="sm:hidden">Lead Hunter</span>
+                <span className="hidden sm:inline">Lead Hunter - Construction Permits</span>
               </h1>
-              <p className="text-slate-600 mt-1 text-sm sm:text-base">
+              <p className="text-slate-600 mt-1 text-sm sm:text-base hidden sm:block">
                 Track construction permits and convert builders to leads
               </p>
             </div>
@@ -251,7 +311,7 @@ export default function LeadHunterPage() {
           </div>
 
           {/* Filters and Stats */}
-          <div className="mt-4 space-y-3 lg:space-y-0 lg:flex lg:flex-wrap lg:items-center lg:gap-4">
+          <div className="mt-2 sm:mt-4 space-y-3 lg:space-y-0 lg:flex lg:flex-wrap lg:items-center lg:gap-4">
             {/* Search */}
             <div className="flex-1 lg:min-w-64">
               <div className="relative">
@@ -265,8 +325,8 @@ export default function LeadHunterPage() {
               </div>
             </div>
 
-            {/* Filters Row for Mobile */}
-            <div className="flex space-x-3 lg:contents">
+            {/* Filters Row */}
+            <div className="hidden sm:flex space-x-3 lg:contents">
               {/* Status Filter */}
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="flex-1 lg:w-48">
@@ -274,10 +334,14 @@ export default function LeadHunterPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Status ({statusCounts.all})</SelectItem>
-                  <SelectItem value="new">New ({statusCounts.new})</SelectItem>
-                  <SelectItem value="contacted">Contacted ({statusCounts.contacted})</SelectItem>
-                  <SelectItem value="converted_to_lead">Converted ({statusCounts.converted_to_lead})</SelectItem>
-                  <SelectItem value="rejected">Rejected ({statusCounts.rejected})</SelectItem>
+                  <SelectItem value="new">🆕 New ({statusCounts.new})</SelectItem>
+                  <SelectItem value="contacted">📞 Contacted ({statusCounts.contacted})</SelectItem>
+                  <SelectItem value="converted_to_lead">✅ Converted ({statusCounts.converted_to_lead})</SelectItem>
+                  <SelectItem value="rejected">❌ Rejected ({statusCounts.rejected})</SelectItem>
+                  <SelectItem value="hot">🔥 Hot ({statusCounts.hot})</SelectItem>
+                  <SelectItem value="cold">❄️ Cold ({statusCounts.cold})</SelectItem>
+                  <SelectItem value="visited">👥 Visited ({statusCounts.visited})</SelectItem>
+                  <SelectItem value="not_visited">📍 Not Visited ({statusCounts.not_visited})</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -293,14 +357,66 @@ export default function LeadHunterPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Mobile Compact Filter */}
+            <div className="sm:hidden">
+              <Button
+                variant="outline"
+                onClick={() => setIsZoneSelectorCollapsed(!isZoneSelectorCollapsed)}
+                className="w-full flex items-center justify-between"
+              >
+                <div className="flex items-center space-x-2">
+                  <Filter className="w-4 h-4" />
+                  <span>Filters</span>
+                </div>
+                <span className="text-sm text-slate-500">
+                  {statusFilter !== 'all' || typeFilter !== 'all' || zoneFilter !== 'all' ? '•' : ''}
+                </span>
+              </Button>
+            </div>
           </div>
 
-          {/* Zone Selector */}
-          <div className="mt-4">
+          {/* Zone Selector - Desktop always visible, Mobile collapsible */}
+          <div className={`mt-4 transition-all duration-300 ${
+            isZoneSelectorCollapsed ? 'sm:block hidden' : 'mb-2'
+          }`}>
             <ZoneSelector 
               selectedZone={zoneFilter}
               onZoneChange={setZoneFilter}
+              isCollapsed={false}
+              onToggleCollapse={() => {}}
             />
+            
+            {/* Mobile Filters in Collapsed State */}
+            <div className="sm:hidden mt-3 space-y-3">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status ({statusCounts.all})</SelectItem>
+                  <SelectItem value="new">🆕 New ({statusCounts.new})</SelectItem>
+                  <SelectItem value="contacted">📞 Contacted ({statusCounts.contacted})</SelectItem>
+                  <SelectItem value="converted_to_lead">✅ Converted ({statusCounts.converted_to_lead})</SelectItem>
+                  <SelectItem value="rejected">❌ Rejected ({statusCounts.rejected})</SelectItem>
+                  <SelectItem value="hot">🔥 Hot ({statusCounts.hot})</SelectItem>
+                  <SelectItem value="cold">❄️ Cold ({statusCounts.cold})</SelectItem>
+                  <SelectItem value="visited">👥 Visited ({statusCounts.visited})</SelectItem>
+                  <SelectItem value="not_visited">📍 Not Visited ({statusCounts.not_visited})</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  <SelectItem value="residential">Residential</SelectItem>
+                  <SelectItem value="commercial">Commercial</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
 
@@ -377,6 +493,19 @@ export default function LeadHunterPage() {
           lng: clickedLocation.lng
         } : undefined}
       />
+
+      {/* Edit Permit Modal */}
+      {editingPermit && (
+        <EditPermitForm
+          isOpen={isEditFormOpen}
+          onClose={() => {
+            setIsEditFormOpen(false)
+            setEditingPermit(null)
+          }}
+          onSubmit={handleEditSubmit}
+          permit={editingPermit}
+        />
+      )}
 
       {/* Permit Details Sidebar */}
       <PermitDetailsSidebar

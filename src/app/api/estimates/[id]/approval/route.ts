@@ -33,6 +33,11 @@ async function handleApprovalAction(
           email,
           phone
         )
+      ),
+      created_by_user:users!left!estimates_created_by_fkey (
+        id,
+        full_name,
+        email
       )
     `)
     .eq('id', id)
@@ -72,13 +77,12 @@ async function handleApprovalAction(
         job_name,
         service_type
       ),
-      approved_by_user:users!estimates_approved_by_fkey (
+      approved_by_user:users!left!estimates_approved_by_fkey (
         id,
         full_name,
         email
       )
     `)
-    .single()
 
   if (updateError) {
     console.error('Error updating estimate:', updateError)
@@ -87,6 +91,18 @@ async function handleApprovalAction(
       { status: 500 }
     )
   }
+
+  // Check if any rows were updated
+  if (!updatedEstimate || updatedEstimate.length === 0) {
+    console.error('No estimate was updated for ID:', id)
+    return NextResponse.json(
+      { success: false, error: 'Estimate not found or could not be updated' },
+      { status: 404 }
+    )
+  }
+
+  // Get the first (and should be only) updated estimate
+  const finalEstimate = Array.isArray(updatedEstimate) ? updatedEstimate[0] : updatedEstimate
 
   // Handle measurement locking
   let measurementUpdate = null
@@ -99,7 +115,7 @@ async function handleApprovalAction(
         is_locked: true,
         locked_at: new Date().toISOString()
       })
-      .eq('job_id', estimate.jobs.id)
+      .eq('job_id', finalEstimate.jobs.id)
   } else {
     // Unlock measurements when estimate is rejected
     measurementUpdate = await supabase
@@ -109,14 +125,14 @@ async function handleApprovalAction(
         is_locked: false,
         locked_at: null
       })
-      .eq('job_id', estimate.jobs.id)
+      .eq('job_id', finalEstimate.jobs.id)
       .eq('locked_by_estimate_id', id)
   }
 
   return NextResponse.json({
     success: true,
     data: {
-      estimate: updatedEstimate,
+      estimate: finalEstimate,
       measurements_locked: action === 'approve',
       measurements_updated: measurementUpdate?.count || 0
     },
