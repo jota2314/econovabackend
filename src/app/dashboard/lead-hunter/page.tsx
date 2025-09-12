@@ -12,7 +12,7 @@ import { PermitDetailsSidebar } from '@/components/lead-hunter/permit-details-si
 import { PermitTableView } from '@/components/lead-hunter/permit-table-view'
 import { ZoneSelector } from '@/components/lead-hunter/zone-selector'
 import { ViewToggle, ViewMode } from '@/components/lead-hunter/view-toggle'
-import { Plus, Filter, Search, MapPin, Building } from 'lucide-react'
+import { Plus, Filter, Search, MapPin, Building, Minus } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Permit {
@@ -49,6 +49,9 @@ export default function LeadHunterPage() {
 
   // View Management
   const [currentView, setCurrentView] = useState<ViewMode>('map')
+  
+  // Legend Management
+  const [isLegendCollapsed, setIsLegendCollapsed] = useState(false)
   
   // Zone Selector Collapse State - Load from localStorage if available
   const [isZoneSelectorCollapsed, setIsZoneSelectorCollapsed] = useState(() => {
@@ -442,25 +445,53 @@ export default function LeadHunterPage() {
 
                   {/* Map Legend - Only show in map view */}
                   <Card className="absolute bottom-4 left-4 right-4 lg:right-auto lg:w-auto p-3 bg-white/90 backdrop-blur">
-                    <h4 className="font-semibold text-sm mb-2 lg:mb-2">Legend</h4>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 lg:space-y-1 lg:grid-cols-1 text-xs">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-3 h-3 rounded-full bg-green-500 flex-shrink-0"></div>
-                        <span>New</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <div className="w-3 h-3 rounded-full bg-amber-500 flex-shrink-0"></div>
-                        <span>Contacted</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <div className="w-3 h-3 rounded-full bg-blue-500 flex-shrink-0"></div>
-                        <span>Converted</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <div className="w-3 h-3 rounded-full bg-red-500 flex-shrink-0"></div>
-                        <span>Rejected</span>
-                      </div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-semibold text-sm">Legend</h4>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setIsLegendCollapsed(!isLegendCollapsed)}
+                        className="h-6 w-6 p-0 text-slate-500 hover:text-slate-700"
+                      >
+                        {isLegendCollapsed ? <Plus className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
+                      </Button>
                     </div>
+                    {!isLegendCollapsed && (
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 lg:space-y-1 lg:grid-cols-1 text-xs">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-3 h-3 rounded-full bg-green-500 flex-shrink-0"></div>
+                          <span>New</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <div className="w-3 h-3 rounded-full bg-amber-500 flex-shrink-0"></div>
+                          <span>Contacted</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <div className="w-3 h-3 rounded-full bg-blue-500 flex-shrink-0"></div>
+                          <span>Converted</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <div className="w-3 h-3 rounded-full bg-red-500 flex-shrink-0"></div>
+                          <span>Rejected</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <div className="w-3 h-3 rounded-full bg-orange-600 flex-shrink-0"></div>
+                          <span>Hot 🔥</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <div className="w-3 h-3 rounded-full bg-slate-500 flex-shrink-0"></div>
+                          <span>Cold</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <div className="w-3 h-3 rounded-full bg-purple-500 flex-shrink-0"></div>
+                          <span>Visited</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <div className="w-3 h-3 rounded-full bg-gray-500 flex-shrink-0"></div>
+                          <span>Not Visited</span>
+                        </div>
+                      </div>
+                    )}
                   </Card>
                 </div>
               ) : (

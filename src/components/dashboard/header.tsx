@@ -86,7 +86,7 @@ export function Header({
   return (
     <header className="border-b bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60">
       <div className="flex h-14 items-center px-3 sm:px-4 lg:px-6">
-        <MobileSidebar />
+        <MobileSidebar user={userData} />
         
         <div className="flex-1 flex items-center justify-between">
           <div className="flex items-center gap-4">

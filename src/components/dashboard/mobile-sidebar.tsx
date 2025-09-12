@@ -3,11 +3,20 @@
 import { useState, useEffect } from "react"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet"
 import { Menu } from "lucide-react"
 import { Sidebar } from "./sidebar"
 
-export function MobileSidebar() {
+interface MobileSidebarProps {
+  user?: {
+    name: string
+    email: string
+    avatar?: string
+    role: string
+  }
+}
+
+export function MobileSidebar({ user }: MobileSidebarProps) {
   const [open, setOpen] = useState(false)
   const pathname = usePathname()
 
@@ -29,7 +38,8 @@ export function MobileSidebar() {
         </Button>
       </SheetTrigger>
       <SheetContent side="left" className="p-0 w-72 sm:w-80">
-        <Sidebar />
+        <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
+        <Sidebar user={user} />
       </SheetContent>
     </Sheet>
   )

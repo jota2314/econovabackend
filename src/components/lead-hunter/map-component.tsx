@@ -9,7 +9,7 @@ interface Permit {
   builder_name: string
   builder_phone?: string
   permit_type: 'residential' | 'commercial'
-  status: 'new' | 'contacted' | 'converted_to_lead' | 'rejected'
+  status: 'new' | 'contacted' | 'converted_to_lead' | 'rejected' | 'hot' | 'cold' | 'visited' | 'not_visited'
   notes?: string
   latitude: number
   longitude: number
@@ -81,7 +81,11 @@ export function MapComponent({
       new: '#10b981', // green
       contacted: '#f59e0b', // amber  
       converted_to_lead: '#3b82f6', // blue
-      rejected: '#ef4444' // red
+      rejected: '#ef4444', // red
+      hot: '#ea580c', // orange fire color 🔥
+      cold: '#64748b', // slate
+      visited: '#a855f7', // purple
+      not_visited: '#6b7280' // gray
     }
     
     // Return undefined if Google Maps isn't loaded yet
