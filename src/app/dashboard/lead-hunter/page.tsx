@@ -12,7 +12,7 @@ import { PermitDetailsSidebar } from '@/components/lead-hunter/permit-details-si
 import { PermitTableView } from '@/components/lead-hunter/permit-table-view'
 import { ZoneSelector } from '@/components/lead-hunter/zone-selector'
 import { ViewToggle, ViewMode } from '@/components/lead-hunter/view-toggle'
-import { Plus, Filter, Search, MapPin, Building, Minus } from 'lucide-react'
+import { Plus, Filter, Search, MapPin, Building, Minus, Flame } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Permit {
@@ -52,6 +52,9 @@ export default function LeadHunterPage() {
   
   // Legend Management
   const [isLegendCollapsed, setIsLegendCollapsed] = useState(false)
+  
+  // Heat Zones Management
+  const [showHeatZones, setShowHeatZones] = useState(false)
   
   // Zone Selector Collapse State - Load from localStorage if available
   const [isZoneSelectorCollapsed, setIsZoneSelectorCollapsed] = useState(() => {
@@ -302,6 +305,18 @@ export default function LeadHunterPage() {
                 onViewChange={setCurrentView}
                 permitCount={filteredPermits.length}
               />
+              {currentView === 'map' && (
+                <Button
+                  variant={showHeatZones ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setShowHeatZones(!showHeatZones)}
+                  className={showHeatZones ? "bg-orange-600 hover:bg-orange-700" : ""}
+                  title="Toggle Heat Zones for Hot Permits"
+                >
+                  <Flame className="w-4 h-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Heat Zones</span>
+                </Button>
+              )}
               <Button 
                 onClick={() => setIsAddFormOpen(true)}
                 className="bg-green-600 hover:bg-green-700"
@@ -381,8 +396,8 @@ export default function LeadHunterPage() {
 
           {/* Zone Selector - Desktop always visible, Mobile collapsible */}
           <div className={`mt-4 transition-all duration-300 ${
-            isZoneSelectorCollapsed ? 'hidden sm:block' : 'block'
-          }`}>
+            isZoneSelectorCollapsed ? 'hidden' : 'block'
+          } sm:block`}>
             <ZoneSelector 
               selectedZone={zoneFilter}
               onZoneChange={setZoneFilter}
@@ -441,6 +456,7 @@ export default function LeadHunterPage() {
                     selectedPermit={selectedPermit}
                     onPermitSelect={handlePermitSelect}
                     onMapClick={handleMapClick}
+                    showHeatZones={showHeatZones}
                   />
 
                   {/* Map Legend - Only show in map view */}

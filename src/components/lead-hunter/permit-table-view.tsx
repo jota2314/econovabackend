@@ -1,6 +1,17 @@
 "use client"
 
 import { useState } from 'react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -38,7 +49,9 @@ import {
   Edit,
   Trash2,
   UserPlus,
-  Download
+  Download,
+  Route,
+  AlertCircle
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -88,6 +101,13 @@ export function PermitTableView({
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   const [pageSize, setPageSize] = useState(25)
   const [currentPage, setCurrentPage] = useState(1)
+  
+  // Route planning dialog state
+  const [isRoutePlannerOpen, setIsRoutePlannerOpen] = useState(false)
+  const [startPointType, setStartPointType] = useState<'current' | 'first' | 'custom'>('current')
+  const [customStartAddress, setCustomStartAddress] = useState('')
+  const [endPointType, setEndPointType] = useState<'last' | 'start' | 'custom'>('last')
+  const [customEndAddress, setCustomEndAddress] = useState('')
 
   // Sort permits
   const sortedPermits = [...permits].sort((a, b) => {
@@ -126,7 +146,12 @@ export function PermitTableView({
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedPermits(paginatedPermits.map(p => p.id))
+      // Limit to first 20 permits for route planning
+      const permitsToSelect = paginatedPermits.slice(0, 20).map(p => p.id)
+      if (paginatedPermits.length > 20) {
+        toast.info('Selected first 20 permits (maximum for route planning)')
+      }
+      setSelectedPermits(permitsToSelect)
     } else {
       setSelectedPermits([])
     }
@@ -134,6 +159,11 @@ export function PermitTableView({
 
   const handleSelectPermit = (permitId: string, checked: boolean) => {
     if (checked) {
+      // Enforce 20 permit limit for route planning
+      if (selectedPermits.length >= 20) {
+        toast.warning('Maximum 20 permits can be selected for route planning')
+        return
+      }
       setSelectedPermits(prev => [...prev, permitId])
     } else {
       setSelectedPermits(prev => prev.filter(id => id !== permitId))
@@ -150,6 +180,153 @@ export function PermitTableView({
       toast.success(`Updated ${selectedPermits.length} permits to ${newStatus}`)
     } catch (error) {
       toast.error('Failed to update permits')
+    }
+  }
+
+  const handleOpenRoutePlanner = () => {
+    const selectedData = permits.filter(p => selectedPermits.includes(p.id))
+    
+    if (selectedData.length === 0) {
+      toast.error('No permits selected')
+      return
+    }
+    
+    if (selectedData.length > 20) {
+      toast.error('Too many permits selected. Maximum is 20.')
+      return
+    }
+    
+    // Reset form and open dialog
+    setStartPointType('current')
+    setEndPointType('last')
+    setCustomStartAddress('')
+    setCustomEndAddress('')
+    setIsRoutePlannerOpen(true)
+  }
+  
+  // Route optimization using server-side API
+  const optimizeRouteWithAPI = async (
+    permits: Permit[],
+    startLocation: string,
+    endLocation: string
+  ): Promise<Permit[]> => {
+    if (permits.length <= 1) return permits
+
+    try {
+      // Prepare all permit addresses
+      const permitAddresses = permits.map(permit =>
+        `${permit.address}, ${permit.city || ''}, ${permit.state || 'MA'} ${permit.zip_code || ''}`.trim()
+      )
+
+      // Call our server-side optimization API
+      const response = await fetch('/api/routes/optimize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          origin: startLocation,
+          destination: endLocation,
+          permits: permitAddresses,
+          optimizeWaypoints: true
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      if (data.error) {
+        throw new Error(data.error)
+      }
+
+      // Reorder permits based on optimized waypoint order
+      if (data.waypoint_order && Array.isArray(data.waypoint_order)) {
+        const optimizedPermits: Permit[] = []
+        data.waypoint_order.forEach((index: number) => {
+          if (index < permits.length) {
+            optimizedPermits.push(permits[index])
+          }
+        })
+        return optimizedPermits.length > 0 ? optimizedPermits : permits
+      }
+
+      return permits
+    } catch (error) {
+      console.warn('Route optimization failed, using original order:', error)
+      return permits
+    }
+  }
+
+  const handleCreateRoute = async () => {
+    const selectedData = permits.filter(p => selectedPermits.includes(p.id))
+
+    try {
+      // Determine actual start and end locations based on UI selections
+      let actualStartLocation: string
+      let actualEndLocation: string
+
+      // Handle start location
+      if (startPointType === 'current') {
+        // For now, use a default business location instead of trying to get user's location
+        // TODO: Implement geolocation API for actual current location
+        actualStartLocation = 'Wilmington, MA 01887' // Default business location
+      } else if (startPointType === 'first' && selectedData.length > 0) {
+        const firstPermit = selectedData[0]
+        actualStartLocation = `${firstPermit.address}, ${firstPermit.city || ''}, ${firstPermit.state || 'MA'} ${firstPermit.zip_code || ''}`
+      } else if (startPointType === 'custom' && customStartAddress) {
+        actualStartLocation = customStartAddress.trim()
+      } else {
+        actualStartLocation = 'Wilmington, MA 01887' // Fallback to business location
+      }
+
+      // Handle end location
+      if (endPointType === 'start') {
+        // Round trip - same as start
+        actualEndLocation = actualStartLocation
+      } else if (endPointType === 'last' && selectedData.length > 0) {
+        const lastPermit = selectedData[selectedData.length - 1]
+        actualEndLocation = `${lastPermit.address}, ${lastPermit.city || ''}, ${lastPermit.state || 'MA'} ${lastPermit.zip_code || ''}`
+      } else if (endPointType === 'custom' && customEndAddress) {
+        actualEndLocation = customEndAddress.trim()
+      } else {
+        actualEndLocation = actualStartLocation // Fallback to round trip
+      }
+
+      // Get optimized route from Google API with proper start/end points
+      const optimizedPermits = await optimizeRouteWithAPI(selectedData, actualStartLocation, actualEndLocation)
+
+      // Build Google Maps URL with optimized order
+      let mapsUrl = 'https://www.google.com/maps/dir/'
+
+      // Add starting point
+      mapsUrl += encodeURIComponent(actualStartLocation) + '/'
+
+      // Add optimized permits in order
+      optimizedPermits.forEach(permit => {
+        const address = `${permit.address}, ${permit.city || ''}, ${permit.state || 'MA'} ${permit.zip_code || ''}`
+        mapsUrl += encodeURIComponent(address.trim()) + '/'
+      })
+
+      // Add ending point
+      if (actualStartLocation !== actualEndLocation) {
+        // Different end location
+        mapsUrl += encodeURIComponent(actualEndLocation)
+      } else {
+        // Round trip - add starting location again to complete the loop
+        mapsUrl += encodeURIComponent(actualStartLocation)
+      }
+
+      // Close dialog and open route
+      setIsRoutePlannerOpen(false)
+      window.open(mapsUrl, '_blank')
+      toast.success(`Opening optimized route with ${selectedData.length} stops`)
+
+    } catch (error) {
+      console.error('Route creation failed:', error)
+      toast.error('Failed to create optimized route. Please try again.')
     }
   }
 
@@ -205,6 +382,11 @@ export function PermitTableView({
     </Button>
   )
 
+  // Get selected permit data for the dialog
+  const selectedPermitData = permits.filter(p => selectedPermits.includes(p.id))
+  const firstPermit = selectedPermitData[0]
+  const lastPermit = selectedPermitData[selectedPermitData.length - 1]
+
   return (
     <div className="space-y-4">
       {/* Bulk Actions Bar */}
@@ -212,10 +394,27 @@ export function PermitTableView({
         <Card className="p-4 bg-blue-50 border-blue-200">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <span className="text-sm font-medium text-blue-900">
-                {selectedPermits.length} permits selected
-              </span>
               <div className="flex items-center space-x-2">
+                <span className="text-sm font-medium text-blue-900">
+                  {selectedPermits.length} permits selected
+                </span>
+                {selectedPermits.length > 20 && (
+                  <div className="flex items-center space-x-1 text-amber-600">
+                    <AlertCircle className="w-4 h-4" />
+                    <span className="text-xs">Max 20 for routes</span>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center space-x-2">
+                <Button
+                  onClick={handleOpenRoutePlanner}
+                  disabled={selectedPermits.length > 20}
+                  className="bg-orange-600 hover:bg-orange-700 text-white"
+                  size="sm"
+                >
+                  <Route className="w-4 h-4 mr-2" />
+                  Create Route
+                </Button>
                 <Select onValueChange={handleBulkStatusChange}>
                   <SelectTrigger className="w-40">
                     <SelectValue placeholder="Change status" />
@@ -421,6 +620,117 @@ export function PermitTableView({
           </div>
         </div>
       </Card>
+
+      {/* Route Planning Dialog */}
+      <Dialog open={isRoutePlannerOpen} onOpenChange={setIsRoutePlannerOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Plan Your Route</DialogTitle>
+            <DialogDescription>
+              Configure your route for {selectedPermitData.length} selected permit{selectedPermitData.length > 1 ? 's' : ''}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+            {/* Starting Point */}
+            <div className="space-y-3">
+              <Label className="text-base font-semibold">Starting Point</Label>
+              <RadioGroup value={startPointType} onValueChange={(value: any) => setStartPointType(value)}>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="current" id="start-current" />
+                  <Label htmlFor="start-current" className="font-normal cursor-pointer">
+                    My Current Location
+                  </Label>
+                </div>
+                {firstPermit && (
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="first" id="start-first" />
+                    <Label htmlFor="start-first" className="font-normal cursor-pointer">
+                      First Permit ({firstPermit.address}, {firstPermit.city})
+                    </Label>
+                  </div>
+                )}
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="custom" id="start-custom" />
+                  <Label htmlFor="start-custom" className="font-normal cursor-pointer">
+                    Custom Address
+                  </Label>
+                </div>
+              </RadioGroup>
+              {startPointType === 'custom' && (
+                <Input
+                  placeholder="Enter starting address..."
+                  value={customStartAddress}
+                  onChange={(e) => setCustomStartAddress(e.target.value)}
+                  className="mt-2"
+                />
+              )}
+            </div>
+
+            {/* Ending Point */}
+            <div className="space-y-3">
+              <Label className="text-base font-semibold">Ending Point</Label>
+              <RadioGroup value={endPointType} onValueChange={(value: any) => setEndPointType(value)}>
+                {lastPermit && (
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="last" id="end-last" />
+                    <Label htmlFor="end-last" className="font-normal cursor-pointer">
+                      Last Permit ({lastPermit.address}, {lastPermit.city})
+                    </Label>
+                  </div>
+                )}
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="start" id="end-start" />
+                  <Label htmlFor="end-start" className="font-normal cursor-pointer">
+                    Return to Start (Round Trip)
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="custom" id="end-custom" />
+                  <Label htmlFor="end-custom" className="font-normal cursor-pointer">
+                    Custom Address
+                  </Label>
+                </div>
+              </RadioGroup>
+              {endPointType === 'custom' && (
+                <Input
+                  placeholder="Enter ending address..."
+                  value={customEndAddress}
+                  onChange={(e) => setCustomEndAddress(e.target.value)}
+                  className="mt-2"
+                />
+              )}
+            </div>
+
+            {/* Route Info */}
+            <div className="bg-blue-50 p-3 rounded-md">
+              <p className="text-sm text-blue-900">
+                <strong>Route will include:</strong> {selectedPermitData.length} permit stop{selectedPermitData.length > 1 ? 's' : ''}
+              </p>
+              <p className="text-xs text-blue-700 mt-1">
+                Google Maps will optimize the order for the shortest travel time
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsRoutePlannerOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleCreateRoute}
+              className="bg-orange-600 hover:bg-orange-700"
+              disabled={
+                (startPointType === 'custom' && !customStartAddress) ||
+                (endPointType === 'custom' && !customEndAddress)
+              }
+            >
+              <Route className="w-4 h-4 mr-2" />
+              Create Route
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

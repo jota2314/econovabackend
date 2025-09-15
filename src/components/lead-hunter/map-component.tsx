@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { GoogleMap, useJsApiLoader, Marker, InfoWindow } from '@react-google-maps/api'
 
 interface Permit {
@@ -21,6 +21,7 @@ interface MapComponentProps {
   selectedPermit: Permit | null
   onPermitSelect: (permit: Permit | null) => void
   onMapClick: (lat: number, lng: number) => void
+  showHeatZones?: boolean
 }
 
 const mapContainerStyle = {
@@ -51,9 +52,12 @@ export function MapComponent({
   permits, 
   selectedPermit, 
   onPermitSelect, 
-  onMapClick 
+  onMapClick,
+  showHeatZones = false
 }: MapComponentProps) {
   const [map, setMap] = useState<google.maps.Map | null>(null)
+  const [heatZones, setHeatZones] = useState<google.maps.Circle[]>([])
+  const heatZonesRef = useRef<google.maps.Circle[]>([])
 
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
@@ -106,6 +110,109 @@ export function MapComponent({
   const getMarkerTitle = (permit: Permit) => {
     return `${permit.builder_name} - ${permit.address} (${permit.status})`
   }
+
+  // Clustering algorithm for hot permits
+  const findHotClusters = useCallback((hotPermits: Permit[]) => {
+    if (hotPermits.length < 2) return []
+
+    const clusters = []
+    const clusterRadius = 0.01 // ~1km radius in degrees (adjust as needed)
+    const minPermitsForHotZone = 2 // Minimum hot permits to create a zone
+
+    for (let i = 0; i < hotPermits.length; i++) {
+      const centerPermit = hotPermits[i]
+      const nearbyHotPermits = hotPermits.filter(permit => {
+        if (permit.id === centerPermit.id) return true
+        const distance = Math.sqrt(
+          Math.pow(permit.latitude - centerPermit.latitude, 2) + 
+          Math.pow(permit.longitude - centerPermit.longitude, 2)
+        )
+        return distance <= clusterRadius
+      })
+
+      if (nearbyHotPermits.length >= minPermitsForHotZone) {
+        // Calculate cluster center
+        const avgLat = nearbyHotPermits.reduce((sum, p) => sum + p.latitude, 0) / nearbyHotPermits.length
+        const avgLng = nearbyHotPermits.reduce((sum, p) => sum + p.longitude, 0) / nearbyHotPermits.length
+        
+        clusters.push({
+          center: { lat: avgLat, lng: avgLng },
+          count: nearbyHotPermits.length,
+          permits: nearbyHotPermits
+        })
+      }
+    }
+
+    // Remove duplicate clusters (clusters that are too close to each other)
+    const uniqueClusters = []
+    for (const cluster of clusters) {
+      const isDuplicate = uniqueClusters.some(existing => {
+        const distance = Math.sqrt(
+          Math.pow(cluster.center.lat - existing.center.lat, 2) + 
+          Math.pow(cluster.center.lng - existing.center.lng, 2)
+        )
+        return distance < clusterRadius / 2
+      })
+      if (!isDuplicate) {
+        uniqueClusters.push(cluster)
+      }
+    }
+
+    return uniqueClusters
+  }, [])
+
+  // Create heat zones on the map
+  const createHeatZones = useCallback(() => {
+    if (!map || !showHeatZones) {
+      // Clear existing zones when hiding
+      heatZonesRef.current.forEach(zone => zone.setMap(null))
+      heatZonesRef.current = []
+      setHeatZones([])
+      return
+    }
+
+    // Clear existing zones
+    heatZonesRef.current.forEach(zone => zone.setMap(null))
+    
+    // Get hot permits only
+    const hotPermits = permits.filter(permit => permit.status === 'hot')
+    const clusters = findHotClusters(hotPermits)
+    
+    // Create new heat zones
+    const newHeatZones = clusters.map(cluster => {
+      const radius = Math.max(500, cluster.count * 300) // Minimum 500m, grows with permit count
+      
+      const circle = new google.maps.Circle({
+        strokeColor: '#ea580c',
+        strokeOpacity: 0.8,
+        strokeWeight: 2,
+        fillColor: '#ea580c',
+        fillOpacity: 0.15,
+        map: map,
+        center: cluster.center,
+        radius: radius,
+      })
+
+      // Add click handler to show cluster info
+      circle.addListener('click', () => {
+        alert(`Hot Zone: ${cluster.count} hot permits in this area`)
+      })
+
+      return circle
+    })
+
+    // Update both ref and state
+    heatZonesRef.current = newHeatZones
+    setHeatZones(newHeatZones)
+  }, [map, permits, showHeatZones, findHotClusters])
+
+
+  // Update heat zones when permits or showHeatZones changes
+  useEffect(() => {
+    if (isLoaded && map) {
+      createHeatZones()
+    }
+  }, [isLoaded, map, permits, showHeatZones, createHeatZones])
 
   if (loadError) {
     return (

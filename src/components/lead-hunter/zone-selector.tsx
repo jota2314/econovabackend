@@ -72,9 +72,9 @@ interface ZoneSelectorProps {
   defaultCollapsed?: boolean
 }
 
-export function ZoneSelector({ 
-  onZoneChange, 
-  selectedZone, 
+export function ZoneSelector({
+  onZoneChange,
+  selectedZone,
   permitCounts = {},
   isCollapsed,
   onToggleCollapse,
@@ -83,7 +83,13 @@ export function ZoneSelector({
   const [activeFilters, setActiveFilters] = useState<ZoneFilter>(selectedZone)
   const [availableCities, setAvailableCities] = useState<string[]>([])
   const [localCollapsed, setLocalCollapsed] = useState(defaultCollapsed)
-  
+  const [isHydrated, setIsHydrated] = useState(false)
+
+  // Ensure hydration consistency
+  useEffect(() => {
+    setIsHydrated(true)
+  }, [])
+
   // Use prop-controlled collapsed state if provided, otherwise use local state
   const collapsed = isCollapsed !== undefined ? isCollapsed : localCollapsed
   const toggleCollapse = onToggleCollapse || (() => setLocalCollapsed(!localCollapsed))
@@ -162,6 +168,26 @@ export function ZoneSelector({
     return count
   }
 
+  // Show loading state during hydration to prevent mismatch
+  if (!isHydrated) {
+    return (
+      <Card className="p-4 space-y-4 transition-all duration-300 ease-in-out">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <MapPin className="w-5 h-5 text-orange-500" />
+            <h3 className="font-semibold">Zone Selector</h3>
+          </div>
+        </div>
+        <div className="p-3 bg-slate-50 rounded-lg">
+          <div className="flex items-center space-x-2">
+            <Filter className="w-4 h-4 text-slate-500" />
+            <span className="text-sm font-medium text-slate-700">Loading...</span>
+          </div>
+        </div>
+      </Card>
+    )
+  }
+
   // Collapsed view - compact summary
   if (collapsed) {
     return (
@@ -174,8 +200,8 @@ export function ZoneSelector({
                 {getFilterSummary()}
               </span>
               {hasActiveFilters && (
-                <Badge 
-                  variant="secondary" 
+                <Badge
+                  variant="secondary"
                   className="ml-2 flex-shrink-0 bg-orange-100 text-orange-700 border-orange-200"
                 >
                   {getActiveFilterCount()} active
