@@ -26,6 +26,8 @@ interface EditPermitFormProps {
     permit_type: 'residential' | 'commercial'
     status: 'new' | 'contacted' | 'converted_to_lead' | 'rejected' | 'hot' | 'cold' | 'visited' | 'not_visited'
     notes?: string
+    project_value?: number
+    description?: string
     latitude: number
     longitude: number
     photo_urls?: string[]
@@ -42,6 +44,8 @@ export interface EditPermitFormData {
   permit_type: 'residential' | 'commercial'
   status: 'new' | 'contacted' | 'converted_to_lead' | 'rejected' | 'hot' | 'cold' | 'visited' | 'not_visited'
   notes: string
+  project_value?: number
+  description?: string
   latitude?: number
   longitude?: number
   photo_urls?: string[]
@@ -58,6 +62,8 @@ export function EditPermitForm({ isOpen, onClose, onSubmit, permit }: EditPermit
     permit_type: permit.permit_type || 'residential',
     status: permit.status || 'new',
     notes: permit.notes || '',
+    project_value: permit.project_value,
+    description: permit.description || '',
     latitude: permit.latitude,
     longitude: permit.longitude,
     photo_urls: permit.photo_urls || [],
@@ -82,6 +88,8 @@ export function EditPermitForm({ isOpen, onClose, onSubmit, permit }: EditPermit
         permit_type: permit.permit_type || 'residential',
         status: permit.status || 'new',
         notes: permit.notes || '',
+        project_value: permit.project_value,
+        description: permit.description || '',
         latitude: permit.latitude,
         longitude: permit.longitude,
         photo_urls: permit.photo_urls || [],
@@ -90,7 +98,12 @@ export function EditPermitForm({ isOpen, onClose, onSubmit, permit }: EditPermit
   }, [permit])
 
   const handleInputChange = (field: keyof EditPermitFormData, value: string | number | string[]) => {
-    setFormData(prev => ({ ...prev, [field]: value }))
+    if (field === 'project_value' && typeof value === 'string') {
+      const numValue = value === '' ? undefined : parseFloat(value)
+      setFormData(prev => ({ ...prev, [field]: numValue }))
+    } else {
+      setFormData(prev => ({ ...prev, [field]: value }))
+    }
   }
 
   const onAutocompleteLoad = (autocomplete: google.maps.places.Autocomplete) => {
@@ -431,6 +444,30 @@ export function EditPermitForm({ isOpen, onClose, onSubmit, permit }: EditPermit
                   <SelectItem value="not_visited">📍 Not Visited</SelectItem>
                 </SelectContent>
               </Select>
+
+              <Label>Project Value</Label>
+              <Input
+                type="number"
+                value={formData.project_value || ''}
+                onChange={(e) => handleInputChange('project_value', e.target.value)}
+                placeholder="250000"
+                min="0"
+                step="1000"
+              />
+              <p className="text-xs text-slate-500">
+                Estimated or actual project value in dollars (e.g., 250000 for $250,000)
+              </p>
+
+              <Label className="flex items-center space-x-2">
+                <FileText className="w-4 h-4" />
+                <span>Description</span>
+              </Label>
+              <Textarea
+                value={formData.description}
+                onChange={(e) => handleInputChange('description', e.target.value)}
+                placeholder="Brief description of the project (e.g., Single family dwelling, Kitchen renovation, etc.)"
+                rows={2}
+              />
 
               <Label className="flex items-center space-x-2">
                 <FileText className="w-4 h-4" />

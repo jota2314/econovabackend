@@ -32,7 +32,7 @@ const CITIES_BY_COUNTY: Record<string, string[]> = {
   // Massachusetts
   'Middlesex': ['Cambridge', 'Lowell', 'Newton', 'Somerville', 'Framingham', 'Malden', 'Medford', 'Waltham'],
   'Worcester': ['Worcester', 'Fitchburg', 'Leominster', 'Milford', 'Shrewsbury', 'Westborough'],
-  'Essex': ['Lynn', 'Lawrence', 'Haverhill', 'Peabody', 'Salem', 'Methuen', 'Beverly'],
+  'Essex': ['Lynn', 'Lawrence', 'Haverhill', 'Peabody', 'Salem', 'Methuen', 'Beverly', 'Gloucester', 'Andover', 'Nahant', 'Hamilton', 'Ipswich', 'Merrimac', 'Rowley', 'Topsfield', 'Wenham'],
   'Norfolk': ['Quincy', 'Brookline', 'Weymouth', 'Braintree', 'Franklin', 'Needham'],
   'Plymouth': ['Plymouth', 'Brockton', 'Taunton', 'Bridgewater', 'Marshfield', 'Hanover'],
   'Bristol': ['New Bedford', 'Fall River', 'Attleboro', 'Taunton', 'Mansfield'],
@@ -329,46 +329,45 @@ export function ZoneSelector({
           </Select>
         </div>
 
-        {/* Custom Zone (Placeholder for future) */}
+        {/* City Selector */}
         <div className="space-y-2">
-          <Label>Custom Zone</Label>
-          <Button 
-            variant="outline" 
-            className="w-full justify-start text-slate-500"
-            disabled
+          <Label>Cities/Towns {activeFilters.county ? `in ${activeFilters.county} County` : ''}</Label>
+          <Select
+            value={activeFilters.cities && activeFilters.cities.length > 0 ? activeFilters.cities[0] : 'all'}
+            onValueChange={(value) => {
+              console.log('City dropdown changed:', value) // Debug log
+              if (value === 'all') {
+                setActiveFilters({
+                  ...activeFilters,
+                  cities: undefined
+                })
+              } else {
+                setActiveFilters({
+                  ...activeFilters,
+                  cities: [value]
+                })
+              }
+            }}
+            disabled={!activeFilters.county}
           >
-            <Plus className="w-4 h-4 mr-2" />
-            Draw Zone (Coming Soon)
-          </Button>
+            <SelectTrigger>
+              <SelectValue placeholder={activeFilters.county ? "Select city/town" : "Select county first"} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Cities/Towns</SelectItem>
+              {availableCities.map(city => {
+                const count = permitCounts[city]
+                return (
+                  <SelectItem key={city} value={city}>
+                    {city} {count ? `(${count})` : ''}
+                  </SelectItem>
+                )
+              })}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
-      {/* City Selector */}
-      {activeFilters.county && availableCities.length > 0 && (
-        <div className="space-y-2">
-          <Label>Cities/Towns in {activeFilters.county} County</Label>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 max-h-32 overflow-y-auto">
-            {availableCities.map(city => {
-              const isSelected = activeFilters.cities?.includes(city) || false
-              const count = permitCounts[city]
-              
-              return (
-                <Badge
-                  key={city}
-                  variant={isSelected ? "default" : "outline"}
-                  className={`cursor-pointer justify-between hover:bg-slate-100 ${
-                    isSelected ? 'bg-orange-500 hover:bg-orange-600' : ''
-                  }`}
-                  onClick={() => handleCityToggle(city)}
-                >
-                  <span className="truncate">{city}</span>
-                  {count && <span className="ml-1">({count})</span>}
-                </Badge>
-              )
-            })}
-          </div>
-        </div>
-      )}
 
       {/* Active Filters Display */}
       {hasActiveFilters && (

@@ -1,9 +1,9 @@
 "use client"
 
 import { Button } from '@/components/ui/button'
-import { Map, Table } from 'lucide-react'
+import { Map, Table, Brain } from 'lucide-react'
 
-export type ViewMode = 'map' | 'table'
+export type ViewMode = 'map' | 'table' | 'recommendations'
 
 interface ViewToggleProps {
   currentView: ViewMode
@@ -17,14 +17,16 @@ export function ViewToggle({ currentView, onViewChange, permitCount }: ViewToggl
       {/* Modern Toggle Switch */}
       <div className="relative bg-slate-200 rounded-full p-0.5 sm:p-1 flex items-center shadow-inner">
         {/* Sliding Background */}
-        <div 
+        <div
           className={`absolute h-8 w-8 rounded-full bg-gradient-to-r from-green-500 to-green-600 shadow-lg transition-all duration-300 ease-in-out ${
-            currentView === 'map' 
-              ? 'translate-x-0' 
-              : 'translate-x-8'
+            currentView === 'map'
+              ? 'translate-x-0'
+              : currentView === 'table'
+              ? 'translate-x-8'
+              : 'translate-x-16'
           }`}
         />
-        
+
         {/* Map View Button */}
         <button
           onClick={() => onViewChange('map')}
@@ -38,7 +40,7 @@ export function ViewToggle({ currentView, onViewChange, permitCount }: ViewToggl
         >
           <Map className="w-4 h-4" />
         </button>
-        
+
         {/* Table View Button */}
         <button
           onClick={() => onViewChange('table')}
@@ -51,6 +53,20 @@ export function ViewToggle({ currentView, onViewChange, permitCount }: ViewToggl
           title="Switch to Table View"
         >
           <Table className="w-4 h-4" />
+        </button>
+
+        {/* Recommendations View Button */}
+        <button
+          onClick={() => onViewChange('recommendations')}
+          className={`relative z-10 flex items-center justify-center w-8 h-8 rounded-full transition-all duration-300 ${
+            currentView === 'recommendations'
+              ? 'text-white scale-105'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+          aria-label="AI Recommendations View"
+          title="Switch to AI Recommendations View"
+        >
+          <Brain className="w-4 h-4" />
         </button>
       </div>
       

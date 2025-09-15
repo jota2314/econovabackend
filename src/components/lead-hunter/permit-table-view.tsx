@@ -38,10 +38,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { 
-  MapPin, 
-  Building, 
-  Phone, 
+import {
+  MapPin,
+  Building,
+  Phone,
   Calendar,
   MoreVertical,
   ArrowUpDown,
@@ -51,7 +51,14 @@ import {
   UserPlus,
   Download,
   Route,
-  AlertCircle
+  AlertCircle,
+  Navigation,
+  DollarSign,
+  Star,
+  Flame,
+  Sun,
+  Snowflake,
+  Target
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -67,6 +74,10 @@ interface Permit {
   permit_type: 'residential' | 'commercial'
   status: 'new' | 'contacted' | 'converted_to_lead' | 'rejected' | 'hot' | 'cold' | 'visited' | 'not_visited'
   notes?: string
+  project_value?: number
+  description?: string
+  priority_score?: number
+  temperature?: 'hot' | 'warm' | 'cold'
   latitude: number
   longitude: number
   created_at: string
@@ -83,9 +94,10 @@ interface PermitTableViewProps {
   onConvertToLead: (permit: Permit) => void
   onEdit: (permit: Permit) => void
   onDelete: (permitId: string) => void
+  onGeocode?: (permitId: string) => Promise<void>
 }
 
-type SortField = 'address' | 'builder_name' | 'permit_type' | 'status' | 'created_at' | 'city'
+type SortField = 'address' | 'builder_name' | 'permit_type' | 'status' | 'created_at' | 'city' | 'project_value' | 'priority_score'
 type SortOrder = 'asc' | 'desc'
 
 export function PermitTableView({
@@ -94,10 +106,11 @@ export function PermitTableView({
   onStatusChange,
   onConvertToLead,
   onEdit,
-  onDelete
+  onDelete,
+  onGeocode
 }: PermitTableViewProps) {
   const [selectedPermits, setSelectedPermits] = useState<string[]>([])
-  const [sortField, setSortField] = useState<SortField>('created_at')
+  const [sortField, setSortField] = useState<SortField>('priority_score')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   const [pageSize, setPageSize] = useState(25)
   const [currentPage, setCurrentPage] = useState(1)
@@ -118,6 +131,9 @@ export function PermitTableView({
     if (sortField === 'created_at') {
       aValue = new Date(aValue).getTime()
       bValue = new Date(bValue).getTime()
+    } else if (sortField === 'project_value' || sortField === 'priority_score') {
+      aValue = aValue || 0
+      bValue = bValue || 0
     } else if (typeof aValue === 'string') {
       aValue = aValue.toLowerCase()
       bValue = bValue.toLowerCase()
@@ -180,6 +196,25 @@ export function PermitTableView({
       toast.success(`Updated ${selectedPermits.length} permits to ${newStatus}`)
     } catch (error) {
       toast.error('Failed to update permits')
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedPermits.length === 0) return
+
+    if (!confirm(`Are you sure you want to delete ${selectedPermits.length} permits? This action cannot be undone.`)) {
+      return
+    }
+
+    try {
+      // Delete all selected permits
+      await Promise.all(
+        selectedPermits.map(permitId => onDelete(permitId))
+      )
+      setSelectedPermits([])
+      toast.success(`Deleted ${selectedPermits.length} permits`)
+    } catch (error) {
+      toast.error('Failed to delete permits')
     }
   }
 
@@ -333,9 +368,9 @@ export function PermitTableView({
   const handleExportSelected = () => {
     const selectedData = permits.filter(p => selectedPermits.includes(p.id))
     const csvContent = [
-      'Address,City,Builder Name,Phone,Type,Status,Created Date',
-      ...selectedData.map(p => 
-        `"${p.address}","${p.city || ''}","${p.builder_name}","${p.builder_phone || ''}","${p.permit_type}","${p.status}","${new Date(p.created_at).toLocaleDateString()}"`
+      'Project Value,Priority Score,Temperature,Address,City,Builder Name,Phone,Type,Status,Description,Created Date',
+      ...selectedData.map(p =>
+        `"${p.project_value ? `$${p.project_value.toLocaleString()}` : 'N/A'}","${p.priority_score || 'N/A'}","${p.temperature || 'N/A'}","${p.address}","${p.city || ''}","${p.builder_name}","${p.builder_phone || ''}","${p.permit_type}","${p.status}","${p.description || p.notes || ''}","${new Date(p.created_at).toLocaleDateString()}"`
       )
     ].join('\n')
 
@@ -369,6 +404,24 @@ export function PermitTableView({
       day: 'numeric',
       year: 'numeric'
     })
+  }
+
+  const handleGeocode = async (permit: Permit) => {
+    if (!onGeocode) return
+
+    try {
+      toast.promise(onGeocode(permit.id), {
+        loading: `Geocoding ${permit.address}...`,
+        success: `Successfully geocoded ${permit.address}`,
+        error: `Failed to geocode ${permit.address}`,
+      })
+    } catch (error) {
+      console.error('Geocoding error:', error)
+    }
+  }
+
+  const needsGeocoding = (permit: Permit) => {
+    return permit.latitude === 0 && permit.longitude === 0
   }
 
   const SortButton = ({ field, children }: { field: SortField, children: React.ReactNode }) => (
@@ -438,6 +491,15 @@ export function PermitTableView({
                   <Download className="w-4 h-4 mr-2" />
                   Export
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleBulkDelete}
+                  className="text-red-600 hover:text-red-700 border-red-200 hover:border-red-300"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete
+                </Button>
               </div>
             </div>
             <Button
@@ -462,6 +524,13 @@ export function PermitTableView({
                   onCheckedChange={handleSelectAll}
                 />
               </TableHead>
+              <TableHead className="w-16">Actions</TableHead>
+              <TableHead>
+                <SortButton field="project_value">Value</SortButton>
+              </TableHead>
+              <TableHead>
+                <SortButton field="priority_score">Priority</SortButton>
+              </TableHead>
               <TableHead>
                 <SortButton field="address">Address</SortButton>
               </TableHead>
@@ -469,75 +538,24 @@ export function PermitTableView({
                 <SortButton field="city">City</SortButton>
               </TableHead>
               <TableHead>
-                <SortButton field="builder_name">Builder</SortButton>
-              </TableHead>
-              <TableHead>
-                <SortButton field="permit_type">Type</SortButton>
-              </TableHead>
-              <TableHead>
                 <SortButton field="status">Status</SortButton>
               </TableHead>
+              <TableHead>Description</TableHead>
               <TableHead>
-                <SortButton field="created_at">Date Added</SortButton>
+                <SortButton field="builder_name">Builder</SortButton>
               </TableHead>
-              <TableHead className="w-16">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paginatedPermits.map((permit) => (
+            {paginatedPermits.map((permit) => {
+              const isHighValue = (permit.project_value || 0) >= 500000
+              return (
               <TableRow key={permit.id} className="hover:bg-slate-50">
                 <TableCell>
                   <Checkbox
                     checked={selectedPermits.includes(permit.id)}
                     onCheckedChange={(checked) => handleSelectPermit(permit.id, checked as boolean)}
                   />
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-start space-x-2">
-                    <MapPin className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <div className="font-medium">{permit.address}</div>
-                      {permit.zip_code && (
-                        <div className="text-sm text-slate-500">{permit.zip_code}</div>
-                      )}
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="text-sm">
-                    {permit.city && <div>{permit.city}</div>}
-                    {permit.county && <div className="text-slate-500">{permit.county}</div>}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-start space-x-2">
-                    <Building className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <div className="font-medium">{permit.builder_name}</div>
-                      {permit.builder_phone && (
-                        <div className="text-sm text-slate-500 flex items-center">
-                          <Phone className="w-3 h-3 mr-1" />
-                          {permit.builder_phone}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Badge variant="outline" className="capitalize">
-                    {permit.permit_type}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <Badge className={getStatusColor(permit.status)} variant="outline">
-                    {permit.status.replace('_', ' ').toUpperCase()}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center space-x-1 text-sm text-slate-600">
-                    <Calendar className="w-3 h-3" />
-                    <span>{formatDate(permit.created_at)}</span>
-                  </div>
                 </TableCell>
                 <TableCell>
                   <DropdownMenu>
@@ -559,8 +577,14 @@ export function PermitTableView({
                         <UserPlus className="w-4 h-4 mr-2" />
                         Convert to Lead
                       </DropdownMenuItem>
+                      {needsGeocoding(permit) && onGeocode && (
+                        <DropdownMenuItem onClick={() => handleGeocode(permit)}>
+                          <Navigation className="w-4 h-4 mr-2" />
+                          Get Location
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem 
+                      <DropdownMenuItem
                         onClick={() => onDelete(permit.id)}
                         className="text-red-600 hover:text-red-700"
                       >
@@ -570,8 +594,98 @@ export function PermitTableView({
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>
+                <TableCell>
+                  <div className="flex items-start space-x-2">
+                    <div className="flex items-center space-x-1">
+                      <DollarSign className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                      {isHighValue && <Star className="w-4 h-4 text-yellow-500 mt-0.5 flex-shrink-0" />}
+                    </div>
+                    <div>
+                      <div className="font-semibold text-green-700">
+                        {permit.project_value ? `$${permit.project_value.toLocaleString()}` : 'N/A'}
+                      </div>
+                      {isHighValue && (
+                        <div className="text-xs text-yellow-600 font-medium">High Value</div>
+                      )}
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-1">
+                      {permit.temperature === 'hot' && <Flame className="w-4 h-4 text-red-500" />}
+                      {permit.temperature === 'warm' && <Sun className="w-4 h-4 text-orange-500" />}
+                      {permit.temperature === 'cold' && <Snowflake className="w-4 h-4 text-blue-500" />}
+                      {!permit.temperature && <Target className="w-4 h-4 text-gray-400" />}
+                    </div>
+                    <div>
+                      <div className="font-semibold text-slate-700">
+                        {permit.priority_score ? `${permit.priority_score}/100` : 'N/A'}
+                      </div>
+                      {permit.temperature && (
+                        <div className={`text-xs font-medium capitalize ${
+                          permit.temperature === 'hot' ? 'text-red-600' :
+                          permit.temperature === 'warm' ? 'text-orange-600' :
+                          'text-blue-600'
+                        }`}>
+                          {permit.temperature}
+                        </div>
+                      )}
+                      {permit.priority_score && permit.priority_score >= 75 && (
+                        <div className="text-xs text-red-600 font-medium">AI Recommended</div>
+                      )}
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-start space-x-2">
+                    <MapPin className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <div className="font-medium">{permit.address}</div>
+                      {permit.zip_code && (
+                        <div className="text-sm text-slate-500">{permit.zip_code}</div>
+                      )}
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="text-sm">
+                    {permit.city && <div>{permit.city}</div>}
+                    {permit.county && <div className="text-slate-500">{permit.county}</div>}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <Badge className={getStatusColor(permit.status)} variant="outline">
+                    {permit.status.replace('_', ' ').toUpperCase()}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <div className="max-w-xs">
+                    <div className="text-sm text-slate-700 truncate" title={permit.description || permit.notes}>
+                      {permit.description || permit.notes || 'No description available'}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-1 capitalize">
+                      {permit.permit_type} • {formatDate(permit.created_at)}
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-start space-x-2">
+                    <Building className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <div className="font-medium">{permit.builder_name}</div>
+                      {permit.builder_phone && (
+                        <div className="text-sm text-slate-500 flex items-center">
+                          <Phone className="w-3 h-3 mr-1" />
+                          {permit.builder_phone}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </TableCell>
               </TableRow>
-            ))}
+              )
+            })}
           </TableBody>
         </Table>
 

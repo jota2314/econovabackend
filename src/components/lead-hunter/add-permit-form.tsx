@@ -32,6 +32,8 @@ export interface PermitFormData {
   permit_type: 'residential' | 'commercial'
   status: 'new' | 'contacted' | 'converted_to_lead' | 'rejected' | 'hot' | 'cold' | 'visited' | 'not_visited'
   notes: string
+  project_value?: number
+  description?: string
   latitude?: number
   longitude?: number
   photo_urls?: string[]
@@ -48,6 +50,8 @@ export function AddPermitForm({ isOpen, onClose, onSubmit, initialData }: AddPer
     permit_type: 'residential',
     status: 'new',
     notes: '',
+    project_value: undefined,
+    description: '',
     latitude: initialData?.lat,
     longitude: initialData?.lng,
     photo_urls: [],
@@ -60,7 +64,12 @@ export function AddPermitForm({ isOpen, onClose, onSubmit, initialData }: AddPer
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const handleInputChange = (field: keyof PermitFormData, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }))
+    if (field === 'project_value') {
+      const numValue = value === '' ? undefined : parseFloat(value)
+      setFormData(prev => ({ ...prev, [field]: numValue }))
+    } else {
+      setFormData(prev => ({ ...prev, [field]: value }))
+    }
   }
 
   const onAutocompleteLoad = (autocomplete: google.maps.places.Autocomplete) => {
@@ -422,6 +431,30 @@ export function AddPermitForm({ isOpen, onClose, onSubmit, initialData }: AddPer
                   <SelectItem value="not_visited">📍 Not Visited</SelectItem>
                 </SelectContent>
               </Select>
+
+              <Label>Project Value</Label>
+              <Input
+                type="number"
+                value={formData.project_value || ''}
+                onChange={(e) => handleInputChange('project_value', e.target.value)}
+                placeholder="250000"
+                min="0"
+                step="1000"
+              />
+              <p className="text-xs text-slate-500">
+                Estimated or actual project value in dollars (e.g., 250000 for $250,000)
+              </p>
+
+              <Label className="flex items-center space-x-2">
+                <FileText className="w-4 h-4" />
+                <span>Description</span>
+              </Label>
+              <Textarea
+                value={formData.description}
+                onChange={(e) => handleInputChange('description', e.target.value)}
+                placeholder="Brief description of the project (e.g., Single family dwelling, Kitchen renovation, etc.)"
+                rows={2}
+              />
 
               <Label className="flex items-center space-x-2">
                 <FileText className="w-4 h-4" />

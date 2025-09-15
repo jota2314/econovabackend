@@ -253,18 +253,20 @@ export function MapComponent({
         onClick={handleMapClick}
         options={getMapOptions()}
       >
-        {permits.map((permit) => (
-          <Marker
-            key={permit.id}
-            position={{
-              lat: permit.latitude,
-              lng: permit.longitude
-            }}
-            icon={getMarkerIcon(permit)}
-            title={getMarkerTitle(permit)}
-            onClick={() => onPermitSelect(permit)}
-          />
-        ))}
+        {permits
+          .filter((permit) => permit.latitude !== 0 || permit.longitude !== 0)
+          .map((permit) => (
+            <Marker
+              key={permit.id}
+              position={{
+                lat: permit.latitude,
+                lng: permit.longitude
+              }}
+              icon={getMarkerIcon(permit)}
+              title={getMarkerTitle(permit)}
+              onClick={() => onPermitSelect(permit)}
+            />
+          ))}
 
         {selectedPermit && (
           <InfoWindow

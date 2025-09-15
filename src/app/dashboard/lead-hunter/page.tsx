@@ -12,7 +12,9 @@ import { PermitDetailsSidebar } from '@/components/lead-hunter/permit-details-si
 import { PermitTableView } from '@/components/lead-hunter/permit-table-view'
 import { ZoneSelector } from '@/components/lead-hunter/zone-selector'
 import { ViewToggle, ViewMode } from '@/components/lead-hunter/view-toggle'
-import { Plus, Filter, Search, MapPin, Building, Minus, Flame } from 'lucide-react'
+import { CsvUpload } from '@/components/lead-hunter/csv-upload'
+import { VisitRecommendations } from '@/components/lead-hunter/visit-recommendations'
+import { Plus, Filter, Search, MapPin, Building, Minus, Flame, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Permit {
@@ -27,6 +29,10 @@ interface Permit {
   permit_type: 'residential' | 'commercial'
   status: 'new' | 'contacted' | 'converted_to_lead' | 'rejected' | 'hot' | 'cold' | 'visited' | 'not_visited'
   notes?: string
+  project_value?: number
+  description?: string
+  priority_score?: number
+  temperature?: 'hot' | 'warm' | 'cold'
   latitude: number
   longitude: number
   created_at: string
@@ -46,6 +52,7 @@ export default function LeadHunterPage() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [clickedLocation, setClickedLocation] = useState<{lat: number, lng: number} | null>(null)
+  const [isCsvUploadOpen, setIsCsvUploadOpen] = useState(false)
 
   // View Management
   const [currentView, setCurrentView] = useState<ViewMode>('map')
@@ -56,19 +63,24 @@ export default function LeadHunterPage() {
   // Heat Zones Management
   const [showHeatZones, setShowHeatZones] = useState(false)
   
-  // Zone Selector Collapse State - Load from localStorage if available
-  const [isZoneSelectorCollapsed, setIsZoneSelectorCollapsed] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('zoneSelectorCollapsed')
-      return saved !== null ? JSON.parse(saved) : true
+  // Zone Selector Collapse State - Prevent hydration mismatch
+  const [isZoneSelectorCollapsed, setIsZoneSelectorCollapsed] = useState(true)
+  const [isMounted, setIsMounted] = useState(false)
+
+  // Load from localStorage after component mounts
+  useEffect(() => {
+    setIsMounted(true)
+    const saved = localStorage.getItem('zoneSelectorCollapsed')
+    if (saved !== null) {
+      setIsZoneSelectorCollapsed(JSON.parse(saved))
     }
-    return true // Default to collapsed for map view
-  })
+  }, [])
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [searchFilter, setSearchFilter] = useState('')
+  const [geocodingFilter, setGeocodingFilter] = useState<string>('all')
   const [zoneFilter, setZoneFilter] = useState<{
     state?: 'MA' | 'NH'
     county?: string
@@ -99,6 +111,14 @@ export default function LeadHunterPage() {
       filtered = filtered.filter(p => p.permit_type === typeFilter)
     }
 
+    if (geocodingFilter !== 'all') {
+      if (geocodingFilter === 'geocoded') {
+        filtered = filtered.filter(p => p.latitude !== 0 || p.longitude !== 0)
+      } else if (geocodingFilter === 'not_geocoded') {
+        filtered = filtered.filter(p => p.latitude === 0 && p.longitude === 0)
+      }
+    }
+
     if (searchFilter.trim()) {
       const search = searchFilter.toLowerCase()
       filtered = filtered.filter(p => 
@@ -122,7 +142,7 @@ export default function LeadHunterPage() {
     }
 
     setFilteredPermits(filtered)
-  }, [permits, statusFilter, typeFilter, searchFilter, zoneFilter])
+  }, [permits, statusFilter, typeFilter, searchFilter, geocodingFilter, zoneFilter.state, zoneFilter.county, zoneFilter.cities])
 
   const fetchPermits = async () => {
     try {
@@ -231,16 +251,45 @@ export default function LeadHunterPage() {
       setPermits(prev => prev.map(p => p.id === permitId ? updatedPermit : p))
       setIsEditFormOpen(false)
       setEditingPermit(null)
-      
+
       // Update selected permit if it's the one being edited
       if (selectedPermit?.id === permitId) {
         setSelectedPermit(updatedPermit)
       }
-      
+
       toast.success('Permit updated successfully!')
     } catch (error) {
       console.error('Error updating permit:', error)
       toast.error(error instanceof Error ? error.message : 'Failed to update permit')
+    }
+  }
+
+  const handleUpdate = async (permitId: string, updates: Partial<Permit>) => {
+    try {
+      const response = await fetch(`/api/permits/${permitId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to update permit')
+      }
+
+      const updatedPermit = await response.json()
+      setPermits(prev => prev.map(p => p.id === permitId ? updatedPermit : p))
+
+      // Update selected permit if it's the one being updated
+      if (selectedPermit?.id === permitId) {
+        setSelectedPermit(updatedPermit)
+      }
+    } catch (error) {
+      console.error('Error updating permit:', error)
+      toast.error(error instanceof Error ? error.message : 'Failed to update permit')
+      throw error
     }
   }
 
@@ -268,6 +317,42 @@ export default function LeadHunterPage() {
     }
   }
 
+  const handleGeocode = async (permitId: string) => {
+    try {
+      const response = await fetch(`/api/permits/${permitId}/geocode`, {
+        method: 'POST',
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        const errorMessage = errorData.error || `HTTP ${response.status}: ${response.statusText}`
+        console.error('Geocoding failed:', errorMessage)
+        throw new Error(errorMessage)
+      }
+
+      const result = await response.json()
+      console.log('Geocoding successful:', result)
+
+      // Update the permit in the state with new coordinates
+      setPermits(prev => prev.map(permit =>
+        permit.id === permitId
+          ? { ...permit, latitude: result.latitude, longitude: result.longitude }
+          : permit
+      ))
+
+      // Update selected permit if it's the one being geocoded
+      setSelectedPermit(prev =>
+        prev && prev.id === permitId
+          ? { ...prev, latitude: result.latitude, longitude: result.longitude }
+          : prev
+      )
+
+    } catch (error) {
+      console.error('Error geocoding permit:', error)
+      throw error // Re-throw to let the toast in PermitTableView handle it
+    }
+  }
+
   const getStatusCounts = () => {
     return {
       all: permits.length,
@@ -282,7 +367,16 @@ export default function LeadHunterPage() {
     }
   }
 
+  const getGeocodingCounts = () => {
+    return {
+      all: permits.length,
+      geocoded: permits.filter(p => p.latitude !== 0 || p.longitude !== 0).length,
+      not_geocoded: permits.filter(p => p.latitude === 0 && p.longitude === 0).length,
+    }
+  }
+
   const statusCounts = getStatusCounts()
+  const geocodingCounts = getGeocodingCounts()
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -299,8 +393,8 @@ export default function LeadHunterPage() {
                 Track construction permits and convert builders to leads
               </p>
             </div>
-            <div className="flex items-center space-x-3 ml-4 flex-shrink-0">
-              <ViewToggle 
+            <div className="flex items-center space-x-2 sm:space-x-3 ml-4 flex-shrink-0">
+              <ViewToggle
                 currentView={currentView}
                 onViewChange={setCurrentView}
                 permitCount={filteredPermits.length}
@@ -317,7 +411,16 @@ export default function LeadHunterPage() {
                   <span className="hidden sm:inline">Heat Zones</span>
                 </Button>
               )}
-              <Button 
+              <Button
+                onClick={() => setIsCsvUploadOpen(true)}
+                variant="outline"
+                size="sm"
+                className="text-blue-600 border-blue-200 hover:bg-blue-50"
+              >
+                <Upload className="w-4 h-4 sm:mr-2" />
+                <span className="hidden sm:inline">Import CSV</span>
+              </Button>
+              <Button
                 onClick={() => setIsAddFormOpen(true)}
                 className="bg-green-600 hover:bg-green-700"
                 size="sm"
@@ -374,6 +477,18 @@ export default function LeadHunterPage() {
                   <SelectItem value="commercial">Commercial</SelectItem>
                 </SelectContent>
               </Select>
+
+              {/* Geocoding Filter */}
+              <Select value={geocodingFilter} onValueChange={setGeocodingFilter}>
+                <SelectTrigger className="flex-1 lg:w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Locations ({geocodingCounts.all})</SelectItem>
+                  <SelectItem value="geocoded">📍 On Map ({geocodingCounts.geocoded})</SelectItem>
+                  <SelectItem value="not_geocoded">📍 Need Location ({geocodingCounts.not_geocoded})</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Mobile Compact Filter */}
@@ -396,7 +511,7 @@ export default function LeadHunterPage() {
 
           {/* Zone Selector - Desktop always visible, Mobile collapsible */}
           <div className={`mt-4 transition-all duration-300 ${
-            isZoneSelectorCollapsed ? 'hidden' : 'block'
+            !isMounted || isZoneSelectorCollapsed ? 'hidden' : 'block'
           } sm:block`}>
             <ZoneSelector 
               selectedZone={zoneFilter}
@@ -432,6 +547,17 @@ export default function LeadHunterPage() {
                   <SelectItem value="all">All Types</SelectItem>
                   <SelectItem value="residential">Residential</SelectItem>
                   <SelectItem value="commercial">Commercial</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={geocodingFilter} onValueChange={setGeocodingFilter}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Locations ({geocodingCounts.all})</SelectItem>
+                  <SelectItem value="geocoded">📍 On Map ({geocodingCounts.geocoded})</SelectItem>
+                  <SelectItem value="not_geocoded">📍 Need Location ({geocodingCounts.not_geocoded})</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -510,7 +636,7 @@ export default function LeadHunterPage() {
                     )}
                   </Card>
                 </div>
-              ) : (
+              ) : currentView === 'table' ? (
                 <div className="flex-1 p-6 overflow-auto">
                   <PermitTableView
                     permits={filteredPermits}
@@ -519,9 +645,17 @@ export default function LeadHunterPage() {
                     onConvertToLead={handleConvertToLead}
                     onEdit={handleEdit}
                     onDelete={handleDelete}
+                    onGeocode={handleGeocode}
                   />
                 </div>
-              )}
+              ) : currentView === 'recommendations' ? (
+                <div className="flex-1 p-6 overflow-auto">
+                  <VisitRecommendations
+                    onPermitSelect={handlePermitSelect}
+                    zoneFilter={zoneFilter}
+                  />
+                </div>
+              ) : null}
             </>
           )}
         </div>
@@ -554,6 +688,16 @@ export default function LeadHunterPage() {
         />
       )}
 
+      {/* CSV Upload Modal */}
+      <CsvUpload
+        isOpen={isCsvUploadOpen}
+        onClose={() => setIsCsvUploadOpen(false)}
+        onUploadComplete={() => {
+          fetchPermits()
+          setIsCsvUploadOpen(false)
+        }}
+      />
+
       {/* Permit Details Sidebar */}
       <PermitDetailsSidebar
         permit={selectedPermit}
@@ -566,6 +710,7 @@ export default function LeadHunterPage() {
         onConvertToLead={handleConvertToLead}
         onEdit={handleEdit}
         onDelete={handleDelete}
+        onUpdate={handleUpdate}
       />
     </div>
   )
