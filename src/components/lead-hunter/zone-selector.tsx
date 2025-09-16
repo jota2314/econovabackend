@@ -153,7 +153,11 @@ export function ZoneSelector({
     if (activeFilters.state) parts.push(activeFilters.state)
     if (activeFilters.county) parts.push(`${activeFilters.county} County`)
     if (activeFilters.cities?.length) {
-      parts.push(`${activeFilters.cities.length} cities`)
+      if (activeFilters.cities.length === 1) {
+        parts.push(activeFilters.cities[0])
+      } else {
+        parts.push(`${activeFilters.cities.length} cities`)
+      }
     }
     return parts.length > 0 ? parts.join(' • ') : 'All Areas'
   }
@@ -329,42 +333,87 @@ export function ZoneSelector({
           </Select>
         </div>
 
-        {/* City Selector */}
+        {/* Multi-City Selector */}
         <div className="space-y-2">
-          <Label>Cities/Towns {activeFilters.county ? `in ${activeFilters.county} County` : ''}</Label>
-          <Select
-            value={activeFilters.cities && activeFilters.cities.length > 0 ? activeFilters.cities[0] : 'all'}
-            onValueChange={(value) => {
-              console.log('City dropdown changed:', value) // Debug log
-              if (value === 'all') {
-                setActiveFilters({
-                  ...activeFilters,
-                  cities: undefined
-                })
-              } else {
-                setActiveFilters({
-                  ...activeFilters,
-                  cities: [value]
-                })
-              }
-            }}
-            disabled={!activeFilters.county}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder={activeFilters.county ? "Select city/town" : "Select county first"} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Cities/Towns</SelectItem>
-              {availableCities.map(city => {
-                const count = permitCounts[city]
-                return (
-                  <SelectItem key={city} value={city}>
-                    {city} {count ? `(${count})` : ''}
-                  </SelectItem>
-                )
-              })}
-            </SelectContent>
-          </Select>
+          <div className="flex items-center justify-between">
+            <Label>Cities/Towns {activeFilters.county ? `in ${activeFilters.county} County` : ''}</Label>
+            {activeFilters.cities && activeFilters.cities.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setActiveFilters({...activeFilters, cities: undefined})}
+                className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1 h-auto"
+              >
+                Clear cities
+              </Button>
+            )}
+          </div>
+
+          {!activeFilters.county ? (
+            <div className="p-3 bg-slate-100 rounded border text-sm text-slate-500 text-center">
+              Select a county first to choose cities
+            </div>
+          ) : availableCities.length === 0 ? (
+            <div className="p-3 bg-slate-100 rounded border text-sm text-slate-500 text-center">
+              No cities available for {activeFilters.county} County
+            </div>
+          ) : (
+            <div className="max-h-48 overflow-y-auto border rounded-md bg-white">
+              <div className="p-2 space-y-1">
+                {/* Select All/None toggle */}
+                <div className="flex items-center space-x-2 p-2 border-b bg-slate-50">
+                  <input
+                    type="checkbox"
+                    id="select-all-cities"
+                    checked={activeFilters.cities?.length === availableCities.length}
+                    ref={(el) => {
+                      if (el) {
+                        el.indeterminate = (activeFilters.cities?.length || 0) > 0 &&
+                                          (activeFilters.cities?.length || 0) < availableCities.length
+                      }
+                    }}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setActiveFilters({...activeFilters, cities: [...availableCities]})
+                      } else {
+                        setActiveFilters({...activeFilters, cities: undefined})
+                      }
+                    }}
+                    className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                  />
+                  <label htmlFor="select-all-cities" className="text-sm font-medium text-slate-700 cursor-pointer">
+                    Select All ({availableCities.length})
+                  </label>
+                </div>
+
+                {availableCities.map(city => {
+                  const count = permitCounts[city]
+                  const isSelected = activeFilters.cities?.includes(city) || false
+                  return (
+                    <div key={city} className="flex items-center space-x-2 p-2 hover:bg-slate-50 rounded">
+                      <input
+                        type="checkbox"
+                        id={`city-${city}`}
+                        checked={isSelected}
+                        onChange={() => handleCityToggle(city)}
+                        className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                      />
+                      <label htmlFor={`city-${city}`} className="flex-1 text-sm cursor-pointer flex items-center justify-between">
+                        <span>{city}</span>
+                        {count && <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded">({count})</span>}
+                      </label>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {activeFilters.cities && activeFilters.cities.length > 0 && (
+            <div className="text-xs text-slate-600 bg-orange-50 p-2 rounded border">
+              {activeFilters.cities.length} of {availableCities.length} cities selected
+            </div>
+          )}
         </div>
       </div>
 

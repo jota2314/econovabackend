@@ -42,6 +42,20 @@ interface Permit {
   }
 }
 
+// City to County mapping for fallback when county is null
+const getCityCountyMapping = (city: string): string | null => {
+  const cityCountyMap: { [key: string]: string } = {
+    'Andover': 'Essex',
+    'Gloucester': 'Essex',
+    'Hamilton': 'Essex',
+    'Ipswich': 'Essex',
+    'Rowley': 'Essex',
+    'Topsfield': 'Essex',
+    // Add more mappings as needed
+  }
+  return cityCountyMap[city] || null
+}
+
 export default function LeadHunterPage() {
   const [permits, setPermits] = useState<Permit[]>([])
   const [filteredPermits, setFilteredPermits] = useState<Permit[]>([])
@@ -134,7 +148,7 @@ export default function LeadHunterPage() {
     }
 
     if (zoneFilter.county) {
-      filtered = filtered.filter(p => p.county === zoneFilter.county)
+      filtered = filtered.filter(p => p.county === zoneFilter.county || (p.county === null && p.city && getCityCountyMapping(p.city) === zoneFilter.county))
     }
 
     if (zoneFilter.cities && zoneFilter.cities.length > 0) {
