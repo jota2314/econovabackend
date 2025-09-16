@@ -27,6 +27,7 @@ export interface PermitFormData {
   city: string
   state: string
   zip_code: string
+  county?: string
   builder_name: string
   builder_phone: string
   permit_type: 'residential' | 'commercial'
@@ -45,6 +46,7 @@ export function AddPermitForm({ isOpen, onClose, onSubmit, initialData }: AddPer
     city: '',
     state: 'MA',
     zip_code: '',
+    county: '',
     builder_name: '',
     builder_phone: '',
     permit_type: 'residential',
@@ -122,6 +124,7 @@ export function AddPermitForm({ isOpen, onClose, onSubmit, initialData }: AddPer
       city: city,
       state: state || 'MA', // Default to MA if not found
       zip_code: zipCode,
+      county: county ? county.replace(' County', '') : '',
       latitude: place.geometry!.location!.lat(),
       longitude: place.geometry!.location!.lng()
     }))

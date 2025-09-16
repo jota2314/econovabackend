@@ -58,7 +58,8 @@ import {
   Flame,
   Sun,
   Snowflake,
-  Target
+  Target,
+  Loader2
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -121,6 +122,65 @@ export function PermitTableView({
   const [customStartAddress, setCustomStartAddress] = useState('')
   const [endPointType, setEndPointType] = useState<'last' | 'start' | 'custom'>('last')
   const [customEndAddress, setCustomEndAddress] = useState('')
+
+  // Geolocation state
+  const [currentLocation, setCurrentLocation] = useState<{lat: number, lng: number} | null>(null)
+  const [isGettingLocation, setIsGettingLocation] = useState(false)
+  const [locationError, setLocationError] = useState<string | null>(null)
+
+  // Geolocation functions
+  const getCurrentLocation = async (): Promise<{lat: number, lng: number}> => {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('Geolocation is not supported by this browser'))
+        return
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          })
+        },
+        (error) => {
+          let errorMessage = 'Location access denied'
+          switch (error.code) {
+            case error.PERMISSION_DENIED:
+              errorMessage = 'Location access denied by user'
+              break
+            case error.POSITION_UNAVAILABLE:
+              errorMessage = 'Location information unavailable'
+              break
+            case error.TIMEOUT:
+              errorMessage = 'Location request timed out'
+              break
+          }
+          reject(new Error(errorMessage))
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 300000 // Cache for 5 minutes
+        }
+      )
+    })
+  }
+
+  const handleGetCurrentLocation = async () => {
+    setIsGettingLocation(true)
+    setLocationError(null)
+
+    try {
+      const location = await getCurrentLocation()
+      setCurrentLocation(location)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to get location'
+      setLocationError(errorMessage)
+    } finally {
+      setIsGettingLocation(false)
+    }
+  }
 
   // Sort permits
   const sortedPermits = [...permits].sort((a, b) => {
@@ -305,16 +365,34 @@ export function PermitTableView({
 
       // Handle start location
       if (startPointType === 'current') {
-        // For now, use a default business location instead of trying to get user's location
-        // TODO: Implement geolocation API for actual current location
-        actualStartLocation = 'Wilmington, MA 01887' // Default business location
+        if (currentLocation) {
+          actualStartLocation = `${currentLocation.lat},${currentLocation.lng}`
+        } else {
+          // Try to get location if not already available
+          try {
+            const location = await getCurrentLocation()
+            setCurrentLocation(location)
+            actualStartLocation = `${location.lat},${location.lng}`
+          } catch (error) {
+            console.warn('Failed to get current location, using business address:', error)
+            actualStartLocation = 'Wilmington, MA 01887' // Fallback to business location
+          }
+        }
       } else if (startPointType === 'first' && selectedData.length > 0) {
         const firstPermit = selectedData[0]
         actualStartLocation = `${firstPermit.address}, ${firstPermit.city || ''}, ${firstPermit.state || 'MA'} ${firstPermit.zip_code || ''}`
       } else if (startPointType === 'custom' && customStartAddress) {
         actualStartLocation = customStartAddress.trim()
       } else {
-        actualStartLocation = 'Wilmington, MA 01887' // Fallback to business location
+        // Try to get current location as fallback
+        try {
+          const location = await getCurrentLocation()
+          setCurrentLocation(location)
+          actualStartLocation = `${location.lat},${location.lng}`
+        } catch (error) {
+          console.warn('Failed to get current location, using business address:', error)
+          actualStartLocation = 'Wilmington, MA 01887' // Final fallback to business location
+        }
       }
 
       // Handle end location
@@ -750,11 +828,33 @@ export function PermitTableView({
             <div className="space-y-3">
               <Label className="text-base font-semibold">Starting Point</Label>
               <RadioGroup value={startPointType} onValueChange={(value: any) => setStartPointType(value)}>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="current" id="start-current" />
-                  <Label htmlFor="start-current" className="font-normal cursor-pointer">
-                    My Current Location
-                  </Label>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="current" id="start-current" />
+                    <Label htmlFor="start-current" className="font-normal cursor-pointer">
+                      My Current Location
+                    </Label>
+                    {currentLocation && (
+                      <Badge variant="secondary" className="text-xs">✓ Located</Badge>
+                    )}
+                    {locationError && (
+                      <Badge variant="destructive" className="text-xs">Permission denied</Badge>
+                    )}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleGetCurrentLocation}
+                    disabled={isGettingLocation}
+                    className="ml-2"
+                  >
+                    {isGettingLocation ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Target className="w-3 h-3" />
+                    )}
+                  </Button>
                 </div>
                 {firstPermit && (
                   <div className="flex items-center space-x-2">

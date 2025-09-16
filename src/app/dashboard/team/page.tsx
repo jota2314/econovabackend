@@ -1,11 +1,11 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { 
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -21,14 +21,13 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { createClient } from "@/lib/supabase/client"
-import { toast } from "sonner"
-import { 
-  Users, 
-  UserPlus, 
-  Mail, 
-  Phone, 
-  Shield, 
+import { useTeamStore } from "@/stores/team-store"
+import {
+  Users,
+  UserPlus,
+  Mail,
+  Phone,
+  Shield,
   Briefcase,
   Search,
   Edit,
@@ -46,22 +45,22 @@ interface TeamMember {
   created_at: string
 }
 
-interface CurrentUser {
-  id: string
-  email: string
-  full_name: string
-  role: string
-}
-
 export default function TeamPage() {
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
-  const [loading, setLoading] = useState(true)
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
+  const teamMembers = useTeamStore((state) => state.teamMembers)
+  const currentUser = useTeamStore((state) => state.currentUser)
+  const loading = useTeamStore((state) => state.loading)
+  const loadTeamMembers = useTeamStore((state) => state.loadTeamMembers)
+  const loadCurrentUser = useTeamStore((state) => state.loadCurrentUser)
+  const addMember = useTeamStore((state) => state.addMember)
+  const updateMember = useTeamStore((state) => state.updateMember)
+  const deleteMember = useTeamStore((state) => state.deleteMember)
+
   const [searchTerm, setSearchTerm] = useState("")
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [showEditDialog, setShowEditDialog] = useState(false)
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null)
-  
+  const initialized = useRef(false)
+
   // Form states for adding/editing
   const [formData, setFormData] = useState({
     email: "",
@@ -71,160 +70,38 @@ export default function TeamPage() {
     password: ""
   })
 
-  const supabase = createClient()
-
   useEffect(() => {
-    loadCurrentUser()
-    loadTeamMembers()
+    if (!initialized.current) {
+      initialized.current = true
+      loadCurrentUser()
+      loadTeamMembers()
+    }
   }, [])
-
-  const loadCurrentUser = async () => {
-    try {
-      const { data: { user: authUser } } = await supabase.auth.getUser()
-      if (authUser) {
-        const { data: profile } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', authUser.id)
-          .single()
-        
-        if (profile) {
-          setCurrentUser(profile)
-        }
-      }
-    } catch (error) {
-      console.error('Error loading current user:', error)
-    }
-  }
-
-  const loadTeamMembers = async () => {
-    try {
-      setLoading(true)
-      
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .order('created_at', { ascending: false })
-
-      if (error) {
-        console.error('Error loading team members:', error)
-        toast.error('Failed to load team members')
-      } else {
-        setTeamMembers(data || [])
-      }
-    } catch (error) {
-      console.error('Error loading team members:', error)
-      toast.error('Failed to load team members')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const handleAddMember = async () => {
     if (!formData.email || !formData.full_name || !formData.password) {
-      toast.error('Please fill in all required fields')
       return
     }
 
-    try {
-      // Create auth user
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: {
-          data: {
-            full_name: formData.full_name,
-            role: formData.role
-          }
-        }
-      })
-
-      if (authError) {
-        toast.error(`Failed to create user: ${authError.message}`)
-        return
-      }
-
-      // Create user profile
-      if (authData.user) {
-        const { error: profileError } = await supabase
-          .from('users')
-          .insert({
-            id: authData.user.id,
-            email: formData.email,
-            full_name: formData.full_name,
-            role: formData.role,
-            phone: formData.phone || null
-          })
-
-        if (profileError) {
-          console.error('Error creating user profile:', profileError)
-          toast.error('User created but profile setup failed')
-        } else {
-          toast.success('Team member added successfully')
-          setShowAddDialog(false)
-          resetForm()
-          loadTeamMembers()
-        }
-      }
-    } catch (error) {
-      console.error('Error adding team member:', error)
-      toast.error('Failed to add team member')
-    }
+    await addMember(formData)
+    setShowAddDialog(false)
+    resetForm()
   }
 
   const handleEditMember = async () => {
     if (!selectedMember) return
 
-    try {
-      const { error } = await supabase
-        .from('users')
-        .update({
-          full_name: formData.full_name,
-          role: formData.role,
-          phone: formData.phone || null
-        })
-        .eq('id', selectedMember.id)
-
-      if (error) {
-        toast.error('Failed to update team member')
-      } else {
-        toast.success('Team member updated successfully')
-        setShowEditDialog(false)
-        resetForm()
-        loadTeamMembers()
-      }
-    } catch (error) {
-      console.error('Error updating team member:', error)
-      toast.error('Failed to update team member')
-    }
+    await updateMember(selectedMember.id, {
+      full_name: formData.full_name,
+      role: formData.role,
+      phone: formData.phone
+    })
+    setShowEditDialog(false)
+    resetForm()
   }
 
   const handleDeleteMember = async (memberId: string) => {
-    if (memberId === currentUser?.id) {
-      toast.error("You can't delete your own account")
-      return
-    }
-
-    if (!confirm('Are you sure you want to remove this team member?')) {
-      return
-    }
-
-    try {
-      const { error } = await supabase
-        .from('users')
-        .delete()
-        .eq('id', memberId)
-
-      if (error) {
-        toast.error('Failed to remove team member')
-      } else {
-        toast.success('Team member removed successfully')
-        loadTeamMembers()
-      }
-    } catch (error) {
-      console.error('Error deleting team member:', error)
-      toast.error('Failed to remove team member')
-    }
+    await deleteMember(memberId)
   }
 
   const openEditDialog = (member: TeamMember) => {

@@ -58,12 +58,24 @@ export async function POST(
 
         if (data.status === 'OK' && data.results && data.results.length > 0) {
           const location = data.results[0].geometry.location
+          const addressComponents = data.results[0].address_components
+
+          // Extract county from address components
+          let county = null
+          for (const component of addressComponents) {
+            if (component.types.includes('administrative_area_level_2')) {
+              county = component.long_name.replace(' County', '')
+              break
+            }
+          }
+
           results = [{
             lat: location.lat.toString(),
             lon: location.lng.toString(),
-            display_name: data.results[0].formatted_address
+            display_name: data.results[0].formatted_address,
+            county
           }]
-          console.log('✅ Google Geocoding successful:', location)
+          console.log('✅ Google Geocoding successful:', location, 'County:', county)
         } else {
           console.log('❌ Google Geocoding failed:', data.status, data.error_message)
           lastError = `Google: ${data.status} - ${data.error_message || 'No results'}`
@@ -134,14 +146,21 @@ export async function POST(
       }, { status: 400 })
     }
 
-    // Update permit with coordinates
+    // Update permit with coordinates and county (if available)
+    const updateData: any = {
+      latitude,
+      longitude,
+      geocoded_at: new Date().toISOString()
+    }
+
+    // Add county if available from geocoding
+    if (location.county) {
+      updateData.county = location.county
+    }
+
     const { error: updateError } = await supabase
       .from('permits')
-      .update({
-        latitude,
-        longitude,
-        geocoded_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', permitId)
 
     if (updateError) {
