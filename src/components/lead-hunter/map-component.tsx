@@ -22,6 +22,7 @@ interface MapComponentProps {
   onPermitSelect: (permit: Permit | null) => void
   onMapClick: (lat: number, lng: number) => void
   showHeatZones?: boolean
+  showUserLocation?: boolean
 }
 
 const mapContainerStyle = {
@@ -48,16 +49,19 @@ const getMapOptions = () => ({
   clickableIcons: false, // Prevent accidental clicks on POIs
 })
 
-export function MapComponent({ 
-  permits, 
-  selectedPermit, 
-  onPermitSelect, 
+export function MapComponent({
+  permits,
+  selectedPermit,
+  onPermitSelect,
   onMapClick,
-  showHeatZones = false
+  showHeatZones = false,
+  showUserLocation = true
 }: MapComponentProps) {
   const [map, setMap] = useState<google.maps.Map | null>(null)
   const [heatZones, setHeatZones] = useState<google.maps.Circle[]>([])
   const heatZonesRef = useRef<google.maps.Circle[]>([])
+  const [userLocation, setUserLocation] = useState<{lat: number, lng: number} | null>(null)
+  const [locationError, setLocationError] = useState<string | null>(null)
 
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
@@ -109,6 +113,73 @@ export function MapComponent({
 
   const getMarkerTitle = (permit: Permit) => {
     return `${permit.builder_name} - ${permit.address} (${permit.status})`
+  }
+
+  // Get user's current location
+  const getUserLocation = useCallback(() => {
+    if (!showUserLocation) return
+
+    if (!navigator.geolocation) {
+      setLocationError('Geolocation is not supported by this browser')
+      return
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const userPos = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude
+        }
+        setUserLocation(userPos)
+        setLocationError(null)
+
+        // Optionally center map on user location
+        if (map && permits.length === 0) {
+          map.panTo(userPos)
+        }
+      },
+      (error) => {
+        let errorMessage = 'Failed to get location'
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            errorMessage = 'Location access denied'
+            break
+          case error.POSITION_UNAVAILABLE:
+            errorMessage = 'Location unavailable'
+            break
+          case error.TIMEOUT:
+            errorMessage = 'Location request timed out'
+            break
+        }
+        setLocationError(errorMessage)
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 300000 // Cache for 5 minutes
+      }
+    )
+  }, [showUserLocation, map, permits.length])
+
+  // Get user location when component mounts
+  useEffect(() => {
+    if (showUserLocation && isLoaded) {
+      getUserLocation()
+    }
+  }, [showUserLocation, isLoaded, getUserLocation])
+
+  // Get user location icon
+  const getUserLocationIcon = () => {
+    if (typeof google === 'undefined') return undefined
+
+    return {
+      path: google.maps.SymbolPath.CIRCLE,
+      fillColor: '#4285f4', // Google blue
+      fillOpacity: 1,
+      strokeColor: '#ffffff',
+      strokeWeight: 3,
+      scale: 8,
+    }
   }
 
   // Clustering algorithm for hot permits
@@ -267,6 +338,16 @@ export function MapComponent({
               onClick={() => onPermitSelect(permit)}
             />
           ))}
+
+        {/* User Location Marker */}
+        {userLocation && showUserLocation && (
+          <Marker
+            position={userLocation}
+            icon={getUserLocationIcon()}
+            title="Your Current Location"
+            zIndex={1000} // Ensure it appears above other markers
+          />
+        )}
 
         {selectedPermit && (
           <InfoWindow

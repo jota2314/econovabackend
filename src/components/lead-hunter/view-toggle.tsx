@@ -8,10 +8,9 @@ export type ViewMode = 'map' | 'table' | 'recommendations'
 interface ViewToggleProps {
   currentView: ViewMode
   onViewChange: (view: ViewMode) => void
-  permitCount: number
 }
 
-export function ViewToggle({ currentView, onViewChange, permitCount }: ViewToggleProps) {
+export function ViewToggle({ currentView, onViewChange }: ViewToggleProps) {
   return (
     <div className="flex items-center space-x-2 sm:space-x-3">
       {/* Modern Toggle Switch */}
@@ -70,13 +69,6 @@ export function ViewToggle({ currentView, onViewChange, permitCount }: ViewToggl
         </button>
       </div>
       
-      {/* Permit Count Badge */}
-      {permitCount > 0 && (
-        <div className="px-2 sm:px-3 py-1 sm:py-1.5 bg-gradient-to-r from-green-50 to-emerald-50 text-green-700 rounded-full text-xs sm:text-sm font-semibold border border-green-300 shadow-sm">
-          <span className="hidden sm:inline">{permitCount} {permitCount === 1 ? 'permit' : 'permits'}</span>
-          <span className="sm:hidden">{permitCount}</span>
-        </div>
-      )}
     </div>
   )
 }

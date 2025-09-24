@@ -18,3 +18,5 @@ CREATE INDEX idx_jobs_pdf_generated_at ON public.jobs(pdf_generated_at DESC);
 
 
 
+
+

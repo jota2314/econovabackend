@@ -32,7 +32,7 @@ const CITIES_BY_COUNTY: Record<string, string[]> = {
   // Massachusetts
   'Middlesex': ['Cambridge', 'Lowell', 'Newton', 'Somerville', 'Framingham', 'Malden', 'Medford', 'Waltham'],
   'Worcester': ['Worcester', 'Fitchburg', 'Leominster', 'Milford', 'Shrewsbury', 'Westborough'],
-  'Essex': ['Lynn', 'Lawrence', 'Haverhill', 'Peabody', 'Salem', 'Methuen', 'Beverly', 'Gloucester', 'Andover', 'Nahant', 'Hamilton', 'Ipswich', 'Merrimac', 'Rowley', 'Topsfield', 'Wenham'],
+  'Essex': ['Lynn', 'Lawrence', 'Haverhill', 'Peabody', 'Salem', 'Methuen', 'Beverly', 'Gloucester', 'Andover', 'Nahant', 'Hamilton', 'Ipswich', 'Merrimac', 'Rowley', 'Salisbury', 'Topsfield', 'Wenham'],
   'Norfolk': ['Quincy', 'Brookline', 'Weymouth', 'Braintree', 'Franklin', 'Needham'],
   'Plymouth': ['Plymouth', 'Brockton', 'Taunton', 'Bridgewater', 'Marshfield', 'Hanover'],
   'Bristol': ['New Bedford', 'Fall River', 'Attleboro', 'Taunton', 'Mansfield'],

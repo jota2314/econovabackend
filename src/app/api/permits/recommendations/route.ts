@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     const citiesParam = searchParams.get('cities')
     const cities = citiesParam ? citiesParam.split(',').map(c => c.trim()) : null
 
-    // Build the query with location filtering
+    // Build the query with location filtering and exclude rejected permits
     let query = supabase
       .from('permits')
       .select(`
@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
         longitude,
         created_at
       `)
+      .not('status', 'eq', 'rejected')
 
     // Apply city filtering if provided
     if (cities && cities.length > 0) {

@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { RouteManager } from './route-manager'
 import {
   Brain,
   MapPin,
@@ -83,6 +84,11 @@ export function VisitRecommendations({ onPermitSelect, zoneFilter }: VisitRecomm
   // Store the filter that was used for the current recommendations
   const [appliedFilter, setAppliedFilter] = useState<typeof zoneFilter>({})
 
+  // Route Manager state
+  const [showRouteManager, setShowRouteManager] = useState(false)
+  const [activeRoutePermits, setActiveRoutePermits] = useState<Permit[]>([])
+  const [routeStartAddress, setRouteStartAddress] = useState('')
+  const [routeEndAddress, setRouteEndAddress] = useState('')
 
   // Route planning dialog state
   const [isRoutePlannerOpen, setIsRoutePlannerOpen] = useState(false)
@@ -323,33 +329,14 @@ export function VisitRecommendations({ onPermitSelect, zoneFilter }: VisitRecomm
         actualEndLocation = actualStartLocation // Fallback to round trip
       }
 
-      // Create waypoints from selected permits
-      const waypoints = selectedPermits.map(permit => {
-        const fullAddress = [permit.address, permit.city, permit.state, permit.zip_code]
-          .filter(Boolean)
-          .join(', ')
-        return encodeURIComponent(fullAddress)
-      })
-
-      // Build the Google Maps URL
-      let mapsUrl = `https://www.google.com/maps/dir/${encodeURIComponent(actualStartLocation)}`
-
-      // Add waypoints
-      if (waypoints.length > 0) {
-        mapsUrl += `/${waypoints.join('/')}`
-      }
-
-      // Add destination
-      mapsUrl += `/${encodeURIComponent(actualEndLocation)}`
-
-      console.log('Generated Maps URL:', mapsUrl)
-      console.log('Start:', actualStartLocation)
-      console.log('End:', actualEndLocation)
-      console.log('Waypoints:', waypoints)
-
-      window.open(mapsUrl, '_blank')
-      toast.success(`Route created with ${selectedPermits.length} stops`)
+      // Set the route data and show the RouteManager
+      setActiveRoutePermits(selectedPermits)
+      setRouteStartAddress(actualStartLocation)
+      setRouteEndAddress(actualEndLocation)
+      setShowRouteManager(true)
       setIsRoutePlannerOpen(false)
+
+      toast.success(`Route created with ${selectedPermits.length} stops! Use the route checklist to track your progress.`)
     } catch (error) {
       console.error('Error creating route:', error)
       toast.error('Failed to create route')
@@ -649,7 +636,7 @@ export function VisitRecommendations({ onPermitSelect, zoneFilter }: VisitRecomm
       ) : (
         <div className="space-y-4">
           {recommendations.map((rec, index) => (
-            <Card key={rec.permitId} className="p-3 sm:p-4 hover:shadow-md transition-shadow">
+            <Card key={`${rec.permitId}-${index}`} className="p-3 sm:p-4 hover:shadow-md transition-shadow">
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between space-y-3 sm:space-y-0">
                 <div className="flex items-start space-x-3 sm:space-x-4 flex-1">
                   {/* Selection Checkbox */}
@@ -771,6 +758,28 @@ export function VisitRecommendations({ onPermitSelect, zoneFilter }: VisitRecomm
           <Calendar className="w-4 h-4 inline mr-1" />
           Last updated: {new Date(generatedAt).toLocaleString()}
         </div>
+      )}
+
+      {/* Route Manager */}
+      {showRouteManager && activeRoutePermits.length > 0 && (
+        <RouteManager
+          permits={activeRoutePermits}
+          startAddress={routeStartAddress}
+          endAddress={routeEndAddress}
+          onClose={() => {
+            setShowRouteManager(false)
+            setActiveRoutePermits([])
+            setSelectedRecommendations(new Set())
+          }}
+          onPermitStatusUpdate={(permitId, status) => {
+            // Update the local recommendations state
+            setRecommendations(prev => prev.map(rec =>
+              rec.permitId === permitId
+                ? { ...rec, permit: { ...rec.permit, status } }
+                : rec
+            ))
+          }}
+        />
       )}
     </div>
   )
