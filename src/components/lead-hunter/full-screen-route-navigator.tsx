@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -94,6 +94,10 @@ export function FullScreenRouteNavigator({
   const [isUpdating, setIsUpdating] = useState(false)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [pendingUpdates, setPendingUpdates] = useState(0)
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
 
   // Timer for tracking actual time spent
   useEffect(() => {
@@ -278,20 +282,159 @@ export function FullScreenRouteNavigator({
   }
 
   const handlePhotoCapture = () => {
-    // This will integrate with existing photo upload component
-    // For now, we'll show a placeholder
-    toast.info('Photo capture will open existing photo upload component')
+    fileInputRef.current?.click()
   }
 
-  const handleVoiceNote = () => {
+  const handlePhotoUpload = async (files: FileList | null) => {
+    const currentStop = getCurrentStop()
+    if (!files || files.length === 0 || !currentStop) return
+
+    const maxFiles = 10
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+    const toUpload: File[] = []
+
+    for (let i = 0; i < files.length && i < maxFiles; i++) {
+      const f = files[i]
+      if (allowedTypes.includes(f.type)) toUpload.push(f)
+    }
+
+    if (toUpload.length === 0) {
+      toast.error('Please select valid image files (JPEG, PNG, WebP, or GIF)')
+      return
+    }
+
+    setIsUploadingPhoto(true)
+    const uploadedUrls: string[] = []
+
+    try {
+      for (const file of toUpload) {
+        const formData = new FormData()
+        formData.append('photo', file)
+
+        const res = await fetch('/api/permits/photo', {
+          method: 'POST',
+          body: formData
+        })
+
+        if (!res.ok) throw new Error(`Upload failed for ${file.name}`)
+
+        const data = await res.json()
+        if (!data.success || !data.url) throw new Error('Upload API error')
+
+        uploadedUrls.push(data.url)
+      }
+
+      // Update permit with new photos
+      const newPhotos = [...(currentStop.permit.photo_urls || []), ...uploadedUrls]
+      await onPermitUpdate(currentStop.permit.id, { photo_urls: newPhotos })
+
+      // Update local state
+      const updatedStops = [...activeRoute.stops]
+      const stopIndex = updatedStops.findIndex(s => s.permit.id === currentStop.permit.id)
+      if (stopIndex !== -1) {
+        updatedStops[stopIndex] = {
+          ...updatedStops[stopIndex],
+          permit: {
+            ...updatedStops[stopIndex].permit,
+            photo_urls: newPhotos
+          }
+        }
+        setActiveRoute({ ...activeRoute, stops: updatedStops })
+      }
+
+      toast.success(`Uploaded ${uploadedUrls.length} photo(s)`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to upload photos')
+    } finally {
+      setIsUploadingPhoto(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const handleVoiceNote = async () => {
+    const currentStop = getCurrentStop()
+    if (!currentStop) return
+
     if (isRecording) {
+      // Stop recording
       setIsRecording(false)
-      // Stop recording and transcribe
-      toast.success('Voice note recorded and transcribed')
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop()
+      }
     } else {
-      setIsRecording(true)
       // Start recording
-      toast.info('Recording voice note...')
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        const mediaRecorder = new MediaRecorder(stream)
+        mediaRecorderRef.current = mediaRecorder
+        audioChunksRef.current = []
+
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunksRef.current.push(event.data)
+          }
+        }
+
+        mediaRecorder.onstop = async () => {
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+
+          // Stop all tracks to release microphone
+          stream.getTracks().forEach(track => track.stop())
+
+          // Send to transcription API
+          try {
+            const formData = new FormData()
+            formData.append('audio', audioBlob, 'recording.webm')
+            formData.append('permitId', currentStop.permit.id)
+            formData.append('returnTranscription', 'false') // Save to database
+
+            const res = await fetch('/api/permits/transcribe-note', {
+              method: 'POST',
+              body: formData
+            })
+
+            if (!res.ok) throw new Error('Transcription failed')
+
+            const data = await res.json()
+
+            if (data.success) {
+              toast.success('Voice note saved successfully')
+
+              // Update local notes display
+              const updatedNotes = data.updatedNotes || currentStop.permit.notes
+              setCurrentStopNotes(updatedNotes)
+
+              // Update route state
+              const updatedStops = [...activeRoute.stops]
+              const stopIndex = updatedStops.findIndex(s => s.permit.id === currentStop.permit.id)
+              if (stopIndex !== -1) {
+                updatedStops[stopIndex] = {
+                  ...updatedStops[stopIndex],
+                  permit: {
+                    ...updatedStops[stopIndex].permit,
+                    notes: updatedNotes
+                  }
+                }
+                setActiveRoute({ ...activeRoute, stops: updatedStops })
+              }
+            } else {
+              throw new Error(data.error || 'Failed to save voice note')
+            }
+          } catch (error) {
+            console.error('Error transcribing voice note:', error)
+            toast.error('Failed to transcribe voice note')
+          }
+
+          audioChunksRef.current = []
+        }
+
+        mediaRecorder.start()
+        setIsRecording(true)
+        toast.success('Recording started')
+      } catch (error) {
+        console.error('Error starting recording:', error)
+        toast.error('Failed to access microphone. Please check permissions.')
+      }
     }
   }
 
@@ -615,6 +758,15 @@ export function FullScreenRouteNavigator({
         )}
       </div>
 
+      {/* Hidden file input for photo upload */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        multiple
+        onChange={(e) => handlePhotoUpload(e.target.files)}
+        className="hidden"
+      />
     </div>
   )
 }

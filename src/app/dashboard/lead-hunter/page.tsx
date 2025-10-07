@@ -55,6 +55,7 @@ const getCityCountyMapping = (city: string): string | null => {
     'Rowley': 'Essex',
     'Salisbury': 'Essex',
     'Topsfield': 'Essex',
+    'Melrose': 'Middlesex',
     // Add more mappings as needed
   }
   return cityCountyMap[city] || null

@@ -87,7 +87,7 @@ const PRESET_INSTRUCTIONS = [
 // Massachusetts cities grouped by county
 const MA_CITIES = {
   'Essex': ['Andover', 'Beverly', 'Danvers', 'Gloucester', 'Haverhill', 'Lawrence', 'Lynn', 'Methuen', 'Newburyport', 'Peabody', 'Salem', 'Amesbury', 'Essex', 'Georgetown', 'Groveland', 'Hamilton', 'Ipswich', 'Lynnfield', 'Manchester-by-the-Sea', 'Marblehead', 'Merrimac', 'Middleton', 'Nahant', 'Newbury', 'North Andover', 'Rockport', 'Rowley', 'Salisbury', 'Saugus', 'Swampscott', 'Topsfield', 'Wenham', 'West Newbury'],
-  'Middlesex': ['Cambridge', 'Lowell', 'Newton', 'Somerville', 'Waltham', 'Medford', 'Malden', 'Framingham', 'Lexington', 'Woburn', 'Arlington', 'Belmont', 'Burlington', 'Concord', 'Everett', 'Marlborough', 'Natick', 'Reading', 'Stoneham', 'Watertown', 'Winchester'],
+  'Middlesex': ['Cambridge', 'Lowell', 'Newton', 'Somerville', 'Waltham', 'Medford', 'Malden', 'Framingham', 'Lexington', 'Woburn', 'Arlington', 'Belmont', 'Burlington', 'Concord', 'Everett', 'Marlborough', 'Natick', 'Reading', 'Stoneham', 'Watertown', 'Winchester', 'Melrose'],
   'Suffolk': ['Boston', 'Chelsea', 'Revere', 'Winthrop'],
   'Norfolk': ['Needham', 'Brookline', 'Quincy', 'Weymouth', 'Braintree', 'Milton', 'Dedham', 'Westwood', 'Norwood', 'Canton', 'Sharon', 'Stoughton', 'Randolph', 'Holbrook', 'Avon', 'Bellingham', 'Dover', 'Foxborough', 'Franklin', 'Medfield', 'Medway', 'Millis', 'Norfolk', 'Norfolk', 'Plainville', 'Walpole', 'Wellesley', 'Wrentham'],
   'Worcester': ['Worcester', 'Shrewsbury', 'Westborough', 'Grafton', 'Milford', 'Auburn', 'Holden', 'Leicester', 'Millbury', 'Northborough', 'Southborough', 'Spencer', 'West Boylston'],
