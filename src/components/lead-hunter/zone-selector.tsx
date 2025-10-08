@@ -27,12 +27,12 @@ const NH_COUNTIES = [
   'Merrimack', 'Rockingham', 'Strafford', 'Sullivan'
 ]
 
-// Major cities/towns by county (sample data - would be expanded in production)
-const CITIES_BY_COUNTY: Record<string, string[]> = {
+// Fallback cities by county (used only if API fetch fails)
+const FALLBACK_CITIES_BY_COUNTY: Record<string, string[]> = {
   // Massachusetts
-  'Middlesex': ['Cambridge', 'Lowell', 'Newton', 'Somerville', 'Framingham', 'Malden', 'Medford', 'Waltham'],
+  'Middlesex': ['Cambridge', 'Lowell', 'Newton', 'Somerville', 'Framingham', 'Malden', 'Medford', 'Waltham', 'Melrose', 'Billerica', 'Stoneham'],
   'Worcester': ['Worcester', 'Fitchburg', 'Leominster', 'Milford', 'Shrewsbury', 'Westborough'],
-  'Essex': ['Lynn', 'Lawrence', 'Haverhill', 'Peabody', 'Salem', 'Methuen', 'Beverly', 'Gloucester', 'Andover', 'Nahant', 'Hamilton', 'Ipswich', 'Merrimac', 'Rowley', 'Salisbury', 'Topsfield', 'Wenham'],
+  'Essex': ['Lynn', 'Lawrence', 'Haverhill', 'Peabody', 'Salem', 'Methuen', 'Beverly', 'Gloucester', 'Andover', 'Nahant', 'Hamilton', 'Ipswich', 'Merrimac', 'Rowley', 'Salisbury', 'Topsfield', 'Wenham', 'Amesbury'],
   'Norfolk': ['Quincy', 'Brookline', 'Weymouth', 'Braintree', 'Franklin', 'Needham'],
   'Plymouth': ['Plymouth', 'Brockton', 'Taunton', 'Bridgewater', 'Marshfield', 'Hanover'],
   'Bristol': ['New Bedford', 'Fall River', 'Attleboro', 'Taunton', 'Mansfield'],
@@ -44,8 +44,8 @@ const CITIES_BY_COUNTY: Record<string, string[]> = {
   'Barnstable': ['Barnstable', 'Hyannis', 'Falmouth', 'Sandwich', 'Dennis'],
 
   // New Hampshire
-  'Hillsborough': ['Manchester', 'Nashua', 'Merrimack', 'Bedford', 'Goffstown', 'Hudson'],
-  'Rockingham': ['Derry', 'Salem', 'Portsmouth', 'Londonderry', 'Windham', 'Exeter'],
+  'Hillsborough': ['Manchester', 'Nashua', 'Merrimack', 'Bedford', 'Goffstown', 'Hudson', 'Seabrook'],
+  'Rockingham': ['Derry', 'Salem', 'Portsmouth', 'Londonderry', 'Windham', 'Exeter', 'Seabrook'],
   'Merrimack': ['Concord', 'Franklin', 'Hopkinton', 'Bow', 'Hooksett'],
   'Strafford': ['Dover', 'Rochester', 'Somersworth', 'Durham', 'Farmington'],
   'Cheshire': ['Keene', 'Jaffrey', 'Peterborough', 'Swanzey'],
@@ -84,6 +84,7 @@ export function ZoneSelector({
   const [availableCities, setAvailableCities] = useState<string[]>([])
   const [localCollapsed, setLocalCollapsed] = useState(defaultCollapsed)
   const [isHydrated, setIsHydrated] = useState(false)
+  const [citiesLoading, setCitiesLoading] = useState(false)
 
   // Ensure hydration consistency
   useEffect(() => {
@@ -94,13 +95,34 @@ export function ZoneSelector({
   const collapsed = isCollapsed !== undefined ? isCollapsed : localCollapsed
   const toggleCollapse = onToggleCollapse || (() => setLocalCollapsed(!localCollapsed))
 
-  // Update available cities when county changes
+  // Fetch available cities from database when county changes
   useEffect(() => {
-    if (activeFilters.county) {
-      setAvailableCities(CITIES_BY_COUNTY[activeFilters.county] || [])
-    } else {
-      setAvailableCities([])
+    const fetchCitiesForCounty = async () => {
+      if (!activeFilters.county) {
+        setAvailableCities([])
+        return
+      }
+
+      setCitiesLoading(true)
+      try {
+        const response = await fetch(`/api/permits/cities?county=${encodeURIComponent(activeFilters.county)}`)
+        if (response.ok) {
+          const cities = await response.json()
+          setAvailableCities(cities)
+        } else {
+          // Fallback to hardcoded list if API fails
+          setAvailableCities(FALLBACK_CITIES_BY_COUNTY[activeFilters.county] || [])
+        }
+      } catch (error) {
+        console.error('Error fetching cities:', error)
+        // Fallback to hardcoded list
+        setAvailableCities(FALLBACK_CITIES_BY_COUNTY[activeFilters.county] || [])
+      } finally {
+        setCitiesLoading(false)
+      }
     }
+
+    fetchCitiesForCounty()
   }, [activeFilters.county])
 
   // Apply filters when they change
@@ -352,6 +374,10 @@ export function ZoneSelector({
           {!activeFilters.county ? (
             <div className="p-3 bg-slate-100 rounded border text-sm text-slate-500 text-center">
               Select a county first to choose cities
+            </div>
+          ) : citiesLoading ? (
+            <div className="p-3 bg-slate-100 rounded border text-sm text-slate-500 text-center">
+              Loading cities...
             </div>
           ) : availableCities.length === 0 ? (
             <div className="p-3 bg-slate-100 rounded border text-sm text-slate-500 text-center">

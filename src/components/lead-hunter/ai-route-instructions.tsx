@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
@@ -127,23 +127,49 @@ export function AIRouteInstructions({
   const [startLocation, setStartLocation] = useState('Current Location')
   const [endLocation, setEndLocation] = useState('')
   const [returnToStart, setReturnToStart] = useState(true)
+  const [allCities, setAllCities] = useState<string[]>([])
+  const [citiesLoading, setCitiesLoading] = useState(false)
 
-  // Flatten all cities into a single searchable list
-  const allCities = useMemo(() => {
-    const cities: string[] = []
+  // Fetch all cities from database on component mount
+  useEffect(() => {
+    const fetchAllCities = async () => {
+      setCitiesLoading(true)
+      try {
+        const response = await fetch('/api/permits/all-cities')
+        if (response.ok) {
+          const cities = await response.json()
+          setAllCities(cities)
+        } else {
+          // Fallback to hardcoded cities
+          const fallbackCities: string[] = []
+          Object.values(MA_CITIES).forEach(countyCities => {
+            fallbackCities.push(...countyCities)
+          })
+          Object.values(NH_CITIES).forEach(countyCities => {
+            fallbackCities.push(...countyCities)
+          })
+          setAllCities(fallbackCities.sort())
+        }
+      } catch (error) {
+        console.error('Error fetching cities:', error)
+        // Fallback to hardcoded cities
+        const fallbackCities: string[] = []
+        Object.values(MA_CITIES).forEach(countyCities => {
+          fallbackCities.push(...countyCities)
+        })
+        Object.values(NH_CITIES).forEach(countyCities => {
+          fallbackCities.push(...countyCities)
+        })
+        setAllCities(fallbackCities.sort())
+      } finally {
+        setCitiesLoading(false)
+      }
+    }
 
-    // Add MA cities
-    Object.values(MA_CITIES).forEach(countyCities => {
-      cities.push(...countyCities)
-    })
-
-    // Add NH cities
-    Object.values(NH_CITIES).forEach(countyCities => {
-      cities.push(...countyCities)
-    })
-
-    return cities.sort()
-  }, [])
+    if (isOpen) {
+      fetchAllCities()
+    }
+  }, [isOpen])
 
   // Filter cities based on search input
   const filteredCities = useMemo(() => {
