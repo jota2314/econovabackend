@@ -275,10 +275,24 @@ export function FullScreenRouteNavigator({
 
   const navigateToStop = (stop: RouteStop) => {
     const { permit } = stop
-    const address = encodeURIComponent(
-      `${permit.address}, ${permit.city || ''}, ${permit.state || 'MA'} ${permit.zip_code || ''}`
-    )
-    window.open(`https://www.google.com/maps/dir/?api=1&destination=${address}`, '_blank')
+
+    // Build properly formatted address
+    const addressParts: string[] = []
+    if (permit.address) addressParts.push(permit.address)
+    if (permit.city) addressParts.push(permit.city)
+
+    const stateZip: string[] = []
+    if (permit.state) stateZip.push(permit.state)
+    if (permit.zip_code) stateZip.push(permit.zip_code)
+
+    if (stateZip.length > 0) {
+      addressParts.push(stateZip.join(' '))
+    }
+
+    const formattedAddress = addressParts.join(', ')
+    const encodedAddress = encodeURIComponent(formattedAddress)
+
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodedAddress}`, '_blank')
   }
 
   const handlePhotoCapture = () => {
@@ -508,6 +522,25 @@ export function FullScreenRouteNavigator({
                 {Math.floor(elapsedTime / 60)}h {elapsedTime % 60}m
               </div>
             </div>
+
+            {activeRoute.totalDistance > 0 && (
+              <div className="text-center hidden sm:block">
+                <div className="text-xs text-slate-500">Total Distance</div>
+                <div className="font-medium text-sm">
+                  {activeRoute.totalDistance} mi
+                </div>
+              </div>
+            )}
+
+            {activeRoute.totalTime > 0 && (
+              <div className="text-center hidden sm:block">
+                <div className="text-xs text-slate-500">Est. Time</div>
+                <div className="font-medium text-sm">
+                  {Math.floor(activeRoute.totalTime / 60)}h {activeRoute.totalTime % 60}m
+                </div>
+              </div>
+            )}
+
             <Button
               size="sm"
               variant={isTimerRunning ? "secondary" : "default"}
@@ -605,6 +638,22 @@ export function FullScreenRouteNavigator({
                             <Building className="w-4 h-4 text-slate-500" />
                             <span className="font-medium">{stop.permit.builder_name}</span>
                           </div>
+                          {(stop.distance !== undefined || stop.estimatedTime !== undefined) && (
+                            <div className="flex items-center space-x-3 text-xs text-slate-500 mt-2">
+                              {stop.distance !== undefined && (
+                                <div className="flex items-center space-x-1">
+                                  <Car className="w-3 h-3" />
+                                  <span>{stop.distance} mi</span>
+                                </div>
+                              )}
+                              {stop.estimatedTime !== undefined && (
+                                <div className="flex items-center space-x-1">
+                                  <Clock className="w-3 h-3" />
+                                  <span>{stop.estimatedTime} min</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -684,11 +733,14 @@ export function FullScreenRouteNavigator({
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="contacted">Contacted</SelectItem>
-                                <SelectItem value="hot">Hot 🔥</SelectItem>
-                                <SelectItem value="cold">Cold ❄️</SelectItem>
-                                <SelectItem value="not_visited">Not Home</SelectItem>
-                                <SelectItem value="rejected">Not Interested</SelectItem>
+                                <SelectItem value="new">📨 New</SelectItem>
+                                <SelectItem value="contacted">📞 Contacted</SelectItem>
+                                <SelectItem value="converted_to_lead">✅ Converted</SelectItem>
+                                <SelectItem value="rejected">❌ Rejected</SelectItem>
+                                <SelectItem value="hot">🔥 Hot</SelectItem>
+                                <SelectItem value="cold">❄️ Cold</SelectItem>
+                                <SelectItem value="visited">👁️ Visited</SelectItem>
+                                <SelectItem value="not_visited">⏸️ Not Visited</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>

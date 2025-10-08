@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { GoogleMap, useJsApiLoader, Marker, InfoWindow } from '@react-google-maps/api'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { GoogleMap, useJsApiLoader, Marker, InfoWindow, MarkerClusterer } from '@react-google-maps/api'
 
 interface Permit {
   id: string
@@ -21,7 +21,6 @@ interface MapComponentProps {
   selectedPermit: Permit | null
   onPermitSelect: (permit: Permit | null) => void
   onMapClick: (lat: number, lng: number) => void
-  showHeatZones?: boolean
   showUserLocation?: boolean
 }
 
@@ -36,7 +35,8 @@ const center = {
   lng: -71.0589
 }
 
-const getMapOptions = () => ({
+// Optimize map options with memoization
+const getMapOptions = (): google.maps.MapOptions => ({
   disableDefaultUI: false,
   zoomControl: true,
   streetViewControl: false,
@@ -49,30 +49,98 @@ const getMapOptions = () => ({
   clickableIcons: false, // Prevent accidental clicks on POIs
 })
 
+// Clustering options for better performance with many markers
+const clusterOptions = {
+  gridSize: 50,
+  maxZoom: 15,
+  minimumClusterSize: 10,
+  styles: [
+    {
+      url: 'data:image/svg+xml;base64,' + btoa(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="50" height="50">
+          <circle cx="25" cy="25" r="22" fill="#3b82f6" opacity="0.8" stroke="#ffffff" stroke-width="3"/>
+        </svg>
+      `),
+      height: 50,
+      width: 50,
+      textColor: '#ffffff',
+      textSize: 14,
+      fontWeight: 'bold',
+    },
+    {
+      url: 'data:image/svg+xml;base64,' + btoa(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60">
+          <circle cx="30" cy="30" r="27" fill="#2563eb" opacity="0.8" stroke="#ffffff" stroke-width="3"/>
+        </svg>
+      `),
+      height: 60,
+      width: 60,
+      textColor: '#ffffff',
+      textSize: 15,
+      fontWeight: 'bold',
+    },
+    {
+      url: 'data:image/svg+xml;base64,' + btoa(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="70" height="70">
+          <circle cx="35" cy="35" r="32" fill="#1d4ed8" opacity="0.8" stroke="#ffffff" stroke-width="3"/>
+        </svg>
+      `),
+      height: 70,
+      width: 70,
+      textColor: '#ffffff',
+      textSize: 16,
+      fontWeight: 'bold',
+    },
+  ],
+}
+
 export function MapComponent({
   permits,
   selectedPermit,
   onPermitSelect,
   onMapClick,
-  showHeatZones = false,
   showUserLocation = true
 }: MapComponentProps) {
   const [map, setMap] = useState<google.maps.Map | null>(null)
-  const [heatZones, setHeatZones] = useState<google.maps.Circle[]>([])
-  const heatZonesRef = useRef<google.maps.Circle[]>([])
   const [userLocation, setUserLocation] = useState<{lat: number, lng: number} | null>(null)
   const [locationError, setLocationError] = useState<string | null>(null)
+  const [mapBounds, setMapBounds] = useState<google.maps.LatLngBounds | null>(null)
 
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
-    libraries: ['places'],
+    libraries: ['places'], // Only load what we need
   })
+
+  // Track bounds listener for cleanup
+  const boundsListenerRef = useRef<google.maps.MapsEventListener | null>(null)
+  const boundsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   const onLoad = useCallback((map: google.maps.Map) => {
     setMap(map)
+
+    // Debounce bounds updates to reduce re-renders during pan/zoom
+    boundsListenerRef.current = map.addListener('bounds_changed', () => {
+      if (boundsTimeoutRef.current) {
+        clearTimeout(boundsTimeoutRef.current)
+      }
+
+      boundsTimeoutRef.current = setTimeout(() => {
+        const bounds = map.getBounds()
+        if (bounds) {
+          setMapBounds(bounds)
+        }
+      }, 300) // 300ms debounce
+    })
   }, [])
 
   const onUnmount = useCallback(() => {
+    // Cleanup listeners and timeouts
+    if (boundsListenerRef.current) {
+      google.maps.event.removeListener(boundsListenerRef.current)
+    }
+    if (boundsTimeoutRef.current) {
+      clearTimeout(boundsTimeoutRef.current)
+    }
     setMap(null)
   }, [])
 
@@ -84,10 +152,11 @@ export function MapComponent({
     }
   }, [onMapClick])
 
-  const getMarkerIcon = (permit: Permit) => {
+  // Memoize marker icon generation
+  const getMarkerIcon = useCallback((permit: Permit) => {
     const colors = {
       new: '#10b981', // green
-      contacted: '#f59e0b', // amber  
+      contacted: '#f59e0b', // amber
       converted_to_lead: '#3b82f6', // blue
       rejected: '#ef4444', // red
       hot: '#ea580c', // orange fire color 🔥
@@ -95,12 +164,12 @@ export function MapComponent({
       visited: '#a855f7', // purple
       not_visited: '#6b7280' // gray
     }
-    
+
     // Return undefined if Google Maps isn't loaded yet
     if (typeof google === 'undefined') {
       return undefined
     }
-    
+
     return {
       path: google.maps.SymbolPath.CIRCLE,
       fillColor: colors[permit.status],
@@ -109,7 +178,7 @@ export function MapComponent({
       strokeWeight: 2,
       scale: 12, // Larger markers for easier mobile tapping
     }
-  }
+  }, [])
 
   const getMarkerTitle = (permit: Permit) => {
     return `${permit.builder_name} - ${permit.address} (${permit.status})`
@@ -182,108 +251,10 @@ export function MapComponent({
     }
   }
 
-  // Clustering algorithm for hot permits
-  const findHotClusters = useCallback((hotPermits: Permit[]) => {
-    if (hotPermits.length < 2) return []
-
-    const clusters = []
-    const clusterRadius = 0.01 // ~1km radius in degrees (adjust as needed)
-    const minPermitsForHotZone = 2 // Minimum hot permits to create a zone
-
-    for (let i = 0; i < hotPermits.length; i++) {
-      const centerPermit = hotPermits[i]
-      const nearbyHotPermits = hotPermits.filter(permit => {
-        if (permit.id === centerPermit.id) return true
-        const distance = Math.sqrt(
-          Math.pow(permit.latitude - centerPermit.latitude, 2) + 
-          Math.pow(permit.longitude - centerPermit.longitude, 2)
-        )
-        return distance <= clusterRadius
-      })
-
-      if (nearbyHotPermits.length >= minPermitsForHotZone) {
-        // Calculate cluster center
-        const avgLat = nearbyHotPermits.reduce((sum, p) => sum + p.latitude, 0) / nearbyHotPermits.length
-        const avgLng = nearbyHotPermits.reduce((sum, p) => sum + p.longitude, 0) / nearbyHotPermits.length
-        
-        clusters.push({
-          center: { lat: avgLat, lng: avgLng },
-          count: nearbyHotPermits.length,
-          permits: nearbyHotPermits
-        })
-      }
-    }
-
-    // Remove duplicate clusters (clusters that are too close to each other)
-    const uniqueClusters = []
-    for (const cluster of clusters) {
-      const isDuplicate = uniqueClusters.some(existing => {
-        const distance = Math.sqrt(
-          Math.pow(cluster.center.lat - existing.center.lat, 2) + 
-          Math.pow(cluster.center.lng - existing.center.lng, 2)
-        )
-        return distance < clusterRadius / 2
-      })
-      if (!isDuplicate) {
-        uniqueClusters.push(cluster)
-      }
-    }
-
-    return uniqueClusters
-  }, [])
-
-  // Create heat zones on the map
-  const createHeatZones = useCallback(() => {
-    if (!map || !showHeatZones) {
-      // Clear existing zones when hiding
-      heatZonesRef.current.forEach(zone => zone.setMap(null))
-      heatZonesRef.current = []
-      setHeatZones([])
-      return
-    }
-
-    // Clear existing zones
-    heatZonesRef.current.forEach(zone => zone.setMap(null))
-    
-    // Get hot permits only
-    const hotPermits = permits.filter(permit => permit.status === 'hot')
-    const clusters = findHotClusters(hotPermits)
-    
-    // Create new heat zones
-    const newHeatZones = clusters.map(cluster => {
-      const radius = Math.max(500, cluster.count * 300) // Minimum 500m, grows with permit count
-      
-      const circle = new google.maps.Circle({
-        strokeColor: '#ea580c',
-        strokeOpacity: 0.8,
-        strokeWeight: 2,
-        fillColor: '#ea580c',
-        fillOpacity: 0.15,
-        map: map,
-        center: cluster.center,
-        radius: radius,
-      })
-
-      // Add click handler to show cluster info
-      circle.addListener('click', () => {
-        alert(`Hot Zone: ${cluster.count} hot permits in this area`)
-      })
-
-      return circle
-    })
-
-    // Update both ref and state
-    heatZonesRef.current = newHeatZones
-    setHeatZones(newHeatZones)
-  }, [map, permits, showHeatZones, findHotClusters])
-
-
-  // Update heat zones when permits or showHeatZones changes
-  useEffect(() => {
-    if (isLoaded && map) {
-      createHeatZones()
-    }
-  }, [isLoaded, map, permits, showHeatZones, createHeatZones])
+  // Memoize valid permits (those with actual coordinates)
+  const validPermits = useMemo(() => {
+    return permits.filter((permit) => permit.latitude !== 0 || permit.longitude !== 0)
+  }, [permits])
 
   if (loadError) {
     return (
@@ -324,20 +295,26 @@ export function MapComponent({
         onClick={handleMapClick}
         options={getMapOptions()}
       >
-        {permits
-          .filter((permit) => permit.latitude !== 0 || permit.longitude !== 0)
-          .map((permit) => (
-            <Marker
-              key={permit.id}
-              position={{
-                lat: permit.latitude,
-                lng: permit.longitude
-              }}
-              icon={getMarkerIcon(permit)}
-              title={getMarkerTitle(permit)}
-              onClick={() => onPermitSelect(permit)}
-            />
-          ))}
+        {/* Marker Clustering for better performance */}
+        <MarkerClusterer options={clusterOptions}>
+          {(clusterer) => (
+            <>
+              {validPermits.map((permit) => (
+                <Marker
+                  key={permit.id}
+                  position={{
+                    lat: permit.latitude,
+                    lng: permit.longitude
+                  }}
+                  icon={getMarkerIcon(permit)}
+                  title={getMarkerTitle(permit)}
+                  onClick={() => onPermitSelect(permit)}
+                  clusterer={clusterer}
+                />
+              ))}
+            </>
+          )}
+        </MarkerClusterer>
 
         {/* User Location Marker */}
         {userLocation && showUserLocation && (
@@ -374,7 +351,7 @@ export function MapComponent({
                   {selectedPermit.status.replace('_', ' ')}
                 </span>
                 <span className={`px-2 py-1 rounded text-xs ${
-                  selectedPermit.permit_type === 'residential' ? 
+                  selectedPermit.permit_type === 'residential' ?
                   'bg-gray-100 text-gray-700' : 'bg-purple-100 text-purple-700'
                 }`}>
                   {selectedPermit.permit_type}
