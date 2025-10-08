@@ -647,7 +647,9 @@ export default function LeadHunterPage() {
         stops: optimizedResult.permits.map((permit, index) => ({
           permit,
           visited: false,
-          order: index + 1
+          order: index + 1,
+          estimatedTime: optimizedResult.legs?.[index]?.duration || 20,
+          distance: optimizedResult.legs?.[index]?.distance || 5
         })),
         startAddress: instructions.startLocation || 'Current Location',
         totalDistance: optimizedResult.totalDistance,
@@ -960,7 +962,7 @@ export default function LeadHunterPage() {
           ) : (
             <>
               {currentView === 'map' ? (
-                <div className="flex-1 relative">
+                <div className="flex-1 relative min-h-[600px] lg:min-h-[700px]">
                   <MapComponent
                     permits={filteredPermits}
                     selectedPermit={selectedPermit}

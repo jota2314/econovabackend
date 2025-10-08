@@ -62,12 +62,27 @@ export async function POST(request: NextRequest) {
       throw new Error(`Google API status: ${data.status}`)
     }
 
-    // Extract optimized waypoint order
+    // Extract optimized waypoint order and leg details
+    const legs = data.routes[0]?.legs || []
+    const totalDuration = legs.reduce((total: number, leg: any) => total + (leg.duration?.value || 0), 0)
+    const totalDistance = legs.reduce((total: number, leg: any) => total + (leg.distance?.value || 0), 0)
+
+    // Extract individual leg details for each stop
+    const legDetails = legs.map((leg: any) => ({
+      distance: leg.distance?.value || 0, // meters
+      distanceText: leg.distance?.text || '',
+      duration: leg.duration?.value || 0, // seconds
+      durationText: leg.duration?.text || '',
+      startAddress: leg.start_address || '',
+      endAddress: leg.end_address || ''
+    }))
+
     const result = {
       status: data.status,
       waypoint_order: data.routes[0]?.waypoint_order || [],
-      duration: data.routes[0]?.legs?.reduce((total: number, leg: any) => total + leg.duration.value, 0),
-      distance: data.routes[0]?.legs?.reduce((total: number, leg: any) => total + leg.distance.value, 0)
+      duration: totalDuration,
+      distance: totalDistance,
+      legs: legDetails
     }
 
     return NextResponse.json(result)

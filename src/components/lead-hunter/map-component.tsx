@@ -26,7 +26,8 @@ interface MapComponentProps {
 
 const mapContainerStyle = {
   width: '100%',
-  height: '100%'
+  height: '100%',
+  minHeight: '600px'
 }
 
 // Default center - Boston, MA area
@@ -275,7 +276,7 @@ export function MapComponent({
 
   if (!isLoaded) {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-slate-50">
+      <div className="w-full h-full min-h-[600px] flex items-center justify-center bg-slate-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto mb-2"></div>
           <p className="text-slate-600">Loading map...</p>

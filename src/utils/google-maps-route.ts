@@ -133,47 +133,85 @@ export async function createOptimalRoute(
   permits: Permit[]
   totalDistance: number
   totalDuration: number
+  legs?: Array<{ distance: number; duration: number }>
   routePolyline?: string
 }> {
-  // First, get real distances to all permits
-  const distanceData = await getRealDistances(startLocation, permits)
-
-  // Sort permits by a combination of distance and priority
-  const scoredPermits = permits.map(permit => {
-    const distInfo = distanceData.get(permit.id)
-    const distanceScore = distInfo ? (1 / (distInfo.duration + 1)) * 1000 : 0
-    const priorityScore = permit.priority_score || 50
-
+  if (permits.length === 0) {
     return {
-      permit,
-      score: (priorityScore * 0.4) + (distanceScore * 0.6), // Balance priority vs distance
-      distance: distInfo?.distance || 0,
-      duration: distInfo?.duration || 0
-    }
-  })
-
-  // Sort by combined score
-  scoredPermits.sort((a, b) => b.score - a.score)
-
-  // Take top permits and optimize their order with Google
-  const topPermits = scoredPermits.slice(0, 25).map(sp => sp.permit)
-  const optimizedPermits = await optimizeRouteWithGoogle(startLocation, topPermits, returnToStart)
-
-  // Calculate totals
-  let totalDistance = 0
-  let totalDuration = 0
-
-  for (const sp of scoredPermits) {
-    if (optimizedPermits.find(p => p.id === sp.permit.id)) {
-      totalDistance += sp.distance
-      totalDuration += sp.duration
+      permits: [],
+      totalDistance: 0,
+      totalDuration: 0,
+      legs: []
     }
   }
 
-  return {
-    permits: optimizedPermits,
-    totalDistance: Math.round(totalDistance / 1609.34), // Convert to miles
-    totalDuration: Math.round(totalDuration / 60), // Convert to minutes
+  // Build address list for permits
+  const permitAddresses = permits.map((p: any) =>
+    `${p.latitude},${p.longitude}`
+  )
+
+  // Determine destination
+  const destination = returnToStart
+    ? `${startLocation.lat},${startLocation.lng}`
+    : permitAddresses[permitAddresses.length - 1]
+
+  const waypoints = returnToStart ? permitAddresses : permitAddresses.slice(0, -1)
+
+  try {
+    // Use the server-side route optimization API
+    const response = await fetch('/api/routes/optimize', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        origin: `${startLocation.lat},${startLocation.lng}`,
+        destination: destination,
+        permits: waypoints,
+        optimizeWaypoints: true
+      })
+    })
+
+    if (!response.ok) throw new Error('Route optimization failed')
+
+    const data = await response.json()
+
+    if (data.error) throw new Error(data.error)
+
+    // Reorder permits based on optimized waypoint order
+    let optimizedPermits = permits
+    if (data.waypoint_order && Array.isArray(data.waypoint_order)) {
+      const orderedPermits: Permit[] = []
+      data.waypoint_order.forEach((index: number) => {
+        if (index < permits.length) {
+          orderedPermits.push(permits[index])
+        }
+      })
+      optimizedPermits = orderedPermits.length > 0 ? orderedPermits : permits
+    }
+
+    // Extract leg details
+    const legs = data.legs || []
+
+    return {
+      permits: optimizedPermits,
+      totalDistance: Math.round((data.distance || 0) / 1609.34), // Convert meters to miles
+      totalDuration: Math.round((data.duration || 0) / 60), // Convert seconds to minutes
+      legs: legs.map((leg: any) => ({
+        distance: Math.round((leg.distance || 0) / 1609.34), // miles
+        duration: Math.round((leg.duration || 0) / 60) // minutes
+      }))
+    }
+  } catch (error) {
+    console.error('Route optimization error:', error)
+
+    // Fallback: return permits in original order with estimated times
+    return {
+      permits: permits,
+      totalDistance: permits.length * 5, // Rough estimate: 5 miles per stop
+      totalDuration: permits.length * 20, // Rough estimate: 20 minutes per stop
+      legs: permits.map(() => ({ distance: 5, duration: 20 }))
+    }
   }
 }
 
