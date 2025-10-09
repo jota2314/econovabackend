@@ -26,8 +26,8 @@ export function DashboardLayout({ children, title, user }: DashboardLayoutProps)
         <div className="flex flex-col flex-1 overflow-hidden">
           <Header title={title} user={user} />
           
-          <main className="flex-1 overflow-y-auto">
-            <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6">
+          <main className="flex-1 overflow-y-auto bg-slate-50/50">
+            <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 min-h-full">
               {children}
             </div>
           </main>

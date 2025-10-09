@@ -259,7 +259,7 @@ function getMassachusettsRValueRequirement(projectType: 'new' | 'remodel' | null
       case 'exterior_walls':
         return 30
       case 'basement_walls':
-        return 15
+        return 19
       default:
         return null
     }
@@ -270,7 +270,7 @@ function getMassachusettsRValueRequirement(projectType: 'new' | 'remodel' | null
       case 'exterior_walls':
         return 21
       case 'basement_walls':
-        return 15
+        return 19
       default:
         return null
     }
@@ -322,7 +322,7 @@ const wallDimensionSchema = z.object({
 
 const insulationMeasurementSchema = z.object({
   room_name: z.string().min(1, "Wall section name is required"),
-  floor_level: z.string().optional(),
+  floor_level: z.string().min(1, "Floor level is required"),
   area_type: z.enum(["exterior_walls", "interior_walls", "ceiling", "gable", "roof"]).optional(),
   surface_type: z.enum(["wall", "ceiling"]).optional(),
   framing_size: z.enum(["2x4", "2x6", "2x8", "2x10", "2x12"]).optional(),
@@ -390,6 +390,8 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
   const [realtimePricing, setRealtimePricing] = useState<{ pricePerSqft: number; totalPrice: number } | null>(null)
   const [showFloorPlan, setShowFloorPlan] = useState(false)
+  const [customFloorLevel, setCustomFloorLevel] = useState("")
+  const [showCustomFloorInput, setShowCustomFloorInput] = useState(false)
   const { user: roleUser } = useRole()
   const isManager = roleUser?.role === 'manager'
   const [groupOverrides, setGroupOverrides] = useState<Record<string, { sqft?: number; unitPrice?: number }>>({})
@@ -402,9 +404,9 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
           schema: insulationMeasurementSchema,
           defaultValues: {
             room_name: "",
-            floor_level: "",
+            floor_level: undefined,
             area_type: undefined,
-            surface_type: undefined,
+            surface_type: "wall" as const,
             framing_size: undefined,
             wall_dimensions: [{ height: 0, width: 0 }],
             insulation_type: undefined,
@@ -449,9 +451,9 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
           schema: insulationMeasurementSchema,
           defaultValues: {
             room_name: "",
-            floor_level: "",
+            floor_level: undefined,
             area_type: undefined,
-            surface_type: undefined,
+            surface_type: "wall" as const,
             framing_size: undefined,
             wall_dimensions: [{ height: 0, width: 0 }],
             insulation_type: undefined,
@@ -1524,7 +1526,8 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
     const insulationType = form.watch('insulation_type')
     const areaType = form.watch('area_type')
     const framingSize = form.watch('framing_size')
-    
+    const floorLevel = form.watch('floor_level')
+
     if (!insulationType || !framingSize) return
     
     // For roof areas, enforce specific configurations
@@ -1569,13 +1572,18 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
 
     setTimeout(() => {
       if (insulationType === 'closed_cell') {
-        // For exterior walls, limit to 5" to meet R-30 efficiently
-        if (areaType === 'exterior_walls') {
+        // Basement exterior walls need only 2.5" for R-19
+        if (areaType === 'exterior_walls' && floorLevel === 'Basement') {
+          form.setValue('closed_cell_inches', 2.5, { shouldValidate: true })
+          form.setValue('open_cell_inches', 0, { shouldValidate: true })
+        } else if (areaType === 'exterior_walls') {
+          // For above-grade exterior walls, limit to 5" to meet R-30 efficiently
           form.setValue('closed_cell_inches', 5, { shouldValidate: true })
+          form.setValue('open_cell_inches', 0, { shouldValidate: true })
         } else {
           form.setValue('closed_cell_inches', suggestedInches, { shouldValidate: true })
+          form.setValue('open_cell_inches', 0, { shouldValidate: true })
         }
-        form.setValue('open_cell_inches', 0, { shouldValidate: true })
       } else if (insulationType === 'open_cell') {
         form.setValue('closed_cell_inches', 0, { shouldValidate: true })
         form.setValue('open_cell_inches', suggestedInches, { shouldValidate: true })
@@ -1593,32 +1601,94 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         }
       }
     }, 0)
-  }, [form.watch('insulation_type'), form.watch('area_type'), form.watch('framing_size'), form])
+  }, [form.watch('insulation_type'), form.watch('area_type'), form.watch('framing_size'), form.watch('floor_level'), form])
 
   // Render different forms based on service type
   const renderInsulationForm = () => (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(addMeasurement)} className="space-y-4">
-        {/* Floor/Area Name */}
+        {/* Floor Level */}
         <FormField
           control={form.control}
-          name="room_name"
+          name="floor_level"
           render={({ field }) => (
             <FormItem>
               <FormLabel className="flex items-center gap-2">
                 <Building2 className="h-4 w-4" />
-                Area Name
+                Floor Level
               </FormLabel>
-              <FormControl>
-                <Input 
-                  placeholder="Living Room, Master Bedroom, etc." 
-                  {...field} 
-                />
-              </FormControl>
+              <Select
+                onValueChange={(value) => {
+                  if (value === 'custom') {
+                    setShowCustomFloorInput(true)
+                    field.onChange(customFloorLevel || '')
+                  } else {
+                    setShowCustomFloorInput(false)
+                    field.onChange(value)
+                    // Auto-generate room_name when floor level changes
+                    const areaType = form.getValues('area_type')
+                    if (areaType) {
+                      const areaNames: Record<string, string> = {
+                        'exterior_walls': 'Exterior Walls',
+                        'interior_walls': 'Interior Walls',
+                        'ceiling': 'Ceiling',
+                        'gable': 'Gable',
+                        'roof': 'Roof'
+                      }
+                      form.setValue('room_name', `${value} - ${areaNames[areaType]}`)
+                    }
+                  }
+                }}
+                value={showCustomFloorInput ? 'custom' : field.value}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select floor level" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="Roof/Attic">Roof/Attic</SelectItem>
+                  <SelectItem value="Third Floor">Third Floor</SelectItem>
+                  <SelectItem value="Second Floor">Second Floor</SelectItem>
+                  <SelectItem value="First Floor">First Floor</SelectItem>
+                  <SelectItem value="Basement">Basement</SelectItem>
+                  <SelectItem value="Crawl Space">Crawl Space</SelectItem>
+                  <SelectItem value="custom">Custom...</SelectItem>
+                </SelectContent>
+              </Select>
               <FormMessage />
             </FormItem>
           )}
         />
+
+        {/* Custom Floor Level Input */}
+        {showCustomFloorInput && (
+          <FormItem>
+            <FormLabel>Custom Floor Level</FormLabel>
+            <FormControl>
+              <Input
+                placeholder="e.g., Fourth Floor, Penthouse"
+                value={customFloorLevel}
+                onChange={(e) => {
+                  setCustomFloorLevel(e.target.value)
+                  form.setValue('floor_level', e.target.value)
+                  // Auto-generate room_name
+                  const areaType = form.getValues('area_type')
+                  if (areaType) {
+                    const areaNames: Record<string, string> = {
+                      'exterior_walls': 'Exterior Walls',
+                      'interior_walls': 'Interior Walls',
+                      'ceiling': 'Ceiling',
+                      'gable': 'Gable',
+                      'roof': 'Roof'
+                    }
+                    form.setValue('room_name', `${e.target.value} - ${areaNames[areaType]}`)
+                  }
+                }}
+              />
+            </FormControl>
+          </FormItem>
+        )}
 
         {/* Area Type and Framing */}
         <div className="grid grid-cols-2 gap-4">
@@ -1628,19 +1698,52 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Area Type</FormLabel>
-                <Select 
+                <Select
                   onValueChange={(value) => {
                     field.onChange(value)
-                    
-                    // Auto-set insulation based on area type
+
+                    // Auto-set surface_type based on area_type
+                    if (value === 'ceiling' || value === 'roof') {
+                      form.setValue('surface_type', 'ceiling')
+                    } else {
+                      form.setValue('surface_type', 'wall')
+                    }
+
+                    // Auto-generate room_name when area type changes
+                    const floorLevel = form.getValues('floor_level')
+                    if (floorLevel) {
+                      const areaNames: Record<string, string> = {
+                        'exterior_walls': 'Exterior Walls',
+                        'interior_walls': 'Interior Walls',
+                        'ceiling': 'Ceiling',
+                        'gable': 'Gable',
+                        'roof': 'Roof'
+                      }
+                      form.setValue('room_name', `${floorLevel} - ${areaNames[value]}`)
+                    }
+
+                    // Auto-set insulation based on area type and floor level
                     if (value === 'exterior_walls') {
-                      // For exterior walls, recommend hybrid to reach R-30 cost-effectively
-                      // 2.5" closed cell (R-17.5) + 3" open cell (R-11.4) = R-28.9 ≈ R-30
-                      setTimeout(() => {
-                        form.setValue('insulation_type', 'hybrid', { shouldValidate: true })
-                        form.setValue('closed_cell_inches', 2.5, { shouldValidate: true })
-                        form.setValue('open_cell_inches', 3, { shouldValidate: true })
-                      }, 0)
+                      const floorLevel = form.getValues('floor_level')
+
+                      // Basement walls need R-19, typically 2x4 framing
+                      if (floorLevel === 'Basement') {
+                        setTimeout(() => {
+                          form.setValue('framing_size', '2x4', { shouldValidate: true })
+                          form.setValue('insulation_type', 'closed_cell', { shouldValidate: true })
+                          // R-19 / 7.0 per inch ≈ 2.7" (use 2.5" for practicality)
+                          form.setValue('closed_cell_inches', 2.5, { shouldValidate: true })
+                          form.setValue('open_cell_inches', 0, { shouldValidate: true })
+                        }, 0)
+                      } else {
+                        // For above-grade exterior walls, recommend hybrid to reach R-30 cost-effectively
+                        // 2.5" closed cell (R-17.5) + 3" open cell (R-11.4) = R-28.9 ≈ R-30
+                        setTimeout(() => {
+                          form.setValue('insulation_type', 'hybrid', { shouldValidate: true })
+                          form.setValue('closed_cell_inches', 2.5, { shouldValidate: true })
+                          form.setValue('open_cell_inches', 3, { shouldValidate: true })
+                        }, 0)
+                      }
                     } else if (value === 'interior_walls') {
                       // For interior walls, recommend Mineral Wool Batt 3" (R-15)
                       setTimeout(() => {
@@ -1696,8 +1799,16 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                 {/* Show Massachusetts R-value requirement for selected area */}
                 {(() => {
                   const selectedAreaType = form.watch('area_type')
-                  const requiredRValue = getMassachusettsRValueRequirement(job.construction_type, selectedAreaType)
-                  
+                  const floorLevel = form.watch('floor_level')
+
+                  // Determine the area type for code requirements
+                  let codeAreaType = selectedAreaType
+                  if (selectedAreaType === 'exterior_walls' && floorLevel === 'Basement') {
+                    codeAreaType = 'basement_walls'
+                  }
+
+                  const requiredRValue = getMassachusettsRValueRequirement(job.construction_type, codeAreaType)
+
                   if (requiredRValue) {
                     return (
                       <div className="text-xs text-blue-600 mt-1 p-2 bg-blue-50 border border-blue-200 rounded">
@@ -1766,6 +1877,14 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                     }
                     
                     // Standard handling for walls
+                    const floorLevel = form.getValues('floor_level')
+
+                    // Special handling for Basement exterior walls - keep 2.5" regardless of framing
+                    if (areaType === 'exterior_walls' && floorLevel === 'Basement') {
+                      // Don't override basement settings, they're already set correctly
+                      return
+                    }
+
                     const framingToInches: Record<string, number> = {
                       '2x4': 4,
                       '2x6': 6,
@@ -1773,10 +1892,10 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                       '2x10': 10,
                       '2x12': 12
                     }
-                    
+
                     const suggestedInches = framingToInches[value] || 0
                     const insulationType = form.getValues('insulation_type')
-                    
+
                     // Set the suggested thickness based on insulation type
                     if (insulationType === 'closed_cell') {
                       form.setValue('closed_cell_inches', suggestedInches)
@@ -1915,9 +2034,14 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
 
                     // Set the suggested thickness based on the new insulation type
                     if (value === 'closed_cell') {
-                      // For exterior walls, suggest optimal inches to meet R-30
-                      // R-30 / 7.0 per inch = 4.3" (round up to 5")
-                      if (areaType === 'exterior_walls') {
+                      const floorLevel = form.getValues('floor_level')
+
+                      // Basement exterior walls need only 2.5" for R-19
+                      if (areaType === 'exterior_walls' && floorLevel === 'Basement') {
+                        form.setValue('closed_cell_inches', 2.5, { shouldValidate: true })
+                      } else if (areaType === 'exterior_walls') {
+                        // For above-grade exterior walls, suggest optimal inches to meet R-30
+                        // R-30 / 7.0 per inch = 4.3" (round up to 5")
                         form.setValue('closed_cell_inches', 5, { shouldValidate: true })
                       } else {
                         form.setValue('closed_cell_inches', suggestedInches, { shouldValidate: true })
@@ -2714,7 +2838,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
   }
 
   return (
-    <div className="space-y-6 pb-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -2925,7 +3049,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
 
         {/* Estimate Summary */}
         {(viewMode === 'estimates' || viewMode === 'both') && (
-        <Card>
+        <Card className="mb-0">
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2">
