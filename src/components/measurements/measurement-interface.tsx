@@ -2714,7 +2714,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
   }
 
   return (
-    <div className="space-y-6 min-h-screen pb-6">
+    <div className="space-y-6 pb-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
