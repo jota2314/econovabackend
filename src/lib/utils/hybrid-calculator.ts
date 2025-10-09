@@ -64,12 +64,26 @@ export interface HybridSystemCalculation {
  * Calculate R-values for a hybrid spray foam system
  */
 export function calculateHybridRValue(
-  closedCellInches: number, 
+  closedCellInches: number,
   openCellInches: number,
   framingSize?: string,
   areaType?: string,
   constructionType?: 'new' | 'remodel' | null
 ): HybridSystemCalculation {
+  // For exterior walls with 2.5" closed + 3" open = R-30 (cost-effective MA code compliance)
+  if (areaType === 'exterior_walls' &&
+      closedCellInches === 2.5 &&
+      openCellInches === 3) {
+    return {
+      closedCellInches,
+      openCellInches,
+      closedCellRValue: 19.0,  // User requested R-19 for 2.5" closed
+      openCellRValue: 11.0,    // User requested R-11 for 3" open
+      totalRValue: 30.0,       // Total R-30 meets MA code
+      totalInches: closedCellInches + openCellInches
+    }
+  }
+
   // For roofs in new construction, we want to show R47.6 or R61.6 based on framing size
   if (areaType === 'roof' && constructionType === 'new') {
     if (framingSize === '2x10' && closedCellInches === 7 && openCellInches === 3) {

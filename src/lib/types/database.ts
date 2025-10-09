@@ -201,6 +201,7 @@ export type Database = {
           square_feet: number | null
           insulation_type: 'closed_cell' | 'open_cell' | 'batt' | 'blown_in' | 'hybrid' | 'mineral_wool' | null
           r_value: string | null
+          framing_size: '2x4' | '2x6' | '2x8' | '2x10' | '2x12' | null
           closed_cell_inches: number | null
           open_cell_inches: number | null
           is_hybrid_system: boolean | null
@@ -227,6 +228,7 @@ export type Database = {
           square_feet?: number | null
           insulation_type?: 'closed_cell' | 'open_cell' | 'batt' | 'blown_in' | 'hybrid' | null
           r_value?: string | null
+          framing_size?: '2x4' | '2x6' | '2x8' | '2x10' | '2x12' | null
           closed_cell_inches?: number | null
           open_cell_inches?: number | null
           is_hybrid_system?: boolean | null
@@ -253,6 +255,7 @@ export type Database = {
           square_feet?: number | null
           insulation_type?: 'closed_cell' | 'open_cell' | 'batt' | 'blown_in' | 'hybrid' | null
           r_value?: string | null
+          framing_size?: '2x4' | '2x6' | '2x8' | '2x10' | '2x12' | null
           closed_cell_inches?: number | null
           open_cell_inches?: number | null
           is_hybrid_system?: boolean | null

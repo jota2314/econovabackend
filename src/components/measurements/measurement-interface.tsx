@@ -23,6 +23,7 @@ import { SimpleHvacJobForm } from '@/components/hvac/SimpleHvacJobForm'
 import { useApprovalsStore } from '@/stores/approvals-store'
 
 import { ImageGallery, ImageThumbnailGrid } from '@/components/ui/image-gallery'
+import { FloorPlanDrawer } from '@/components/measurements/FloorPlanDrawer'
 import { toast } from "sonner"
 import { 
   Plus, 
@@ -323,8 +324,8 @@ const insulationMeasurementSchema = z.object({
   room_name: z.string().min(1, "Wall section name is required"),
   floor_level: z.string().optional(),
   area_type: z.enum(["exterior_walls", "interior_walls", "ceiling", "gable", "roof"]).optional(),
-  surface_type: z.enum(["wall", "ceiling"]),
-  framing_size: z.enum(["2x4", "2x6", "2x8", "2x10", "2x12"]),
+  surface_type: z.enum(["wall", "ceiling"]).optional(),
+  framing_size: z.enum(["2x4", "2x6", "2x8", "2x10", "2x12"]).optional(),
   wall_dimensions: z.array(wallDimensionSchema).min(1, "At least one wall section is required"),
   insulation_type: z.enum(["closed_cell", "open_cell", "batt", "blown_in", "hybrid", "mineral_wool"]).optional(),
   r_value: z.string().optional(),
@@ -377,6 +378,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [showForm, setShowForm] = useState(true)
+  const [viewMode, setViewMode] = useState<'both' | 'measurements' | 'estimates'>('both')
   const [serviceType, setServiceType] = useState<'insulation' | 'hvac' | 'plaster'>(job.service_type || 'insulation')
   const [pricing, setPricing] = useState<PricingCatalog[]>([])
   const [loadingPricing, setLoadingPricing] = useState(false)
@@ -387,6 +389,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
   const [galleryOpen, setGalleryOpen] = useState(false)
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
   const [realtimePricing, setRealtimePricing] = useState<{ pricePerSqft: number; totalPrice: number } | null>(null)
+  const [showFloorPlan, setShowFloorPlan] = useState(false)
   const { user: roleUser } = useRole()
   const isManager = roleUser?.role === 'manager'
   const [groupOverrides, setGroupOverrides] = useState<Record<string, { sqft?: number; unitPrice?: number }>>({})
@@ -400,11 +403,11 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
           defaultValues: {
             room_name: "",
             floor_level: "",
-            area_type: "exterior_walls" as const,
-            surface_type: "wall" as const,
-            framing_size: "2x6" as const,
+            area_type: undefined,
+            surface_type: undefined,
+            framing_size: undefined,
             wall_dimensions: [{ height: 0, width: 0 }],
-            insulation_type: "closed_cell" as const,
+            insulation_type: undefined,
             closed_cell_inches: 0,
             open_cell_inches: 0,
             target_r_value: 0,
@@ -447,11 +450,11 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
           defaultValues: {
             room_name: "",
             floor_level: "",
-            area_type: "exterior_walls" as const,
-            surface_type: "wall" as const,
-            framing_size: "2x6" as const,
+            area_type: undefined,
+            surface_type: undefined,
+            framing_size: undefined,
             wall_dimensions: [{ height: 0, width: 0 }],
-            insulation_type: "closed_cell" as const,
+            insulation_type: undefined,
             closed_cell_inches: 0,
             open_cell_inches: 0,
             target_r_value: 0,
@@ -998,7 +1001,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
           floor_level: insulationData.floor_level || null,
           area_type: insulationData.area_type || null,
           surface_type: insulationData.surface_type,
-          // framing_size: insulationData.framing_size, // Property doesn't exist in DB
+          framing_size: insulationData.framing_size || null,
           height: wall.height,
           width: wall.width,
           square_feet,
@@ -1561,21 +1564,33 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
       '2x10': 10,
       '2x12': 12
     }
-    
+
     const suggestedInches = framingToInches[framingSize] || 0
-    
+
     setTimeout(() => {
       if (insulationType === 'closed_cell') {
-        form.setValue('closed_cell_inches', suggestedInches, { shouldValidate: true })
+        // For exterior walls, limit to 5" to meet R-30 efficiently
+        if (areaType === 'exterior_walls') {
+          form.setValue('closed_cell_inches', 5, { shouldValidate: true })
+        } else {
+          form.setValue('closed_cell_inches', suggestedInches, { shouldValidate: true })
+        }
         form.setValue('open_cell_inches', 0, { shouldValidate: true })
       } else if (insulationType === 'open_cell') {
         form.setValue('closed_cell_inches', 0, { shouldValidate: true })
         form.setValue('open_cell_inches', suggestedInches, { shouldValidate: true })
       } else if (insulationType === 'hybrid') {
-        const closedCellInches = Math.min(2, suggestedInches)
-        const openCellInches = Math.max(0, suggestedInches - 2)
-        form.setValue('closed_cell_inches', closedCellInches, { shouldValidate: true })
-        form.setValue('open_cell_inches', openCellInches, { shouldValidate: true })
+        // For exterior walls, use cost-effective 2.5" closed + 3" open = R-30
+        if (areaType === 'exterior_walls') {
+          form.setValue('closed_cell_inches', 2.5, { shouldValidate: true })
+          form.setValue('open_cell_inches', 3, { shouldValidate: true })
+        } else {
+          // For other areas, use 2" closed minimum for vapor barrier
+          const closedCellInches = Math.min(2, suggestedInches)
+          const openCellInches = Math.max(0, suggestedInches - 2)
+          form.setValue('closed_cell_inches', closedCellInches, { shouldValidate: true })
+          form.setValue('open_cell_inches', openCellInches, { shouldValidate: true })
+        }
       }
     }, 0)
   }, [form.watch('insulation_type'), form.watch('area_type'), form.watch('framing_size'), form])
@@ -1618,7 +1633,15 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                     field.onChange(value)
                     
                     // Auto-set insulation based on area type
-                    if (value === 'interior_walls') {
+                    if (value === 'exterior_walls') {
+                      // For exterior walls, recommend hybrid to reach R-30 cost-effectively
+                      // 2.5" closed cell (R-17.5) + 3" open cell (R-11.4) = R-28.9 ≈ R-30
+                      setTimeout(() => {
+                        form.setValue('insulation_type', 'hybrid', { shouldValidate: true })
+                        form.setValue('closed_cell_inches', 2.5, { shouldValidate: true })
+                        form.setValue('open_cell_inches', 3, { shouldValidate: true })
+                      }, 0)
+                    } else if (value === 'interior_walls') {
                       // For interior walls, recommend Mineral Wool Batt 3" (R-15)
                       setTimeout(() => {
                         form.setValue('insulation_type', 'mineral_wool', { shouldValidate: true })
@@ -1879,7 +1902,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                   }
                   
                   // Standard handling for non-roof areas
-                  if (framingSize) {
+                  if (framingSize && areaType) {
                     const framingToInches: Record<string, number> = {
                       '2x4': 4,
                       '2x6': 6,
@@ -1887,22 +1910,35 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                       '2x10': 10,
                       '2x12': 12
                     }
-                    
+
                     const suggestedInches = framingToInches[framingSize] || 0
-                    
+
                     // Set the suggested thickness based on the new insulation type
                     if (value === 'closed_cell') {
-                      form.setValue('closed_cell_inches', suggestedInches, { shouldValidate: true })
+                      // For exterior walls, suggest optimal inches to meet R-30
+                      // R-30 / 7.0 per inch = 4.3" (round up to 5")
+                      if (areaType === 'exterior_walls') {
+                        form.setValue('closed_cell_inches', 5, { shouldValidate: true })
+                      } else {
+                        form.setValue('closed_cell_inches', suggestedInches, { shouldValidate: true })
+                      }
                       form.setValue('open_cell_inches', 0, { shouldValidate: true })
                     } else if (value === 'open_cell') {
                       form.setValue('open_cell_inches', suggestedInches, { shouldValidate: true })
                       form.setValue('closed_cell_inches', 0, { shouldValidate: true })
                     } else if (value === 'hybrid') {
-                      // For hybrid walls, suggest 2" closed cell and remainder as open cell
-                      const closedCellInches = Math.min(2, suggestedInches)
-                      const openCellInches = Math.max(0, suggestedInches - 2)
-                      form.setValue('closed_cell_inches', closedCellInches, { shouldValidate: true })
-                      form.setValue('open_cell_inches', openCellInches, { shouldValidate: true })
+                      // For hybrid, use cost-effective mix
+                      if (areaType === 'exterior_walls') {
+                        // 2.5" closed + 3" open = R-30
+                        form.setValue('closed_cell_inches', 2.5, { shouldValidate: true })
+                        form.setValue('open_cell_inches', 3, { shouldValidate: true })
+                      } else {
+                        // Default: 2" closed cell and remainder as open cell
+                        const closedCellInches = Math.min(2, suggestedInches)
+                        const openCellInches = Math.max(0, suggestedInches - 2)
+                        form.setValue('closed_cell_inches', closedCellInches, { shouldValidate: true })
+                        form.setValue('open_cell_inches', openCellInches, { shouldValidate: true })
+                      }
                     } else {
                       // Clear thickness for non-spray foam types
                       form.setValue('closed_cell_inches', 0, { shouldValidate: true })
@@ -2116,19 +2152,66 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
 
         {/* Wall Dimensions Section */}
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <Label className="text-sm font-medium">Wall Dimensions</Label>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => append({ height: 0, width: 0 })}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Wall
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              {form.watch('area_type') === 'exterior_walls' && (
+                <Button
+                  type="button"
+                  variant={showFloorPlan ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setShowFloorPlan(!showFloorPlan)}
+                  className={showFloorPlan ? 'bg-green-600 hover:bg-green-700 w-full sm:w-auto' : 'w-full sm:w-auto'}
+                >
+                  <Ruler className="h-4 w-4 mr-2" />
+                  {showFloorPlan ? 'Hide' : 'Draw'} Floor Plan
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => append({ height: 0, width: 0 })}
+                className="w-full sm:w-auto"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Wall
+              </Button>
+            </div>
           </div>
-          
+
+          {/* Floor Plan Drawer */}
+          {showFloorPlan && form.watch('area_type') === 'exterior_walls' && (
+            <FloorPlanDrawer
+              defaultHeight={8}
+              onWallsComplete={(walls) => {
+                console.log('Floor plan walls received:', walls)
+
+                // Get current field count
+                const currentFieldCount = fields.length
+                console.log('Current wall_dimensions fields:', currentFieldCount)
+
+                // Remove all existing fields
+                for (let i = currentFieldCount - 1; i >= 0; i--) {
+                  remove(i)
+                }
+
+                // Use setTimeout to ensure state updates complete
+                setTimeout(() => {
+                  // Add all walls from the drawing
+                  walls.forEach((wall, index) => {
+                    console.log(`Adding wall ${index + 1}:`, wall)
+                    append({ height: wall.height, width: wall.width })
+                  })
+
+                  console.log('All walls added, new count:', walls.length)
+                  setShowFloorPlan(false)
+                  toast.success(`${walls.length} walls added from floor plan`)
+                }, 100)
+              }}
+            />
+          )}
+
           {fields.map((field, index) => (
             <div key={field.id} className="flex gap-2 items-end">
               <FormField
@@ -2270,38 +2353,6 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         {/* Manager-only price overrides */}
         {isManager && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <FormField
-              control={form.control}
-              name="override_closed_cell_price_per_sqft"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="flex items-center gap-2">
-                    <DollarSign className="h-4 w-4" />
-                    Closed Cell Override ($/sq ft)
-                  </FormLabel>
-                  <FormControl>
-                    <Input type="number" step="0.01" min="0" placeholder="e.g. 5.70" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="override_open_cell_price_per_sqft"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="flex items-center gap-2">
-                    <DollarSign className="h-4 w-4" />
-                    Open Cell Override ($/sq ft)
-                  </FormLabel>
-                  <FormControl>
-                    <Input type="number" step="0.01" min="0" placeholder="e.g. 1.80" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
           </div>
         )}
 
@@ -2663,7 +2714,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-h-screen pb-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -2724,7 +2775,14 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
                   }
                 }}
               />
-              <div className="cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+              <div
+                className="cursor-pointer"
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  fileInputRef.current?.click()
+                }}
+              >
                 {uploadingPhoto ? (
                   <>
                     <Loader2 className="h-8 w-8 text-blue-500 mx-auto mb-2 animate-spin" />
@@ -2786,11 +2844,14 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
 
             {/* Quick Actions */}
             <div className="flex gap-2">
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
                 className="flex-1 border-blue-300 text-blue-700 hover:bg-blue-100"
-                onClick={() => {
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
                   fileInputRef.current?.click()
                 }}
                 disabled={uploadingPhoto}
@@ -2816,9 +2877,39 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         </CardContent>
       </Card>
 
-      <div className={`grid gap-6 ${showForm ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+      {/* View Mode Toggle */}
+      <div className="flex items-center justify-center gap-2 py-4">
+        <Button
+          variant={viewMode === 'measurements' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setViewMode('measurements')}
+          className="flex items-center gap-2"
+        >
+          <Plus className="h-4 w-4" />
+          Measurements Only
+        </Button>
+        <Button
+          variant={viewMode === 'both' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setViewMode('both')}
+          className="flex items-center gap-2"
+        >
+          Both
+        </Button>
+        <Button
+          variant={viewMode === 'estimates' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setViewMode('estimates')}
+          className="flex items-center gap-2"
+        >
+          <DollarSign className="h-4 w-4" />
+          Estimates Only
+        </Button>
+      </div>
+
+      <div className={`grid gap-6 ${viewMode === 'both' ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
         {/* Measurement Form */}
-        {showForm && (
+        {(viewMode === 'measurements' || viewMode === 'both') && showForm && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -2833,6 +2924,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         )}
 
         {/* Estimate Summary */}
+        {(viewMode === 'estimates' || viewMode === 'both') && (
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -3484,6 +3576,7 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
               )}
           </CardContent>
         </Card>
+        )}
       </div>
 
       {/* Estimate Builder Modal */}
@@ -3506,12 +3599,31 @@ export function MeasurementInterface({ job, onJobUpdate, onClose }: MeasurementI
         images={jobPhotos.map((photo, index) => ({
           id: `photo-${index}`,
           url: photo,
-          alt: `Job photo ${index + 1}`,
-          caption: `${job.job_name} - Photo ${index + 1}`
+          alt: `Job photo ${index + 1}`
         }))}
         isOpen={galleryOpen}
         onClose={() => setGalleryOpen(false)}
         initialIndex={selectedImageIndex}
+        onDelete={async (imageId) => {
+          const index = parseInt(imageId.replace('photo-', ''))
+          if (!isNaN(index)) {
+            const photoUrl = jobPhotos[index]
+
+            // Find the measurement record for this photo
+            const photoMeasurement = measurements.find(m =>
+              m.room_name.startsWith('Photo:') && m.photo_url === photoUrl
+            )
+
+            if (photoMeasurement) {
+              // Delete the measurement from database
+              await deleteMeasurement(photoMeasurement.id)
+            }
+
+            // Remove from UI state
+            setJobPhotos(prev => prev.filter((_, i) => i !== index))
+            toast.success('Photo deleted')
+          }
+        }}
       />
     </div>
   )

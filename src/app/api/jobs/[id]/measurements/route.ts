@@ -161,14 +161,14 @@ export async function POST(
     // Handle different service types
     switch (job.service_type) {
       case 'insulation':
-        const { 
+        const {
           room_name: insulationRoomName,
           floor_level,
-          area_type, 
+          area_type,
           surface_type,
-          // framing_size, // Property doesn't exist in DB schema
-          height, 
-          width, 
+          framing_size,
+          height,
+          width,
           insulation_type,
           r_value,
           closed_cell_inches,
@@ -178,7 +178,7 @@ export async function POST(
           photo_url,
           // Manager-only overrides
           override_closed_cell_price_per_sqft,
-          override_open_cell_price_per_sqft 
+          override_open_cell_price_per_sqft
         } = body
 
         // Validate insulation fields
@@ -197,7 +197,7 @@ export async function POST(
           floor_level: floor_level || null,
           area_type: area_type || null,
           surface_type,
-          // framing_size, // Property doesn't exist in DB schema
+          framing_size: framing_size || null,
           height: parseFloat(height),
           width: parseFloat(width),
           // square_feet is generated automatically - don't insert it

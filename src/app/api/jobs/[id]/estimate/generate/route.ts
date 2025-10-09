@@ -80,13 +80,15 @@ export async function POST(
 
     let totalAmount = 0
 
-    // Group measurements by insulation type and job framing size
+    // Group measurements by insulation type and framing size
     const groupedMeasurements = measurements.reduce((acc, measurement) => {
-      const key = `${measurement.insulation_type || 'standard'}_${job.structural_framing || '2x4'}`
+      // Use measurement's framing_size if available, fallback to job's structural_framing, then default to '2x6'
+      const framingSize = measurement.framing_size || job.structural_framing || '2x6'
+      const key = `${measurement.insulation_type || 'standard'}_${framingSize}`
       if (!acc[key]) {
         acc[key] = {
           insulation_type: measurement.insulation_type,
-          framing_size: job.structural_framing || '2x4',
+          framing_size: framingSize,
           total_square_feet: 0,
           measurements: []
         }

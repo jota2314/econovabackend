@@ -16,7 +16,7 @@ interface PricingItem {
 // Cache for pricing data to avoid repeated database calls
 let pricingCache: PricingItem[] | null = null
 let cacheTimestamp: number = 0
-const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+const CACHE_DURATION = 60 * 60 * 1000 // 1 hour (pricing rarely changes)
 
 /**
  * Fetch pricing data from database with caching
